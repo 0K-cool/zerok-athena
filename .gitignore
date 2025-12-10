@@ -25,6 +25,10 @@ case-files/
 *-report-*
 *-evidence-*
 
+# Engagement Folders (NEVER COMMIT CLIENT DATA)
+engagements/active/
+engagements/archive/
+
 # Network Captures & Logs
 *.pcap
 *.pcapng

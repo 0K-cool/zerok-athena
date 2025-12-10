@@ -1,0 +1,8 @@
+---
+name: Pentest
+type: professional
+commands: 5
+description: Penetration Testing toolkit (Kali)
+tags: [Kali]
+active: true
+---
