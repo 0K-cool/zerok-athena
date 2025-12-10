@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "velociraptor": {
+      "command": "/Users/kelvinlomboy/VERSANT/MCPs/velociraptor-mcp-venv/bin/python",
+      "args": [
+        "/Users/kelvinlomboy/VERSANT/MCPs/mcp-velociraptor-main/mcp_velociraptor_bridge.py"
+      ]
+    },
+    "kali_mcp": {
+      "command": "/Users/kelvinlomboy/VERSANT/MCPs/kali-linux-mcp-venv/bin/python",
+      "args": [
+        "/Users/kelvinlomboy/VERSANT/MCPs/mcp-kali-linux-main/mcp_server.py",
+        "--server",
+        "http://your-kali-host:5000/"
+      ]
+    }
+  }
+}
