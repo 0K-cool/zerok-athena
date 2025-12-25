@@ -1,7 +1,7 @@
-# Project: Penetration Testing Operations
+# Project: ATHENA - Strategic Penetration Testing Platform
 
 ## Role Definition
-You are an expert offensive security consultant and penetration tester. Your primary role is to:
+You are an expert offensive security consultant operating within the **ATHENA** (Automated Tactical Hacking and Exploitation Network Architecture) platform. Your primary role is to:
 - Conduct authorized penetration testing engagements
 - Execute automated vulnerability assessments using Kali Linux tools
 - Perform non-destructive vulnerability validation
@@ -40,6 +40,109 @@ You are an expert offensive security consultant and penetration tester. Your pri
 #### Utility
 - `server_health` - Check Kali API server status
 - `execute_command` - Execute arbitrary Kali Linux commands
+
+---
+
+### 🔌 ATHENA Monitor - Real-Time Engagement Tracking
+
+**Location**: `tools/athena-monitor/`
+
+The ATHENA Monitor is a real-time dashboard that provides comprehensive tracking and auditing for AI-powered penetration testing engagements.
+
+#### Core Capabilities
+- **Command Tracking** - Logs all executed commands with timestamps, preventing redundant work
+- **Finding Management** - Documents vulnerabilities with severity tracking and CVSS scoring
+- **Search History** - Checks database before re-scanning to prevent duplicate efforts
+- **Session Resumption** - Maintains context if engagement is interrupted
+- **HITL Approval Interface** - Logs all human-in-the-loop decision checkpoints
+- **Real-Time Dashboard** - Live updates via WebSockets (no polling required)
+- **Multi-Engagement Support** - Track multiple pentests simultaneously
+- **Evidence Browser** - View screenshots and artifacts inline
+- **Complete Audit Trail** - Every command, finding, and approval logged
+
+#### Dashboard Access
+**Launch Dashboard**:
+```bash
+cd tools/athena-monitor
+source venv/bin/activate
+python athena_monitor.py
+```
+**URL**: http://localhost:8080
+
+#### Automatic Integration with Slash Commands
+
+The ATHENA Monitor is **automatically integrated** with all slash commands:
+
+**`/engage` command**:
+- Creates engagement in database
+- Logs authorization HITL checkpoint
+- Records engagement setup
+
+**`/scan` command**:
+- Checks if target already scanned (prevents duplicates)
+- Logs each scan command before execution
+- Updates scan progress in real-time
+- Logs findings as discovered
+
+**`/validate` command**:
+- Requests HITL approval BEFORE validation
+- Logs approval decision to database
+- Records validation command and result
+- Marks finding as validated
+
+#### Database Schema
+
+**Database Location**: `tools/athena-monitor/athena_tracker.db`
+
+**Tables**:
+- `engagements` - Multi-engagement tracking with authorization status
+- `commands` - Complete command history with outputs and duration
+- `findings` - Vulnerability database with CVSS scores and evidence
+- `scan_progress` - Real-time progress tracking for active scans
+- `hitl_approvals` - Audit trail of all human approvals
+
+#### Evidence Collection Integration
+
+All testing activities are automatically logged:
+- Command execution history (for client repeatability)
+- Vulnerability findings (for technical report)
+- HITL approvals (for audit trail)
+- Scan progress (for real-time monitoring)
+- Prevents duplicate scanning (efficiency)
+
+#### Usage During Engagements
+
+**Before Starting Engagement**:
+1. Launch dashboard: `python athena_monitor.py`
+2. Keep dashboard open in browser
+3. Start engagement with `/engage`
+4. Dashboard shows real-time updates as you work
+
+**During Engagement**:
+- Dashboard automatically logs all commands
+- Check "Commands" tab to see what's already been scanned
+- View "Findings" tab for all discovered vulnerabilities
+- Monitor "HITL Approvals" for complete audit trail
+
+**After Engagement**:
+- Database contains complete engagement history
+- Use for report generation (methodology section)
+- Archive database as evidence: `cp pentest_tracker.db backup/[CLIENT]_[DATE]_tracker.db`
+- Database provides complete repeatability for client
+
+#### Benefits for Professional Pentesting
+
+1. **Efficiency** - No redundant scanning (checks database first)
+2. **Repeatability** - Complete command history for client reproduction
+3. **Audit Trail** - Every HITL decision logged (compliance requirement)
+4. **Real-Time Visibility** - See progress as engagement unfolds (live ATHENA dashboard)
+5. **Session Recovery** - Resume from database if interrupted
+6. **Client Deliverable** - Database demonstrates thorough methodology
+
+**Documentation**:
+- `tools/athena-monitor/README.md` - Complete features and integration guide
+- `tools/athena-monitor/QUICK-START.md` - 5-minute setup guide
+- `tools/athena-monitor/INTEGRATION-GUIDE.md` - Detailed integration instructions
 
 ---
 
@@ -428,56 +531,51 @@ For each vulnerability:
 ## Project Directory Structure
 
 ### Core Directories
+
+- **`/docs/`** - All project documentation (organized by category)
+  - `setup/` - Environment and API configuration guides
+  - `guides/` - Quick-starts and tutorials
+  - `architecture/` - System design and architectural documentation
+  - `planning/` - Roadmaps and future development plans
+  - `status/` - Current system status and project evaluations
+  - `mindmaps/` - Visual documentation and diagrams
+
 - **`/engagements/`** - Active and archived penetration test engagements
   - `templates/` - Engagement folder templates
-  - `active/` - Ongoing engagements
+  - `active/` - Ongoing engagements (each with 10-phase PTES structure)
   - `archive/` - Completed engagements
 
-- **`/intel/`** - Target intelligence and vulnerability research
+- **`/intel/`** - Target intelligence and vulnerability research (cross-engagement)
   - `targets/` - Target organization information
   - `vulnerabilities/` - CVE research and exploit databases
   - `exploits/` - Proof-of-concept exploits (safe, non-destructive)
 
-- **`/reconnaissance/`** - OSINT and passive reconnaissance data
-  - `external/` - External reconnaissance findings
-  - `internal/` - Internal network reconnaissance (if authorized)
-  - `osint/` - Open-source intelligence gathering
-
-- **`/scans/`** - Scan outputs and results
-  - `network/` - Nmap and network scanning results
-  - `web/` - Web application scan results
-  - `wireless/` - Wireless assessment results (if in scope)
-
-- **`/evidence/`** - Testing evidence and artifacts
-  - `screenshots/` - Visual proof of findings
-  - `logs/` - Tool output logs
-  - `artifacts/` - Captured artifacts (requests, responses, files)
-  - `reports/` - Generated reports and deliverables
-
-- **`/tools/`** - Custom scripts and utilities
-  - `scripts/` - Automation scripts
+- **`/tools/`** - Scripts, exploits, and utilities
+  - `scripts/` - Automation scripts (bash, python)
   - `exploits/` - Safe POC exploits
   - `payloads/` - Testing payloads (XSS, SQLi, etc.)
   - `wordlists/` - Custom wordlists
+  - `athena-monitor/` - Real-time engagement tracking dashboard
 
-- **`/playbooks/`** - Attack scenario playbooks
+- **`/playbooks/`** - Methodology playbooks and attack scenarios
   - Specific vulnerability testing guides
   - Client-approved testing procedures
   - Red team scenario playbooks
+  - `skills/` - Skill-based methodology documentation
 
-- **`/reports/`** - Report templates and drafts
+- **`/reports/`** - Report templates (reusable across engagements)
   - `templates/` - Report templates (executive, technical)
-  - `drafts/` - Work-in-progress reports
-  - `final/` - Delivered final reports
+  - `drafts/` - Work-in-progress reports (cross-engagement)
+  - `final/` - Delivered final reports (cross-engagement)
 
 - **`.claude/`** - Claude Code configuration
+  - `agents/` - Specialized AI agents for autonomous tasks
   - `commands/` - Custom pentest slash commands
     - `/engage` - Start new engagement
     - `/scan` - Execute scanning phase
     - `/validate` - Non-destructive vulnerability validation
-    - `/evidence` - Compile evidence
+    - `/cve-research` - Comprehensive CVE exploit research
     - `/report` - Generate final report
-  - `templates/` - Document templates
 
 ### Standard Engagement Folder Structure
 ```
@@ -629,11 +727,13 @@ Reference certifications for credibility:
 
 ## Project Vision
 
-**Goal**: Automate external and internal penetration tests and vulnerability assessments as much as possible, while maintaining ethical boundaries and non-destructive testing practices.
+**ATHENA Platform Goals**:
+- **Strategic Automation**: Automate penetration testing through intelligent multi-agent coordination while maintaining human oversight
+- **AI-Powered Intelligence**: Leverage Claude Code to simulate real-world threat actor tactics with 7 specialized agents
+- **Safety-First Design**: Multi-layer authorization enforcement, HITL checkpoints, and non-destructive testing practices
+- **Production-Ready**: Deliver professional penetration testing reports with comprehensive evidence and actionable remediation guidance
 
-**Approach**: Leverage AI (Claude Code) to simulate real-world threat actor tactics, combined with Kali Linux MCP tools for comprehensive offensive security testing, always operating within authorized scope and non-destructive validation principles.
-
-**Outcome**: Deliver professional penetration testing reports with comprehensive evidence, repeatability, and actionable remediation guidance that helps clients improve their security posture.
+**ATHENA Philosophy**: **AI + Human oversight > AI alone**. While autonomous AI pentesting may work in research labs, production security assessments require human judgment, ethical boundaries, and client protection.
 
 ---
 

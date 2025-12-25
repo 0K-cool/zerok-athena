@@ -2,6 +2,40 @@
 
 Initialize a new authorized penetration testing engagement for: **$ARGUMENTS**
 
+## 🤖 Multi-Agent Architecture Integration
+
+**This command dispatches the Planning Agent** - A specialized AI agent that handles PTES Phase 1 (Pre-Engagement Interactions).
+
+**What the Planning Agent does:**
+- ✅ Validates authorization documentation
+- ✅ Defines and confirms scope (in-scope vs out-of-scope)
+- ✅ Extracts Rules of Engagement (RoE)
+- ✅ Sets up engagement folder structure
+- ✅ Initializes Pentest Monitor database
+- ✅ Performs pre-flight safety checks
+- ✅ Creates kickoff meeting agenda
+
+**See**: `.claude/agents/planning-agent.md` for complete agent details
+
+## 🔌 Real-Time Monitoring Integration
+
+**IMPORTANT**: This command automatically logs to the Pentest Monitor dashboard for real-time tracking.
+
+**Before executing this command, Claude should:**
+1. Initialize database connection:
+```python
+from athena_monitor import PentestDatabase
+db = PentestDatabase(db_path="/Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor/athena_tracker.db")
+```
+
+2. Log engagement creation after user confirms authorization
+3. Record HITL checkpoint for authorization verification
+4. Track all critical setup activities
+
+**Dashboard access:** http://localhost:8080 (launch via `python athena_monitor.py`)
+
+---
+
 ## Pre-Engagement Requirements
 
 ### 1. Authorization & Legal Compliance
@@ -250,6 +284,46 @@ If testing causes disruption or discovers active compromise:
 - [ ] **Legal review** completed
 - [ ] **Insurance coverage** confirmed
 - [ ] **Kickoff meeting** scheduled with client team
+
+### 6b. Database Logging (Automatic via Pentest Monitor)
+
+**After user confirms authorization, log to database:**
+
+```python
+# Create engagement in database
+engagement_id = db.create_engagement(
+    name=f"{client_name}_{date}_External",  # e.g., "TestCorp_2025-12-16_External"
+    client=client_name,
+    engagement_type="External",  # or Internal, Web App, Red Team
+    scope=scope_definition,
+    authorization_verified=True  # ONLY after user confirmation
+)
+
+# Log HITL checkpoint: Authorization verification
+db.record_hitl_approval(
+    engagement=engagement_name,
+    checkpoint_type="Authorization",
+    description="Pre-engagement authorization verification completed",
+    approved=True,
+    approver="Kelvin",  # or user's name
+    notes="Signed authorization letter confirmed, scope documented"
+)
+
+# Log initial setup command
+db.record_command(
+    engagement=engagement_name,
+    phase="Engagement Setup",
+    command="mkdir -p engagement_folder_structure",
+    tool="setup",
+    target=client_name,
+    output="Engagement folder structure created successfully"
+)
+```
+
+**Dashboard will show:**
+- New engagement in "Active Engagements"
+- Authorization checkpoint logged with timestamp
+- Ready for scanning phase
 
 ### 7. Kali Linux MCP Tool Verification
 Verify available tools for the engagement:

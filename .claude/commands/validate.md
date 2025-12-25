@@ -2,6 +2,85 @@
 
 Non-destructively validate vulnerability: **$ARGUMENTS**
 
+## 🤖 Multi-Agent Architecture Integration
+
+**This command dispatches the Exploitation Agent** (PTES Phase 5) - The most safety-critical agent.
+
+**What the Exploitation Agent does:**
+- ✅ Requests HITL (Human-in-the-Loop) approval BEFORE exploitation
+- ✅ Non-destructive proof-of-concept validation only
+- ✅ Safe exploitation techniques by vulnerability type
+- ✅ Complete evidence collection (before/during/after/cleanup)
+- ✅ Immediate cleanup protocols
+- ✅ Logs all approval decisions to database
+
+**Critical Safety Constraints:**
+- ❌ NO data exfiltration
+- ❌ NO file modification/creation/deletion
+- ❌ NO backdoors or persistence
+- ❌ NO privilege escalation beyond POC
+- ❌ NO destructive commands
+
+**See**: `.claude/agents/exploitation-agent.md` for complete safety protocols
+
+## 🔌 Real-Time Monitoring Integration
+
+**IMPORTANT**: This command logs HITL checkpoints and validation results to the Pentest Monitor dashboard.
+
+**Claude MUST:**
+1. **Request HITL approval BEFORE validation** (NEVER skip):
+```python
+# Use AskUserQuestion to get approval
+approval = AskUserQuestion(
+    questions=[{
+        "question": "Approve validation for [VULNERABILITY]?",
+        "header": "Validation",
+        "options": [
+            {
+                "label": "Approve (Safe method: [DESCRIBE])",
+                "description": "Execute non-destructive validation"
+            },
+            {
+                "label": "Deny",
+                "description": "Skip this validation"
+            }
+        ]
+    }]
+)
+```
+
+2. **Log HITL decision to database**:
+```python
+db.record_hitl_approval(
+    engagement=engagement_name,
+    checkpoint_type="Vulnerability Validation",
+    description=f"Validation approval for: {vulnerability_title}",
+    approved=user_approved,
+    approver="Kelvin",
+    notes=f"Method: {validation_method}"
+)
+```
+
+3. **Log validation command** (only if approved):
+```python
+if user_approved:
+    db.record_command(
+        engagement=engagement_name,
+        phase="Validation",
+        command=validation_command,
+        tool=tool_name,
+        target=target,
+        output=validation_result
+    )
+
+    # Update finding status to validated
+    # (Dashboard will show "Validated ✅" badge)
+```
+
+**Dashboard access:** http://localhost:8080/engagement/{engagement_name} → HITL Approvals tab
+
+---
+
 ## CRITICAL: Non-Destructive Testing Protocol
 
 ### Validation Philosophy
@@ -49,6 +128,18 @@ Non-destructively validate vulnerability: **$ARGUMENTS**
 4. **Evidence storage**: Where should screenshots and proof be saved?
 5. **Risk assessment**: Any concerns about system impact?
 6. **Rollback plan**: Is there a way to undo actions if something goes wrong?
+
+**After receiving user approval, log HITL checkpoint:**
+```python
+db.record_hitl_approval(
+    engagement=engagement_name,
+    checkpoint_type="Vulnerability Validation",
+    description=f"User approved validation: {vulnerability_details}",
+    approved=True,
+    approver="Kelvin",
+    notes=f"Environment: {environment}, Method: {validation_method}, Risk: {risk_level}"
+)
+```
 
 ---
 

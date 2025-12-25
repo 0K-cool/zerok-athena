@@ -2,6 +2,83 @@
 
 Perform comprehensive security scanning for: **$ARGUMENTS**
 
+## 🤖 Multi-Agent Architecture Integration
+
+**This command dispatches multiple specialized agents** for parallel, high-speed scanning:
+
+**Active Reconnaissance Agent** (PTES Phase 2b):
+- DNS enumeration and subdomain discovery
+- Port scanning (Nmap multi-stage approach)
+- Service fingerprinting and version detection
+- Operating system detection
+- Technology stack identification
+
+**Web Vulnerability Scanner Agent** (PTES Phase 4):
+- Technology detection (Traditional vs SPA)
+- Nikto web server vulnerability scanning
+- Gobuster/Dirb directory brute-forcing
+- Playwright deep-dive for modern SPAs
+- OWASP Top 10 coverage
+- WordPress scanning (if detected)
+
+**See**:
+- `.claude/agents/active-recon-agent.md`
+- `.claude/agents/web-vuln-scanner-agent.md`
+
+## 🔌 Real-Time Monitoring Integration
+
+**IMPORTANT**: This command automatically logs all scanning activity to the Pentest Monitor dashboard.
+
+**Claude should:**
+1. **Check for previous scans** before executing (prevent redundant work):
+```python
+previous = db.search_commands(engagement=engagement_name, tool="nmap", target=target)
+if previous:
+    print(f"Target already scanned at {previous[0]['timestamp']}")
+    # Show previous results instead of re-scanning
+```
+
+2. **Log each command** before execution:
+```python
+db.record_command(
+    engagement=engagement_name,
+    phase="Scanning",
+    command=full_command,
+    tool=tool_name,
+    target=target,
+    output=result_summary,
+    duration=execution_time
+)
+```
+
+3. **Update scan progress** for real-time monitoring:
+```python
+db.update_scan_progress(
+    engagement=engagement_name,
+    phase="Network Scanning",
+    target=target,
+    progress=0.50,  # 50% complete
+    scanned_hosts=2,
+    total_hosts=4
+)
+```
+
+4. **Log findings** as they're discovered:
+```python
+db.create_finding(
+    engagement=engagement_name,
+    severity="HIGH",
+    category="Outdated Software",
+    title="OpenSSH 7.4 - Multiple Vulnerabilities",
+    target=f"{target}:22",
+    cvss_score=7.8
+)
+```
+
+**Dashboard access:** http://localhost:8080/engagement/{engagement_name}
+
+---
+
 ## Pre-Scan Verification
 
 ### CRITICAL SAFETY CHECKS
@@ -58,11 +135,34 @@ mcp__kali_mcp__nmap_scan(
 )
 ```
 
+**Database Logging (Before Execution)**:
+```python
+# Check if already scanned
+previous = db.search_commands(
+    engagement=engagement_name,
+    tool="nmap",
+    target="[TARGET_NETWORK]"
+)
+
+if not previous:
+    # Record command
+    db.record_command(
+        engagement=engagement_name,
+        phase="Network Discovery",
+        command="nmap -sn [TARGET_NETWORK]",
+        tool="nmap",
+        target="[TARGET_NETWORK]",
+        output=f"{live_hosts_count} live hosts discovered",
+        duration=scan_duration
+    )
+```
+
 **Evidence Collection**:
 - [ ] Screenshot of command execution
 - [ ] Screenshot of results showing live hosts
 - [ ] Save output to: `$SCAN_DIR/network/nmap-host-discovery.txt`
 - [ ] Document in: `08-evidence/commands-used.md`
+- [ ] **Auto-logged to dashboard** ✅
 
 ---
 

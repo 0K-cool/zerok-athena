@@ -13,6 +13,19 @@
         "--server",
         "http://kali.linux.vkloud.antsle.us:5000/"
       ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--browser",
+        "chromium",
+        "--headless",
+        "--viewport-size",
+        "1920x1080",
+        "--timeout-action",
+        "10000"
+      ]
     }
   }
 }

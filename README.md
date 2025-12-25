@@ -1,15 +1,17 @@
-# Penetration Testing Operations
+# ATHENA - Strategic Penetration Testing Platform
 
 ## Project Overview
 
-This project provides a comprehensive, structured environment for conducting **authorized penetration testing engagements** following industry best practices. The framework emphasizes **non-destructive testing**, **comprehensive evidence collection**, and **professional reporting** to help clients improve their security posture.
+**ATHENA** (Automated Tactical Hacking and Exploitation Network Architecture) is a comprehensive, AI-powered platform for conducting **authorized penetration testing engagements** following industry best practices. The framework emphasizes **multi-agent coordination**, **non-destructive testing**, **comprehensive evidence collection**, and **professional reporting** to help clients improve their security posture.
 
 ### Key Features
 - ✅ **Automated Testing**: Leverage Kali Linux MCP for offensive security tools (Nmap, Gobuster, Nikto, SQLmap, etc.)
 - ✅ **Modern Web App Testing**: Playwright browser automation for SPAs (React, Vue, Angular)
+- ✅ **Real-Time Monitoring**: ATHENA Monitor dashboard tracks all commands, findings, and HITL approvals
 - ✅ **AI-Powered Analysis**: Use Claude Code to simulate threat actor TTPs and analyze findings
 - ✅ **Non-Destructive Validation**: Prove vulnerabilities exist without causing harm
 - ✅ **Evidence Collection**: Screenshot and document every finding for client repeatability
+- ✅ **Complete Audit Trail**: Database logging prevents duplicate scans and enables session recovery
 - ✅ **Professional Reporting**: Generate executive and technical reports following PTES, OWASP, NIST standards
 - ✅ **Compliance-Ready**: Support for PCI DSS, HIPAA, SOC 2, GDPR testing requirements
 
@@ -17,14 +19,14 @@ This project provides a comprehensive, structured environment for conducting **a
 
 ## Project Vision
 
-**Automate external and internal penetration tests** and vulnerability assessments while maintaining ethical boundaries and non-destructive testing practices. Simulate real-world threat actors leveraging AI (inspired by [Anthropic's AI Cyber Defenders](https://www.anthropic.com/research/building-ai-cyber-defenders) and [CrowdStrike's 2025 Threat Hunting Report](https://www.crowdstrike.com/en-us/blog/crowdstrike-2025-threat-hunting-report-ai-weapon-target/)).
+**ATHENA** automates external and internal penetration tests through strategic multi-agent coordination while maintaining ethical boundaries and non-destructive testing practices. Leveraging AI to simulate real-world threat actor tactics (inspired by [Anthropic's AI Cyber Defenders](https://www.anthropic.com/research/building-ai-cyber-defenders) and [CrowdStrike's 2025 Threat Hunting Report](https://www.crowdstrike.com/en-us/blog/crowdstrike-2025-threat-hunting-report-ai-weapon-target/)), ATHENA demonstrates that **AI + Human oversight > AI alone** in professional security assessments.
 
 ---
 
 ## Directory Structure
 
 ```
-Pentest/
+ATHENA/
 ├── engagements/              # Client penetration testing engagements
 │   ├── templates/            # Standardized engagement folder templates
 │   ├── active/               # Ongoing engagements
@@ -57,7 +59,8 @@ Pentest/
 │   ├── scripts/              # Automation scripts
 │   ├── exploits/             # Safe POC exploits
 │   ├── payloads/             # Testing payloads (XSS, SQLi)
-│   └── wordlists/            # Custom wordlists
+│   ├── wordlists/            # Custom wordlists
+│   └── athena-monitor/       # 🔌 Real-time engagement tracking dashboard
 │
 ├── playbooks/                # Attack scenario playbooks
 │   ├── sql-injection-testing.md
@@ -91,8 +94,59 @@ Pentest/
 - **Kali Linux MCP Server**: Running and accessible (test with `mcp__kali_mcp__server_health()`)
 - **Authorization**: Always obtain written authorization before testing
 - **Evidence Storage**: Prepare encrypted external drive or NAS for evidence collection
+- **ATHENA Monitor** (Optional but Recommended): Real-time dashboard for tracking engagement progress
 
-### 2. Starting a New Engagement
+### 2. Launch ATHENA Monitor (Recommended)
+
+**Before starting any engagement**, launch the real-time monitoring dashboard:
+
+```bash
+cd tools/athena-monitor
+source venv/bin/activate
+python athena_monitor.py
+```
+
+**Dashboard URL**: http://localhost:8080
+
+**What it does**:
+- ✅ Tracks all commands executed (prevents redundant scanning)
+- ✅ Logs findings in real-time (auto-updates as vulnerabilities discovered)
+- ✅ Records HITL approval checkpoints (complete audit trail)
+- ✅ Enables session resumption (if engagement interrupted)
+- ✅ Provides complete audit trail for client deliverables
+
+**Keep the dashboard running** in a separate terminal/browser tab throughout your engagement. All slash commands (`/engage`, `/scan`, `/validate`) automatically log to the database.
+
+**Quick Start Guide**: See `tools/athena-monitor/QUICK-START.md` for 5-minute setup.
+
+### 2.5. Configure OSINT APIs (Optional but Recommended)
+
+For enhanced passive reconnaissance capabilities:
+
+```bash
+# 1. Copy the example .env file (if available) or create new
+# See API-KEYS-SETUP.md for obtaining API keys
+
+# 2. Add your API keys to .env file
+# File location: /Users/kelvinlomboy/VERSANT/Projects/Pentest/.env
+
+# 3. Test all APIs
+./osint-api-wrapper.sh test
+```
+
+**Free tier API keys provide**:
+- ✅ Subdomain discovery (Certificate Transparency - no key needed)
+- ✅ Exposed service detection (Shodan - 100 queries/month)
+- ✅ Email harvesting (Hunter.io - 50 searches/month)
+- ✅ Secret scanning (GitHub - 5,000 req/hour)
+- ✅ Threat intelligence (VirusTotal - 4 req/minute)
+- ✅ Internet scanning data (Censys - 250 queries/month)
+
+**Setup guide**: See `API-KEYS-SETUP.md` for detailed instructions.
+
+**Troubleshooting**: If APIs return 401 errors, see `API-KEY-FIX.md` for solutions.
+
+### 3. Starting a New Engagement
 
 #### Using Claude Code Slash Command (Recommended)
 ```
@@ -114,7 +168,7 @@ cp -r engagements/templates/engagement-structure engagements/active/[CLIENT]_YYY
 cp -r engagements/templates/engagement-structure engagements/active/AcmeCorp_2025-01-15_External/
 ```
 
-### 3. Engagement Workflow
+### 4. Engagement Workflow
 
 **Phase 1: Planning (Days 0-1)**
 - [ ] Obtain signed authorization letter
@@ -217,6 +271,42 @@ cp -r engagements/templates/engagement-structure engagements/active/AcmeCorp_202
 #### Utility
 - `server_health()` - Check Kali API status
 - `execute_command()` - Execute arbitrary Kali commands
+
+---
+
+### 🆕 OSINT API Wrapper (Passive Reconnaissance)
+
+**Location**: `osint-api-wrapper.sh`
+
+Reliable wrapper script for passive OSINT API calls with automatic environment variable loading.
+
+#### Supported Services (All Free Tier)
+- **Shodan** - Exposed service discovery (100 queries/month)
+- **Censys v3** - Internet-wide scanning data (250 queries/month)
+- **Hunter.io** - Email address discovery (50 searches/month)
+- **GitHub** - Secret scanning & repository search (5,000 req/hour)
+- **VirusTotal** - Domain/IP intelligence (4 req/minute)
+
+#### Quick Usage
+```bash
+# Test all APIs
+./osint-api-wrapper.sh test
+
+# Shodan searches
+./osint-api-wrapper.sh shodan "org:\"Example Corp\""
+./osint-api-wrapper.sh shodan-host 8.8.8.8
+
+# Email discovery
+./osint-api-wrapper.sh hunter example.com
+
+# GitHub secret scanning
+./osint-api-wrapper.sh github "example.com password"
+
+# Domain intelligence
+./osint-api-wrapper.sh virustotal example.com
+```
+
+**See Also**: `API-KEYS-SETUP.md` for configuration and `API-KEY-FIX.md` for troubleshooting.
 
 ---
 
@@ -497,9 +587,10 @@ This framework is designed for **authorized penetration testing only**. Unauthor
 
 ---
 
-**Project Status**: Production Ready
+**Platform**: ATHENA - Strategic Penetration Testing
+**Status**: Production Ready
 **Version**: 1.0
-**Last Updated**: 2025-10-06
+**Last Updated**: 2025-12-24
 **Maintained By**: VERSANT Security Team
 
 ---
