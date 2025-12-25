@@ -17,7 +17,7 @@
 #
 
 # Configuration
-PENTEST_ROOT="/Users/kelvinlomboy/VERSANT/Projects/Pentest"
+PENTEST_ROOT="/Users/kelvinlomboy/VERSANT/Projects/ATHENA"
 ENV_FILE="$PENTEST_ROOT/.env"
 
 # Colors for output

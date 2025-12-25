@@ -11,8 +11,8 @@ NC='\033[0m' # No Color
 echo -e "${GREEN}Loading Penetration Testing API Keys...${NC}"
 
 # Load environment variables from .env file
-if [ -f "/Users/kelvinlomboy/VERSANT/Projects/Pentest/.env" ]; then
-    source /Users/kelvinlomboy/VERSANT/Projects/Pentest/.env
+if [ -f "/Users/kelvinlomboy/VERSANT/Projects/ATHENA/.env" ]; then
+    source /Users/kelvinlomboy/VERSANT/Projects/ATHENA/.env
     echo -e "${GREEN}✅ API keys loaded from .env file${NC}"
 else
     echo -e "${YELLOW}⚠️  .env file not found!${NC}"
