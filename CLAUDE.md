@@ -92,106 +92,76 @@ ATHENA uses two Kali Linux backends connected via MCP:
 
 ---
 
-### 🔌 ATHENA Monitor - Real-Time Engagement Tracking
+### ATHENA Dashboard - Real-Time Agent Monitoring
 
-**Location**: `tools/athena-monitor/`
+**Location**: `tools/athena-dashboard/`
 
-The ATHENA Monitor is a real-time dashboard that provides comprehensive tracking and auditing for AI-powered penetration testing engagements.
+The ATHENA Dashboard is a real-time operator interface for monitoring AI agent activity during penetration testing engagements. Built with FastAPI + WebSocket for live streaming.
+
+#### Architecture
+```
+Browser <--WebSocket--> FastAPI (server.py) <--Events--> ATHENA Agents (Claude Code)
+```
 
 #### Core Capabilities
-- **Command Tracking** - Logs all executed commands with timestamps, preventing redundant work
-- **Finding Management** - Documents vulnerabilities with severity tracking and CVSS scoring
-- **Search History** - Checks database before re-scanning to prevent duplicate efforts
-- **Session Resumption** - Maintains context if engagement is interrupted
-- **HITL Approval Interface** - Logs all human-in-the-loop decision checkpoints
-- **Real-Time Dashboard** - Live updates via WebSockets (no polling required)
-- **Multi-Engagement Support** - Track multiple pentests simultaneously
-- **Evidence Browser** - View screenshots and artifacts inline
-- **Complete Audit Trail** - Every command, finding, and approval logged
+- **Live Streaming Output** - Watch tool execution in real-time (Naabu, Nuclei, SQLMap output streams as it runs)
+- **Expandable Timeline Cards** - ThinkingCards (THOUGHT/REASONING/ACTION) and ToolExecutionCards (streaming terminal output with blinking cursor)
+- **HITL Approval Workflow** - Modal-based approve/reject for exploitation phases
+- **PTES Phase Badge** - Shows current phase (PLANNING → RECON → VULN ANALYSIS → EXPLOITATION → COMPLETE)
+- **Agent Chip Filtering** - Click agent chips to filter timeline to specific agents
+- **Finding Management** - Vulnerabilities displayed with severity badges inline during scans
+- **Multi-Agent Coordination** - 7 specialized agents (PO, AR, WV, EX, PE, CV, RP) with real-time status
+- **Theme Support** - Default (dark) and Minimal themes
 
 #### Dashboard Access
 **Launch Dashboard**:
 ```bash
-cd tools/athena-monitor
-source venv/bin/activate
-python athena_monitor.py
+cd tools/athena-dashboard
+./start.sh
 ```
 **URL**: http://localhost:8080
 
-#### Automatic Integration with Slash Commands
+#### WebSocket Event Types
 
-The ATHENA Monitor is **automatically integrated** with all slash commands:
+**Server → Client:**
+| Event | Purpose |
+|-------|---------|
+| `agent_thinking` | Agent reasoning (thought/reasoning/action fields) |
+| `tool_start` | Tool execution started (with `tool_id` for streaming) |
+| `tool_output_chunk` | Streaming output chunk for running tool |
+| `tool_complete` | Tool finished (with `tool_id` to close card) |
+| `phase_update` | PTES phase transition |
+| `finding` | New vulnerability discovered |
+| `approval_request` | HITL approval needed |
+| `approval_resolved` | HITL decision made |
+| `agent_status` | Agent state change |
 
-**`/engage` command**:
-- Creates engagement in database
-- Logs authorization HITL checkpoint
-- Records engagement setup
-
-**`/scan` command**:
-- Checks if target already scanned (prevents duplicates)
-- Logs each scan command before execution
-- Updates scan progress in real-time
-- Logs findings as discovered
-
-**`/validate` command**:
-- Requests HITL approval BEFORE validation
-- Logs approval decision to database
-- Records validation command and result
-- Marks finding as validated
-
-#### Database Schema
-
-**Database Location**: `tools/athena-monitor/athena_tracker.db`
-
-**Tables**:
-- `engagements` - Multi-engagement tracking with authorization status
-- `commands` - Complete command history with outputs and duration
-- `findings` - Vulnerability database with CVSS scores and evidence
-- `scan_progress` - Real-time progress tracking for active scans
-- `hitl_approvals` - Audit trail of all human approvals
-
-#### Evidence Collection Integration
-
-All testing activities are automatically logged:
-- Command execution history (for client repeatability)
-- Vulnerability findings (for technical report)
-- HITL approvals (for audit trail)
-- Scan progress (for real-time monitoring)
-- Prevents duplicate scanning (efficiency)
+**Client → Server:**
+| Event | Purpose |
+|-------|---------|
+| `approve` | Approve HITL request |
+| `reject` | Reject HITL request |
+| `start_agent` / `stop_agent` | Agent control |
 
 #### Usage During Engagements
 
-**Before Starting Engagement**:
-1. Launch dashboard: `python athena_monitor.py`
-2. Keep dashboard open in browser
-3. Start engagement with `/engage`
-4. Dashboard shows real-time updates as you work
+**Before Starting**:
+1. Launch: `./start.sh` (auto-creates venv if needed)
+2. Open http://localhost:8080
+3. Open AI Assistant drawer (bottom-right)
+4. Start engagement — agents stream activity in real-time
 
 **During Engagement**:
-- Dashboard automatically logs all commands
-- Check "Commands" tab to see what's already been scanned
-- View "Findings" tab for all discovered vulnerabilities
-- Monitor "HITL Approvals" for complete audit trail
+- Tool cards auto-expand showing live terminal output
+- Thinking cards show agent reasoning (click to expand)
+- Click agent chips to filter timeline per agent
+- HITL approval modals appear for exploitation phases
+- Phase badge tracks PTES progress
 
 **After Engagement**:
-- Database contains complete engagement history
-- Use for report generation (methodology section)
-- Archive database as evidence: `cp athena_tracker.db backup/[CLIENT]_[DATE]_tracker.db`
-- Database provides complete repeatability for client
-
-#### Benefits for Professional Pentesting
-
-1. **Efficiency** - No redundant scanning (checks database first)
-2. **Repeatability** - Complete command history for client reproduction
-3. **Audit Trail** - Every HITL decision logged (compliance requirement)
-4. **Real-Time Visibility** - See progress as engagement unfolds (live ATHENA dashboard)
-5. **Session Recovery** - Resume from database if interrupted
-6. **Client Deliverable** - Database demonstrates thorough methodology
-
-**Documentation**:
-- `tools/athena-monitor/README.md` - Complete features and integration guide
-- `tools/athena-monitor/QUICK-START.md` - 5-minute setup guide
-- `tools/athena-monitor/INTEGRATION-GUIDE.md` - Detailed integration instructions
+- Timeline provides complete visual audit trail
+- Findings tab shows all discovered vulnerabilities with severity
+- Evidence collected during engagement (screenshots, tool output)
 
 ---
 
@@ -616,7 +586,7 @@ For each vulnerability:
   - `exploits/` - Safe POC exploits
   - `payloads/` - Testing payloads (XSS, SQLi, etc.)
   - `wordlists/` - Custom wordlists
-  - `athena-monitor/` - Real-time engagement tracking dashboard
+  - `athena-dashboard/` - Real-time agent monitoring dashboard (FastAPI + WebSocket)
 
 - **`/playbooks/`** - Methodology playbooks and attack scenarios
   - Specific vulnerability testing guides
