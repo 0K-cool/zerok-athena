@@ -1,4 +1,0 @@
-# ATHENA Monitor Requirements
-
-nicegui>=1.4.0
-# Note: sqlite3 is built-in to Python, no installation needed
