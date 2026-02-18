@@ -1,0 +1,3952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>0K ATHENA - Penetration Testing Platform</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Mono:wght@400;700&family=Share+Tech+Mono&family=Orbitron:wght@400;700&family=Audiowide&family=Michroma&family=Oxanium:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    /* ========== THEME: Default (0K) ========== */
+    :root, html[data-theme="default"] {
+      /* Primary colors set by data-accent attribute */
+      --zerok-primary: #c2703c;       /* Fallback */
+      --zerok-primary-hover: #d4844a;
+      --zerok-accent: #d4844a;
+      --zerok-bg: #1e1e1e;            /* Dark charcoal */
+      --zerok-bg-alt: #212121;
+      --zerok-sidebar: #1e1e1e;
+      --zerok-content-bg: #0e0e0e;    /* Dark backdrop behind widgets */
+      --zerok-card: #1e1e1e;
+      --zerok-card-border: none;      /* No border on default theme */
+      --zerok-card-hover: #181818;
+      --zerok-sidebar-hover: #151515; /* Slightly darker on hover */
+      --zerok-sidebar-active: #151515; /* Neutral dark for selection */
+      --zerok-text: #ffffff;
+      --zerok-text-muted: #a0a0a0;
+      --zerok-text-dim: #666666;
+      --zerok-critical: #ef4444;
+      --zerok-high: #f97316;
+      --zerok-medium: #eab308;
+      --zerok-low: #22c55e;
+      --zerok-info: #3b82f6;
+      --zerok-border: #2e2e2e;
+      --zerok-border-hover: #3a3a3a;
+      --zerok-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --zerok-font-mono: 'JetBrains Mono', monospace;
+      --zerok-show-topbar: flex;
+      --zerok-content-padding: 10px;
+    }
+
+    /* ========== THEME: Minimal ========== */
+    html[data-theme="minimal"] {
+      /* Layout-only overrides - accent colors come from data-accent */
+      --zerok-bg: #2a2a2a;            /* Original lighter charcoal */
+      --zerok-bg-alt: #2d2d2d;
+      --zerok-sidebar: #2a2a2a;
+      --zerok-content-bg: #2a2a2a;    /* Same as sidebar - no dark backdrop */
+      --zerok-card: #151515;          /* Darker widgets */
+      --zerok-card-border: 1.5px solid #444444;  /* Grey border */
+      --zerok-card-hover: #1a1a1a;
+      --zerok-sidebar-hover: #252525; /* Darker hover */
+      --zerok-sidebar-active: #222222; /* Darker than sidebar #2a2a2a */
+      --zerok-settings-bg: #222222;   /* Settings section matches selector */
+      --zerok-border: #3a3a3a;
+      --zerok-border-hover: #4a4a4a;
+      --zerok-show-topbar: none;      /* Hide top bar */
+      --zerok-content-padding: 6px;   /* Same as Default for consistent sidebar spacing */
+    }
+
+    /* ========== ACCENT COLORS ========== */
+    /* Note: sidebar-active is neutral gray in both themes */
+    /* Use html[data-accent] for specificity 11 to match html[data-theme] selectors */
+    html[data-accent="orange"] {
+      --zerok-primary: #c2703c;
+      --zerok-primary-hover: #d4844a;
+      --zerok-accent: #d4844a;
+    }
+
+    html[data-accent="red"] {
+      --zerok-primary: #dc2626;
+      --zerok-primary-hover: #ef4444;
+      --zerok-accent: #ef4444;
+    }
+
+    html[data-accent="blue"] {
+      --zerok-primary: #3b82f6;
+      --zerok-primary-hover: #60a5fa;
+      --zerok-accent: #60a5fa;
+    }
+
+    html[data-accent="green"] {
+      --zerok-primary: #22c55e;
+      --zerok-primary-hover: #4ade80;
+      --zerok-accent: #4ade80;
+    }
+
+    html[data-accent="purple"] {
+      --zerok-primary: #8b5cf6;
+      --zerok-primary-hover: #a78bfa;
+      --zerok-accent: #a78bfa;
+    }
+
+    html[data-accent="yellow"] {
+      --zerok-primary: #d4ed6e;
+      --zerok-primary-hover: #e2f392;
+      --zerok-accent: #e2f392;
+      --zerok-primary-text: #1a1a1a;  /* Dark text for yellow backgrounds */
+    }
+
+    /* Yellow accent needs dark text for contrast */
+    html[data-accent="yellow"] .theme-option.active,
+    html[data-accent="yellow"] .card-link,
+    html[data-accent="yellow"] .framework-tab.active,
+    html[data-accent="yellow"] .tactic-header,
+    html[data-accent="yellow"] .widget-action:hover {
+      color: #1a1a1a;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* Global scrollbar styling */
+    * {
+      scrollbar-color: var(--zerok-border) transparent;
+      scrollbar-width: thin;
+    }
+
+    *::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    *::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      background: var(--zerok-border);
+      border-radius: 4px;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+      background: var(--zerok-border-hover);
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      font-family: var(--zerok-font-sans);
+      background: var(--zerok-bg);
+      color: var(--zerok-text);
+      min-height: 100vh;
+    }
+
+    /* Upside-down L Layout: Sidebar full height, content beside it */
+    .dashboard {
+      display: flex;
+      min-height: 100vh;
+      width: 100%;
+    }
+
+    /* Sidebar - Full height, collapsible */
+    .sidebar {
+      width: 220px;
+      min-width: 220px;
+      flex-shrink: 0;
+      background: var(--zerok-sidebar);
+      display: flex;
+      flex-direction: column;
+      transition: width 0.2s ease, min-width 0.2s ease;
+      position: relative;
+      z-index: 10;
+    }
+
+    .sidebar.collapsed {
+      width: 64px;
+      min-width: 64px;
+    }
+
+    .sidebar-header {
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      /* No border - clean header */
+    }
+
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: -2px; /* Lift text to align with chevron center */
+    }
+
+    .sidebar-title {
+      font-size: 18px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .brand-0k {
+      color: var(--zerok-text);
+      font-family: 'Orbitron', var(--zerok-font-mono);
+      font-weight: 700;
+      font-size: 18px;
+    }
+
+    .slashed-zero {
+      position: relative;
+      display: inline-block;
+    }
+
+    .slashed-zero::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 120%;
+      height: 2px;
+      background: var(--zerok-text);
+      transform: translate(-50%, -50%) rotate(-45deg);
+    }
+
+    .brand-name {
+      color: var(--zerok-primary);
+      font-family: var(--zerok-font-sans);
+      font-weight: 600;
+    }
+
+    .sidebar.collapsed .sidebar-title .brand-name,
+    .sidebar.collapsed .nav-label,
+    .sidebar.collapsed .nav-badge,
+    .sidebar.collapsed .sidebar-footer-text {
+      display: none;
+    }
+
+    .collapse-btn {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--zerok-text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .collapse-btn:hover {
+      background: var(--zerok-sidebar-hover);
+      color: var(--zerok-text);
+    }
+
+    .sidebar.collapsed .collapse-btn {
+      transform: rotate(180deg);
+    }
+
+    /* Collapsed sidebar header - center 0K + chevron together */
+    /* Collapsed sidebar header - 0K centered, chevron positioned beside */
+    .sidebar.collapsed .sidebar-header {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 0;
+      position: relative;
+    }
+
+    .sidebar.collapsed .sidebar-brand,
+    .sidebar.collapsed .sidebar-title {
+      display: contents;
+    }
+
+    /* Keep 0K horizontal when collapsed - centered like icons below */
+    .sidebar.collapsed .brand-0k {
+      display: inline;
+      white-space: nowrap;
+      color: var(--zerok-primary); /* Accent color when collapsed */
+      font-size: 18px; /* Same size as expanded */
+    }
+
+    .sidebar.collapsed .slashed-zero::after {
+      background: var(--zerok-primary); /* Match the accent color */
+    }
+
+    /* Chevron positioned absolutely to not affect 0K centering */
+    .sidebar.collapsed .collapse-btn {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%) rotate(180deg);
+      width: 14px;
+      height: 14px;
+      opacity: 0.4;
+      padding: 0;
+    }
+
+    .sidebar.collapsed .collapse-btn:hover {
+      opacity: 1;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 10px 8px 12px;  /* Tighter top to reduce header-nav gap */
+      overflow-y: auto;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      margin-bottom: 2px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--zerok-text-muted);
+      cursor: pointer;
+      font-size: 14px;
+      width: 100%;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+
+    .sidebar.collapsed .nav-item {
+      justify-content: center;
+      padding: 12px;
+    }
+
+    .sidebar.collapsed .nav-item.active {
+      padding-left: 9px; /* 9px + 3px border = 12px total, keeps icon centered */
+    }
+
+    .nav-item:hover {
+      background: var(--zerok-sidebar-hover);
+      color: var(--zerok-text);
+    }
+
+    .nav-item.active {
+      background: var(--zerok-sidebar-active);
+      color: var(--zerok-text);
+      border-left: 3px solid var(--zerok-primary);
+      padding-left: 13px; /* Compensate for border to keep alignment */
+    }
+
+    .nav-icon {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    .nav-badge {
+      margin-left: auto;
+      background: var(--zerok-critical);
+      color: white;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 10px;
+    }
+
+    /* Sidebar Sections (Tools, Resources) */
+    .sidebar-section {
+      position: relative;
+    }
+
+    .sidebar-section::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 12px;
+      right: 12px;
+      height: 1px;
+      background: var(--zerok-border);
+    }
+
+    .sidebar-section-header {
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .sidebar-section-header:hover {
+      background: var(--zerok-sidebar-hover);
+    }
+
+    .sidebar-section-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .sidebar.collapsed .sidebar-section-label {
+      display: none;
+    }
+
+    .sidebar.collapsed .sidebar-section-header {
+      justify-content: center;
+    }
+
+    .section-collapse-btn {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--zerok-text-dim);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .section-collapse-btn:hover {
+      color: var(--zerok-text-muted);
+    }
+
+    .section-collapse-btn.collapsed {
+      transform: rotate(-90deg);
+    }
+
+    .sidebar-section-items {
+      padding: 0 12px 8px;
+      overflow: hidden;
+      transition: all 0.2s ease;
+    }
+
+    .sidebar-section-items.collapsed {
+      height: 0;
+      padding: 0 12px;
+    }
+
+    .sidebar-section-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--zerok-text-dim);
+      cursor: pointer;
+      font-size: 13px;
+      width: 100%;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+
+    .sidebar-section-item:hover {
+      background: var(--zerok-sidebar-hover);
+      color: var(--zerok-text-muted);
+    }
+
+    .sidebar.collapsed .sidebar-section-item {
+      justify-content: center;
+      padding: 10px;
+    }
+
+    .sidebar.collapsed .sidebar-section-text,
+    .sidebar.collapsed .section-badge {
+      display: none;
+    }
+
+    .section-badge {
+      margin-left: auto;
+      background: var(--zerok-critical);
+      color: white;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 10px;
+    }
+
+    /* Main Content Area - fills remaining space dynamically */
+    .main {
+      flex: 1 1 0%;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      width: 0;
+      background: var(--zerok-content-bg);  /* Dark backdrop behind widgets */
+    }
+
+    /* Content Header - same charcoal as sidebar (upside-down L) */
+    .content-header {
+      padding: 6px 24px;
+      display: var(--zerok-show-topbar);  /* Controlled by theme */
+      align-items: center;
+      justify-content: space-between;
+      background: var(--zerok-sidebar);
+    }
+
+    .content-title-section {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .content-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .content-subtitle {
+      font-size: 11px;
+      color: var(--zerok-text-muted);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      border-radius: 6px;
+      background: var(--zerok-card);
+      color: var(--zerok-text-muted);
+      cursor: pointer;
+      position: relative;
+      transition: all 0.15s ease;
+    }
+
+    .icon-btn:hover {
+      background: var(--zerok-card-hover);
+      color: var(--zerok-text);
+    }
+
+    .icon-btn .badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 14px;
+      height: 14px;
+      background: var(--zerok-critical);
+      color: white;
+      font-size: 9px;
+      font-weight: 600;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Content */
+    .content {
+      flex: 1;
+      padding: var(--zerok-content-padding);
+      overflow-y: auto;
+    }
+
+    /* Minimal theme: Uniform frame, left tight to sidebar */
+    [data-theme="minimal"] .content {
+      padding: 12px 12px 12px 6px;  /* top right bottom left */
+    }
+
+    /* Minimal theme: Match widget spacing to frame padding */
+    [data-theme="minimal"] .stat-grid,
+    [data-theme="minimal"] .widget-grid,
+    [data-theme="minimal"] .two-columns {
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    [data-theme="minimal"] .full-width {
+      margin-bottom: 12px;
+    }
+
+    /* Minimal theme: Rounded borders on central widgets */
+    [data-theme="minimal"] .stat-card,
+    [data-theme="minimal"] .widget,
+    [data-theme="minimal"] .framework-matrix {
+      border-radius: 12px;
+    }
+
+    [data-theme="minimal"] .layer-cell {
+      border-radius: 8px;
+    }
+
+    /* Default theme: Wider widget gaps */
+    [data-theme="default"] .stat-grid,
+    [data-theme="default"] .widget-grid,
+    [data-theme="default"] .two-columns {
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    [data-theme="default"] .full-width {
+      margin-bottom: 10px;
+    }
+
+    /* Stat Grid */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .stat-card {
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 0;
+      padding: 14px;
+    }
+
+    .stat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: var(--zerok-text-muted);
+      font-weight: 500;
+    }
+
+    .stat-value-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .stat-change {
+      font-size: 12px;
+      color: var(--zerok-text-dim);
+    }
+
+    .stat-change.positive { color: var(--zerok-low); }
+    .stat-change.negative { color: var(--zerok-critical); }
+
+    .stat-sparkline {
+      width: 60px;
+      height: 24px;
+    }
+
+    /* ==========================================================================
+       WIDGET LAYOUTS - Spacing Convention
+       ==========================================================================
+       All widget container rows MUST use:
+       - gap: 6px (between widgets horizontally)
+       - margin-bottom: 6px (between rows vertically)
+       This ensures consistent spacing throughout the dashboard.
+       ========================================================================== */
+
+    /* Widget Grid - 3 columns */
+    .widget-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .widget {
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 0;
+      overflow: hidden;
+    }
+
+    .widget-header {
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: relative;
+    }
+
+    .widget-header::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 14px;
+      right: 14px;
+      height: 1px;
+      background: var(--zerok-border);
+    }
+
+    .widget-title {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .widget-action {
+      padding: 4px 12px;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid var(--zerok-primary);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--zerok-primary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .widget-action:hover {
+      background: var(--zerok-primary);
+      color: white;
+    }
+
+    .widget-body {
+      padding: 12px;
+    }
+
+    /* Layer Grid */
+    .layer-grid {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 6px;
+    }
+
+    .layer-cell {
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid color-mix(in srgb, var(--zerok-primary) 25%, transparent);
+      border-radius: 0;
+      background: color-mix(in srgb, var(--zerok-primary) 8%, transparent);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .layer-cell:hover {
+      transform: scale(1.08);
+      border-color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+    }
+
+    .layer-cell.disabled {
+      border-color: rgba(102, 102, 102, 0.25);
+      background: rgba(102, 102, 102, 0.08);
+    }
+
+    .layer-id {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--zerok-primary);
+    }
+
+    .layer-cell.disabled .layer-id { color: var(--zerok-text-dim); }
+
+    .layer-blocks {
+      font-size: 8px;
+      color: var(--zerok-critical);
+      margin-top: 1px;
+    }
+
+    /* Event List */
+    .event-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      cursor: pointer;
+      transition: background 0.15s ease;
+      position: relative;
+    }
+
+    .event-row::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 8px;
+      right: 8px;
+      height: 1px;
+      background: var(--zerok-border);
+    }
+
+    .event-row:last-child::after { display: none; }
+
+    .event-row:hover {
+      background: rgba(255,255,255,0.02);
+      margin: 0 -16px;
+      padding-left: 16px;
+      padding-right: 16px;
+    }
+
+    .event-icon { font-size: 12px; }
+
+    .severity-badge {
+      padding: 2px 6px;
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      border-radius: 3px;
+      min-width: 50px;
+      text-align: center;
+    }
+
+    .severity-badge.critical { background: rgba(239, 68, 68, 0.2); color: var(--zerok-critical); }
+    .severity-badge.high { background: rgba(249, 115, 22, 0.2); color: var(--zerok-high); }
+    .severity-badge.medium { background: rgba(234, 179, 8, 0.2); color: var(--zerok-medium); }
+    .severity-badge.low { background: rgba(34, 197, 94, 0.2); color: var(--zerok-low); }
+
+    .event-layer {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--zerok-primary);
+      width: 28px;
+    }
+
+    .event-desc {
+      flex: 1;
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .event-time {
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+      font-family: var(--zerok-font-mono);
+    }
+
+    /* Two column layout - follows spacing convention (see WIDGET LAYOUTS above) */
+    .two-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    /* Full width layout - for large widgets */
+    .full-width {
+      margin-bottom: 6px;
+    }
+
+    /* Framework Coverage Matrix Widget */
+    .framework-matrix {
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 0;  /* Square corners to match matrix style */
+      padding: 16px;
+    }
+
+    .framework-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .framework-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--zerok-bg-alt);
+      padding: 3px;
+      border-radius: 6px;
+    }
+
+    .framework-tab {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--zerok-text-muted);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .framework-tab:hover {
+      color: var(--zerok-text);
+    }
+
+    .framework-tab.active {
+      background: var(--zerok-primary);
+      color: white;
+    }
+
+    .framework-stats {
+      display: flex;
+      gap: 16px;
+      font-size: 11px;
+    }
+
+    .framework-stat {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .framework-stat-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+    }
+
+    .framework-stat-dot.covered { background: var(--zerok-primary); }
+    .framework-stat-dot.partial { background: color-mix(in srgb, var(--zerok-primary) 50%, var(--zerok-border)); }
+    .framework-stat-dot.none { background: var(--zerok-border); }
+
+    /* ATT&CK Navigator Style Matrix */
+    .matrix-container {
+      display: none;
+      overflow-x: auto;
+    }
+
+    .matrix-container.active {
+      display: block;
+    }
+
+    /* Navigator-style table layout */
+    .matrix-table {
+      display: flex;
+      gap: 2px;
+      min-width: max-content;
+    }
+
+    /* Tactic Column */
+    .tactic-column {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 140px;
+      flex: 1;
+    }
+
+    /* Tactic Header */
+    .tactic-header {
+      background: var(--zerok-primary);
+      color: white;
+      padding: 8px 6px;
+      font-size: 10px;
+      font-weight: 600;
+      text-align: center;
+      border-radius: 0;  /* Square corners */
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Technique Cell */
+    .technique-cell {
+      padding: 6px 5px;
+      font-size: 9px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border-radius: 0;  /* Square corners */
+      min-height: 36px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .technique-cell:hover {
+      filter: brightness(1.15);
+    }
+
+    /* Coverage colors - Accent-based theme */
+    .technique-cell.covered {
+      background: color-mix(in srgb, var(--zerok-primary) 35%, var(--zerok-card));
+      border-left: 3px solid var(--zerok-primary);
+    }
+
+    .technique-cell.partial {
+      background: color-mix(in srgb, var(--zerok-primary) 15%, var(--zerok-card));
+      border-left: 3px solid color-mix(in srgb, var(--zerok-primary) 50%, var(--zerok-border));
+    }
+
+    .technique-cell.none {
+      background: var(--zerok-bg-alt);
+      border-left: 3px solid var(--zerok-border);
+      opacity: 0.5;
+    }
+
+    .technique-id {
+      font-weight: 600;
+      color: var(--zerok-text);
+      font-size: 9px;
+    }
+
+    .technique-name {
+      color: var(--zerok-text-muted);
+      font-size: 8px;
+      line-height: 1.2;
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .technique-count {
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--zerok-primary);
+      margin-top: 2px;
+    }
+
+    /* Covered technique shows accent color on count */
+    .technique-cell.covered .technique-count {
+      color: var(--zerok-primary);
+    }
+
+    .technique-cell.partial .technique-count {
+      color: var(--zerok-text-muted);
+    }
+
+    /* Bar chart mock */
+    .bar-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      height: 120px;
+      padding-top: 10px;
+    }
+
+    .bar-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .bar {
+      width: 100%;
+      border-radius: 4px 4px 0 0;
+      transition: all 0.3s ease;
+    }
+
+    .bar:hover { opacity: 0.8; }
+
+    .bar-label {
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+    }
+
+    .bar-value {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--zerok-text-muted);
+    }
+
+    /* Settings Panel */
+    .nav-section {
+      position: relative;
+    }
+
+    .nav-chevron {
+      margin-left: auto;
+      transition: transform 0.2s ease;
+      color: var(--zerok-text-dim);
+    }
+
+    .nav-chevron.expanded {
+      transform: rotate(180deg);
+    }
+
+    .sidebar.collapsed .nav-chevron {
+      display: none;
+    }
+
+    .settings-panel {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.2s ease;
+      padding: 0 8px;
+    }
+
+    .settings-panel.expanded {
+      max-height: 200px;
+    }
+
+    .settings-group {
+      padding: 10px 12px;
+      margin: 4px 0;
+      background: var(--zerok-card);
+      border-radius: 6px;
+    }
+
+    /* Minimal theme: settings background matches selector color */
+    [data-theme="minimal"] .settings-group {
+      background: var(--zerok-settings-bg, #222222);
+    }
+
+    .settings-label {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .theme-options {
+      display: flex;
+      gap: 6px;
+    }
+
+    .theme-option {
+      flex: 1;
+      padding: 6px 8px;
+      border: 1px solid var(--zerok-primary);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--zerok-primary);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: center;
+    }
+
+    .theme-option:hover {
+      border-color: var(--zerok-primary-hover);
+      color: var(--zerok-primary-hover);
+    }
+
+    .theme-option.active {
+      border-color: var(--zerok-primary);
+      background: var(--zerok-primary);
+      color: white;
+    }
+
+    .color-options {
+      display: flex;
+      gap: 6px;
+    }
+
+    .color-option {
+      width: 22px;
+      height: 22px;
+      min-width: 22px;
+      min-height: 22px;
+      flex-shrink: 0;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      background: var(--swatch);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .color-option:hover {
+      transform: scale(1.1);
+    }
+
+    .color-option.active {
+      border-color: var(--zerok-text);
+      box-shadow: 0 0 0 2px var(--zerok-bg);
+    }
+
+    .sidebar.collapsed .settings-panel {
+      display: none;
+    }
+
+    /* User Profile - at bottom of sidebar */
+    .sidebar-user {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .sidebar-user:hover {
+      background: var(--zerok-sidebar-hover);
+    }
+
+    .user-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #141414;  /* Fixed dark circle - visible in both themes */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--zerok-text-muted);
+      flex-shrink: 0;
+    }
+
+    .user-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .user-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--zerok-text);
+    }
+
+    .user-email {
+      font-size: 11px;
+      color: var(--zerok-text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .sidebar.collapsed .user-info {
+      display: none;
+    }
+
+    .sidebar.collapsed .sidebar-user {
+      justify-content: center;
+      padding: 12px 8px;
+    }
+
+    /* ========== AI ASSISTANT DRAWER ========== */
+    .ai-drawer {
+      width: 0;
+      min-width: 0;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      background: var(--zerok-card);
+      border-left: 1px solid transparent;
+      display: flex;
+      flex-direction: column;
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .ai-drawer.open {
+      width: 420px;
+      min-width: 420px;
+      border-left-color: var(--zerok-border);
+    }
+
+    .ai-drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--zerok-border);
+      flex-shrink: 0;
+    }
+
+    .ai-drawer-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--zerok-text);
+    }
+
+    .ai-drawer-title .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--zerok-low);
+      animation: pulse-glow 2s infinite;
+    }
+
+    .ai-drawer-title .pulse-dot.active {
+      background: var(--zerok-primary);
+      animation: pulse-glow-active 1s infinite;
+    }
+
+    .ai-drawer-title .pulse-dot.disconnected {
+      background: var(--zerok-text-dim);
+      animation: none;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    @keyframes pulse-glow-active {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--zerok-primary); }
+      50% { opacity: 0.8; box-shadow: 0 0 8px 2px var(--zerok-primary); }
+    }
+
+    .ai-drawer-close {
+      background: none;
+      border: none;
+      color: var(--zerok-text-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+    }
+
+    .ai-drawer-close:hover {
+      background: var(--zerok-sidebar-hover);
+      color: var(--zerok-text);
+    }
+
+    .ai-drawer-agents {
+      display: flex;
+      gap: 4px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--zerok-border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .agent-chip {
+      font-size: 10px;
+      font-family: var(--zerok-font-mono);
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: var(--zerok-card);
+      color: var(--zerok-text-dim);
+      border: 1px solid var(--zerok-border);
+      transition: all 0.3s;
+    }
+
+    .agent-chip.running {
+      color: var(--zerok-primary);
+      border-color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 10%, transparent);
+    }
+
+    .agent-chip.waiting {
+      color: var(--zerok-medium);
+      border-color: var(--zerok-medium);
+      background: color-mix(in srgb, var(--zerok-medium) 10%, transparent);
+      animation: pulse-glow 1.5s infinite;
+    }
+
+    .agent-chip.completed {
+      color: var(--zerok-low);
+      border-color: var(--zerok-low);
+    }
+
+    .agent-chip.error {
+      color: var(--zerok-critical);
+      border-color: var(--zerok-critical);
+    }
+
+    .ai-drawer-timeline {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .ai-drawer-timeline::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .ai-drawer-timeline::-webkit-scrollbar-thumb {
+      background: var(--zerok-border);
+      border-radius: 4px;
+    }
+
+    .timeline-event {
+      display: flex;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--zerok-border) 50%, transparent);
+      animation: event-slide-in 0.3s ease-out;
+    }
+
+    @keyframes event-slide-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .timeline-event:last-child {
+      border-bottom: none;
+    }
+
+    .timeline-icon {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .timeline-icon.thinking {
+      background: color-mix(in srgb, var(--zerok-info) 15%, transparent);
+      color: var(--zerok-info);
+    }
+
+    .timeline-icon.tool {
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+      color: var(--zerok-primary);
+    }
+
+    .timeline-icon.finding {
+      background: color-mix(in srgb, var(--zerok-critical) 15%, transparent);
+      color: var(--zerok-critical);
+    }
+
+    .timeline-icon.approval {
+      background: color-mix(in srgb, var(--zerok-medium) 15%, transparent);
+      color: var(--zerok-medium);
+    }
+
+    .timeline-icon.complete {
+      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+      color: var(--zerok-low);
+    }
+
+    .timeline-icon.system {
+      background: color-mix(in srgb, var(--zerok-text-dim) 15%, transparent);
+      color: var(--zerok-text-dim);
+    }
+
+    .timeline-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .timeline-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 3px;
+    }
+
+    .timeline-agent {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--zerok-text);
+      font-family: var(--zerok-font-mono);
+    }
+
+    .timeline-type {
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .timeline-time {
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+      margin-left: auto;
+      font-family: var(--zerok-font-mono);
+    }
+
+    .timeline-text {
+      font-size: 12px;
+      color: var(--zerok-text-muted);
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    .timeline-tool-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-family: var(--zerok-font-mono);
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--zerok-primary) 12%, transparent);
+      color: var(--zerok-primary);
+      margin-right: 4px;
+    }
+
+    /* ========== PHASE BADGE ========== */
+    .phase-badge-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 20px;
+      border-bottom: 1px solid var(--zerok-border);
+      flex-shrink: 0;
+    }
+
+    .phase-badge-label {
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .phase-badge {
+      font-size: 10px;
+      font-family: var(--zerok-font-mono);
+      font-weight: 600;
+      padding: 2px 10px;
+      border-radius: 4px;
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+      color: var(--zerok-primary);
+      transition: all 0.3s;
+    }
+
+    .phase-badge.complete {
+      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+      color: var(--zerok-low);
+    }
+
+    /* ========== EXPANDABLE CARDS ========== */
+    .timeline-card {
+      border: 1px solid var(--zerok-border);
+      border-radius: 8px;
+      margin: 4px 0;
+      overflow: hidden;
+      transition: border-color 0.2s;
+      animation: event-slide-in 0.3s ease-out;
+    }
+
+    .timeline-card:hover {
+      border-color: var(--zerok-border-hover);
+    }
+
+    .timeline-card.running {
+      border-color: var(--zerok-primary);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--zerok-primary) 20%, transparent);
+    }
+
+    .timeline-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s;
+    }
+
+    .timeline-card-header:hover {
+      background: color-mix(in srgb, var(--zerok-text) 3%, transparent);
+    }
+
+    .timeline-card-icon {
+      flex-shrink: 0;
+      width: 24px;
+      height: 24px;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+
+    .timeline-card-icon.thinking {
+      background: color-mix(in srgb, var(--zerok-info) 15%, transparent);
+      color: var(--zerok-info);
+    }
+
+    .timeline-card-icon.tool {
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+      color: var(--zerok-primary);
+    }
+
+    .timeline-card-agent {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--zerok-text);
+      font-family: var(--zerok-font-mono);
+    }
+
+    .timeline-card-preview {
+      flex: 1;
+      font-size: 11px;
+      color: var(--zerok-text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .timeline-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .timeline-card-time {
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+      font-family: var(--zerok-font-mono);
+    }
+
+    .timeline-card-chevron {
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+      transition: transform 0.2s;
+    }
+
+    .timeline-card.expanded .timeline-card-chevron {
+      transform: rotate(90deg);
+    }
+
+    .timeline-card-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+    }
+
+    .timeline-card.expanded .timeline-card-body {
+      max-height: 600px;
+    }
+
+    .timeline-card-body-inner {
+      padding: 0 12px 10px;
+    }
+
+    /* ── Thinking Card Body ── */
+    .thinking-section {
+      margin-bottom: 8px;
+    }
+
+    .thinking-section-label {
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 3px;
+    }
+
+    .thinking-section-text {
+      font-size: 11px;
+      color: var(--zerok-text-muted);
+      line-height: 1.5;
+    }
+
+    .thinking-action-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-family: var(--zerok-font-mono);
+      padding: 1px 8px;
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--zerok-info) 12%, transparent);
+      color: var(--zerok-info);
+    }
+
+    /* ── Tool Card Body ── */
+    .tool-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-family: var(--zerok-font-mono);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .tool-status-badge.running {
+      background: color-mix(in srgb, var(--zerok-primary) 12%, transparent);
+      color: var(--zerok-primary);
+    }
+
+    .tool-status-badge.done {
+      background: color-mix(in srgb, var(--zerok-low) 12%, transparent);
+      color: var(--zerok-low);
+    }
+
+    .tool-name-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-family: var(--zerok-font-mono);
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--zerok-primary) 12%, transparent);
+      color: var(--zerok-primary);
+      margin-left: 4px;
+    }
+
+    .tool-args-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 2px 8px;
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+
+    .tool-args-key {
+      color: var(--zerok-text-dim);
+      font-family: var(--zerok-font-mono);
+    }
+
+    .tool-args-val {
+      color: var(--zerok-text-muted);
+    }
+
+    .tool-output-block {
+      background: #0d0d0d;
+      border: 1px solid var(--zerok-border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-family: var(--zerok-font-mono);
+      font-size: 11px;
+      line-height: 1.5;
+      color: var(--zerok-low);
+      max-height: 280px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    html[data-theme="minimal"] .tool-output-block {
+      background: #0a0a0a;
+    }
+
+    .tool-output-block::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .tool-output-block::-webkit-scrollbar-thumb {
+      background: var(--zerok-border);
+      border-radius: 4px;
+    }
+
+    /* Blinking cursor */
+    .streaming-cursor {
+      display: inline-block;
+      width: 7px;
+      height: 14px;
+      background: var(--zerok-low);
+      animation: cursor-blink 0.8s step-end infinite;
+      vertical-align: text-bottom;
+      margin-left: 1px;
+    }
+
+    @keyframes cursor-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    /* Progress bar */
+    .tool-progress-bar {
+      height: 2px;
+      background: var(--zerok-border);
+      border-radius: 1px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+
+    .tool-progress-fill {
+      height: 100%;
+      background: var(--zerok-primary);
+      border-radius: 1px;
+      transition: width 0.3s;
+    }
+
+    .tool-progress-fill.running {
+      width: 60%;
+      animation: progress-indeterminate 2s ease-in-out infinite;
+    }
+
+    .tool-progress-fill.done {
+      width: 100%;
+      background: var(--zerok-low);
+      animation: none;
+    }
+
+    @keyframes progress-indeterminate {
+      0% { width: 10%; margin-left: 0; }
+      50% { width: 60%; margin-left: 20%; }
+      100% { width: 10%; margin-left: 90%; }
+    }
+
+    /* Tool timer */
+    .tool-timer {
+      font-size: 10px;
+      font-family: var(--zerok-font-mono);
+      color: var(--zerok-text-dim);
+    }
+
+    .tool-timer.running {
+      color: var(--zerok-primary);
+    }
+
+    .tool-timer.done {
+      color: var(--zerok-low);
+    }
+
+    /* ── Clickable Agent Chips (Filter) ── */
+    .agent-chip {
+      cursor: pointer;
+      position: relative;
+    }
+
+    .agent-chip.filter-active {
+      background: color-mix(in srgb, var(--zerok-primary) 25%, transparent);
+      color: var(--zerok-primary);
+      border-color: var(--zerok-primary);
+      font-weight: 600;
+    }
+
+    .chip-event-count {
+      display: none;
+      font-size: 8px;
+      font-weight: 700;
+      min-width: 12px;
+      height: 12px;
+      line-height: 12px;
+      text-align: center;
+      border-radius: 6px;
+      background: var(--zerok-text-dim);
+      color: var(--zerok-bg);
+      margin-left: 3px;
+      padding: 0 3px;
+    }
+
+    .chip-event-count.visible {
+      display: inline-block;
+    }
+
+    .agent-chip.running .chip-event-count {
+      background: var(--zerok-primary);
+    }
+
+    .agent-chip.completed .chip-event-count {
+      background: var(--zerok-low);
+    }
+
+    /* ── Card visibility for filtering ── */
+    .timeline-card.filtered-out,
+    .timeline-event.filtered-out {
+      display: none !important;
+    }
+
+    .ai-drawer-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--zerok-text-dim);
+      gap: 12px;
+      padding: 40px;
+    }
+
+    .ai-drawer-empty svg {
+      opacity: 0.3;
+    }
+
+    .ai-drawer-empty p {
+      font-size: 13px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .ai-drawer-footer {
+      padding: 12px 20px;
+      border-top: 1px solid var(--zerok-border);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .ai-drawer-footer .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--zerok-text-dim);
+    }
+
+    .ai-drawer-footer .connection-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--zerok-text-dim);
+    }
+
+    .ai-drawer-footer .connection-dot.connected {
+      background: var(--zerok-low);
+    }
+
+    .ai-drawer-footer .demo-btn {
+      font-size: 11px;
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--zerok-border);
+      background: var(--zerok-card);
+      color: var(--zerok-text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .ai-drawer-footer .demo-btn:hover {
+      border-color: var(--zerok-primary);
+      color: var(--zerok-primary);
+    }
+
+    .ai-drawer-footer .demo-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* ========== AI TOGGLE BUTTON ========== */
+    .ai-toggle-btn {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: var(--zerok-primary);
+      color: var(--zerok-primary-text, #fff);
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 999;
+      transition: all 0.2s;
+    }
+
+    .ai-toggle-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    }
+
+    .ai-toggle-btn .notification-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--zerok-critical);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .ai-toggle-btn .notification-badge.visible {
+      display: flex;
+    }
+
+    .ai-drawer.open ~ .ai-toggle-btn {
+      display: none;
+    }
+
+    /* ========== HITL APPROVAL MODAL ========== */
+    .hitl-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      z-index: 2000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      animation: overlay-fade-in 0.2s ease-out;
+    }
+
+    .hitl-overlay.visible {
+      display: flex;
+    }
+
+    @keyframes overlay-fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .hitl-modal {
+      background: var(--zerok-bg);
+      border: 1px solid var(--zerok-border);
+      border-radius: 16px;
+      width: 480px;
+      max-width: 90vw;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      animation: modal-slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @keyframes modal-slide-up {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hitl-modal-header {
+      padding: 24px 24px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+
+    .hitl-modal-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--zerok-medium) 15%, transparent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .hitl-modal-icon svg {
+      color: var(--zerok-medium);
+    }
+
+    .hitl-modal-header-text h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--zerok-text);
+      margin: 0 0 4px;
+    }
+
+    .hitl-modal-header-text .hitl-agent {
+      font-size: 12px;
+      color: var(--zerok-text-muted);
+      font-family: var(--zerok-font-mono);
+    }
+
+    .hitl-modal-body {
+      padding: 20px 24px;
+    }
+
+    .hitl-field {
+      margin-bottom: 14px;
+    }
+
+    .hitl-field-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .hitl-field-value {
+      font-size: 13px;
+      color: var(--zerok-text);
+      line-height: 1.5;
+    }
+
+    .hitl-risk-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 3px 10px;
+      border-radius: 4px;
+    }
+
+    .hitl-risk-badge.critical {
+      background: color-mix(in srgb, var(--zerok-critical) 15%, transparent);
+      color: var(--zerok-critical);
+    }
+
+    .hitl-risk-badge.high {
+      background: color-mix(in srgb, var(--zerok-high) 15%, transparent);
+      color: var(--zerok-high);
+    }
+
+    .hitl-risk-badge.medium {
+      background: color-mix(in srgb, var(--zerok-medium) 15%, transparent);
+      color: var(--zerok-medium);
+    }
+
+    .hitl-risk-badge.low {
+      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+      color: var(--zerok-low);
+    }
+
+    .hitl-timer {
+      font-size: 11px;
+      font-family: var(--zerok-font-mono);
+      color: var(--zerok-text-dim);
+      margin-top: 4px;
+    }
+
+    .hitl-modal-actions {
+      padding: 0 24px 24px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .hitl-btn {
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 24px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .hitl-btn-reject {
+      background: var(--zerok-card);
+      color: var(--zerok-text-muted);
+      border: 1px solid var(--zerok-border);
+    }
+
+    .hitl-btn-reject:hover {
+      background: color-mix(in srgb, var(--zerok-critical) 15%, transparent);
+      color: var(--zerok-critical);
+      border-color: var(--zerok-critical);
+    }
+
+    .hitl-btn-approve {
+      background: var(--zerok-primary);
+      color: var(--zerok-primary-text, #fff);
+    }
+
+    .hitl-btn-approve:hover {
+      filter: brightness(1.15);
+    }
+
+    /* ========== TOAST NOTIFICATIONS ========== */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 3000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: var(--zerok-bg);
+      border: 1px solid var(--zerok-border);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      animation: toast-in 0.3s ease-out;
+      min-width: 280px;
+      max-width: 400px;
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateX(40px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .toast.removing {
+      animation: toast-out 0.3s ease-in forwards;
+    }
+
+    @keyframes toast-out {
+      to { opacity: 0; transform: translateX(40px); }
+    }
+
+    .toast-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 12px;
+    }
+
+    .toast-icon.finding { background: color-mix(in srgb, var(--zerok-critical) 15%, transparent); color: var(--zerok-critical); }
+    .toast-icon.success { background: color-mix(in srgb, var(--zerok-low) 15%, transparent); color: var(--zerok-low); }
+    .toast-icon.warning { background: color-mix(in srgb, var(--zerok-medium) 15%, transparent); color: var(--zerok-medium); }
+
+    .toast-text {
+      font-size: 12px;
+      color: var(--zerok-text);
+      line-height: 1.4;
+    }
+
+    .toast-text strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .toast-text span {
+      color: var(--zerok-text-muted);
+    }
+
+    /* ========== RESPONSIVE: AI DRAWER ========== */
+    @media (max-width: 768px) {
+      .ai-drawer.open {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 100vw;
+        min-width: 100vw;
+        z-index: 1000;
+        box-shadow: -4px 0 24px rgba(0,0,0,0.3);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard">
+    <!-- Sidebar - Full height, collapsible -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-brand">
+          <span class="sidebar-title">
+            <span class="brand-0k"><span class="slashed-zero">0</span>K</span>
+            <span class="brand-name">ATHENA</span>
+          </span>
+        </div>
+        <button class="collapse-btn" onclick="toggleSidebar()">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 4L6 8l4 4"/>
+          </svg>
+        </button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active">
+          <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="5" height="5" rx="1"/>
+            <rect x="11" y="2" width="5" height="5" rx="1"/>
+            <rect x="2" y="11" width="5" height="5" rx="1"/>
+            <rect x="11" y="11" width="5" height="5" rx="1"/>
+          </svg>
+          <span class="nav-label">Dashboard</span>
+        </button>
+        <button class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M4 3h10a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1zM7 7h4M7 11h4"/>
+          </svg>
+          <span class="nav-label">Engagements</span>
+          <span class="nav-badge">3</span>
+        </button>
+        <button class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="9" cy="9" r="6"/>
+            <path d="M12 12l4 4"/>
+          </svg>
+          <span class="nav-label">Scans</span>
+        </button>
+        <button class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M9 2l1.5 5H16l-4 3 1.5 5L9 12l-4.5 3 1.5-5-4-3h5.5z"/>
+          </svg>
+          <span class="nav-label">Findings</span>
+          <span class="nav-badge">47</span>
+        </button>
+        <button class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="6" cy="6" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="12" cy="12" r="2"/>
+            <path d="M8 6h2M6 8v2M12 8v2M8 12h2"/>
+          </svg>
+          <span class="nav-label">Attack Graph</span>
+        </button>
+        <button class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 6h12M3 12h12M6 3v12M12 3v12"/>
+          </svg>
+          <span class="nav-label">Reports</span>
+        </button>
+        <div class="nav-section">
+          <button class="nav-item" onclick="toggleSettings()">
+            <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="9" cy="9" r="2.5"/>
+              <path d="M9 2v2M9 14v2M2 9h2M14 9h2M4 4l1.5 1.5M12.5 12.5L14 14M4 14l1.5-1.5M12.5 5.5L14 4"/>
+            </svg>
+            <span class="nav-label">Settings</span>
+            <svg class="nav-chevron" id="settingsChevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 6l4 4 4-4"/>
+            </svg>
+          </button>
+          <div class="settings-panel" id="settingsPanel">
+            <div class="settings-group">
+              <span class="settings-label">Theme</span>
+              <div class="theme-options">
+                <button class="theme-option active" data-theme="default" onclick="setTheme('default')">Default</button>
+                <button class="theme-option" data-theme="minimal" onclick="setTheme('minimal')">Minimal</button>
+              </div>
+            </div>
+            <div class="settings-group">
+              <span class="settings-label">Accent</span>
+              <div class="color-options">
+                <button class="color-option" data-color="orange" onclick="setAccent('orange')" style="--swatch: #c2703c;" title="0K Orange"></button>
+                <button class="color-option active" data-color="red" onclick="setAccent('red')" style="--swatch: #dc2626;" title="ATHENA Red"></button>
+                <button class="color-option" data-color="blue" onclick="setAccent('blue')" style="--swatch: #3b82f6;" title="Blue"></button>
+                <button class="color-option" data-color="green" onclick="setAccent('green')" style="--swatch: #22c55e;" title="Green"></button>
+                <button class="color-option" data-color="purple" onclick="setAccent('purple')" style="--swatch: #8b5cf6;" title="Purple"></button>
+                <button class="color-option" data-color="yellow" onclick="setAccent('yellow')" style="--swatch: #d4ed6e;" title="Yellow"></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Tools Section -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-header" onclick="toggleSection('tools')">
+          <span class="sidebar-section-label">Backends</span>
+          <button class="section-collapse-btn collapsed" id="toolsCollapseBtn">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 6l4 4 4-4"/>
+            </svg>
+          </button>
+        </div>
+        <div class="sidebar-section-items collapsed" id="toolsItems">
+          <button class="sidebar-section-item">
+            <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="3" width="12" height="12" rx="2"/>
+              <path d="M7 7h4M7 11h4"/>
+            </svg>
+            <span class="sidebar-section-text">Kali Internal</span>
+            <span class="section-badge" style="background: var(--zerok-low);">21</span>
+          </button>
+          <button class="sidebar-section-item">
+            <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2 9a7 7 0 1114 0M9 2v2M3.5 4.5l1 1M14.5 4.5l-1 1"/>
+            </svg>
+            <span class="sidebar-section-text">Kali External</span>
+            <span class="section-badge" style="background: var(--zerok-low);">13</span>
+          </button>
+          <button class="sidebar-section-item" onclick="window.open('http://localhost:7474', '_blank')">
+            <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="9" cy="9" r="3"/><circle cx="4" cy="4" r="1.5"/><circle cx="14" cy="4" r="1.5"/><circle cx="4" cy="14" r="1.5"/><circle cx="14" cy="14" r="1.5"/>
+              <path d="M6.5 6.5L5 5M11.5 6.5L13 5M6.5 11.5L5 13M11.5 11.5L13 13"/>
+            </svg>
+            <span class="sidebar-section-text">Neo4j Browser</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Resources Section -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-header" onclick="toggleSection('resources')">
+          <span class="sidebar-section-label">Resources</span>
+          <button class="section-collapse-btn collapsed" id="resourcesCollapseBtn">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 6l4 4 4-4"/>
+            </svg>
+          </button>
+        </div>
+        <div class="sidebar-section-items collapsed" id="resourcesItems">
+          <button class="sidebar-section-item">
+            <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="9" cy="9" r="7"/>
+              <path d="M9 6v3M9 12h.01"/>
+            </svg>
+            <span class="sidebar-section-text">PTES Reference</span>
+          </button>
+          <button class="sidebar-section-item">
+            <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M3 3v12h12"/>
+              <path d="M7 10l2-3 2 2 3-4"/>
+            </svg>
+            <span class="sidebar-section-text">OWASP Top 10</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- User Profile (at bottom of sidebar) -->
+      <div class="sidebar-user">
+        <div class="user-avatar">
+          <svg width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="9" cy="5" r="3"/>
+            <path d="M3 16c0-3 3-5 6-5s6 2 6 5"/>
+          </svg>
+        </div>
+        <div class="user-info">
+          <span class="user-name">Pentester</span>
+          <span class="user-email">operator@athena.local</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="main">
+      <!-- Content Header -->
+      <div class="content-header">
+        <div class="content-title-section">
+          <h1 class="content-title">Penetration Testing Dashboard</h1>
+          <p class="content-subtitle">PTES Methodology • 9 AI Agents • Dual-Backend Architecture</p>
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="8" cy="8" r="5"/>
+              <path d="M12 12l4 4"/>
+            </svg>
+          </button>
+          <button class="icon-btn">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M9 2a5 5 0 015 5v2.5l1.5 1.5H2.5L4 9.5V7a5 5 0 015-5zM7.5 14a1.5 1.5 0 003 0"/>
+            </svg>
+            <span class="badge">3</span>
+          </button>
+          <button class="icon-btn">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="9" cy="5" r="3"/>
+              <path d="M3 16c0-3 3-5 6-5s6 2 6 5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Dashboard Content -->
+      <main class="content">
+        <!-- Stats Row -->
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Active Engagements</span>
+              <svg class="stat-sparkline" viewBox="0 0 60 24">
+                <path d="M0 20 L10 15 L20 18 L30 10 L40 12 L50 5 L60 8" fill="none" stroke="var(--zerok-primary)" stroke-width="2"/>
+              </svg>
+            </div>
+            <div class="stat-value-row">
+              <span class="stat-value">3</span>
+              <span class="stat-change positive">In Progress</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Total Findings</span>
+              <svg class="stat-sparkline" viewBox="0 0 60 24">
+                <path d="M0 12 L10 10 L20 15 L30 8 L40 12 L50 6 L60 10" fill="none" stroke="var(--zerok-critical)" stroke-width="2"/>
+              </svg>
+            </div>
+            <div class="stat-value-row">
+              <span class="stat-value" style="color: var(--zerok-critical);">47</span>
+              <span class="stat-change negative">+12 this week</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Hosts Discovered</span>
+            </div>
+            <div class="stat-value-row">
+              <span class="stat-value" style="color: var(--zerok-primary);">156</span>
+              <span style="font-size: 16px; color: var(--zerok-text-dim);">hosts</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Critical CVEs</span>
+              <svg class="stat-sparkline" viewBox="0 0 60 24">
+                <path d="M0 18 L10 16 L20 20 L30 14 L40 16 L50 10 L60 12" fill="none" stroke="var(--zerok-high)" stroke-width="2"/>
+              </svg>
+            </div>
+            <div class="stat-value-row">
+              <span class="stat-value" style="color: var(--zerok-high);">8</span>
+              <span class="stat-change negative">+3 exploitable</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Widget Row 1 -->
+        <div class="widget-grid">
+          <!-- Agent Status -->
+          <div class="widget">
+            <div class="widget-header">
+              <span class="widget-title">AI Agent Status</span>
+              <button class="widget-action">See All</button>
+            </div>
+            <div class="widget-body">
+              <div class="layer-grid">
+                <div class="layer-cell"><span class="layer-id">PL</span><span class="layer-blocks" title="Planning">Ready</span></div>
+                <div class="layer-cell"><span class="layer-id">OR</span><span class="layer-blocks" title="Orchestrator">Active</span></div>
+                <div class="layer-cell"><span class="layer-id">PO</span><span class="layer-blocks" title="Passive OSINT">Done</span></div>
+                <div class="layer-cell"><span class="layer-id">AR</span><span class="layer-blocks" title="Active Recon">Running</span></div>
+                <div class="layer-cell"><span class="layer-id">CV</span><span class="layer-blocks" title="CVE Researcher">3</span></div>
+                <div class="layer-cell"><span class="layer-id">WV</span><span class="layer-blocks" title="Web Vuln Scanner">Running</span></div>
+                <div class="layer-cell disabled"><span class="layer-id">EX</span><span class="layer-blocks" title="Exploitation">HITL</span></div>
+                <div class="layer-cell disabled"><span class="layer-id">PE</span><span class="layer-blocks" title="Post-Exploitation">Sim</span></div>
+                <div class="layer-cell"><span class="layer-id">RP</span><span class="layer-blocks" title="Reporting">Idle</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Finding Severity -->
+          <div class="widget">
+            <div class="widget-header">
+              <span class="widget-title">Findings by Severity</span>
+            </div>
+            <div class="widget-body">
+              <div class="bar-chart">
+                <div class="bar-item">
+                  <span class="bar-value">8</span>
+                  <div class="bar" style="height: 100%; background: var(--zerok-critical);"></div>
+                  <span class="bar-label">Critical</span>
+                </div>
+                <div class="bar-item">
+                  <span class="bar-value">14</span>
+                  <div class="bar" style="height: 85%; background: var(--zerok-high);"></div>
+                  <span class="bar-label">High</span>
+                </div>
+                <div class="bar-item">
+                  <span class="bar-value">15</span>
+                  <div class="bar" style="height: 70%; background: var(--zerok-medium);"></div>
+                  <span class="bar-label">Medium</span>
+                </div>
+                <div class="bar-item">
+                  <span class="bar-value">7</span>
+                  <div class="bar" style="height: 40%; background: var(--zerok-low);"></div>
+                  <span class="bar-label">Low</span>
+                </div>
+                <div class="bar-item">
+                  <span class="bar-value">3</span>
+                  <div class="bar" style="height: 20%; background: var(--zerok-info);"></div>
+                  <span class="bar-label">Info</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Scan Coverage -->
+          <div class="widget">
+            <div class="widget-header">
+              <span class="widget-title">Scan Coverage</span>
+            </div>
+            <div class="widget-body" style="display: flex; align-items: center; justify-content: center; min-height: 120px;">
+              <div style="position: relative; width: 100px; height: 100px;">
+                <svg viewBox="0 0 100 100" style="transform: rotate(-90deg);">
+                  <circle cx="50" cy="50" r="40" fill="none" stroke="var(--zerok-border)" stroke-width="8"/>
+                  <circle cx="50" cy="50" r="40" fill="none" stroke="var(--zerok-primary)" stroke-width="8"
+                    stroke-dasharray="226" stroke-dashoffset="45" stroke-linecap="round"/>
+                </svg>
+                <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                  <span style="font-size: 24px; font-weight: 700;">90%</span>
+                  <span style="font-size: 10px; color: var(--zerok-text-dim);">Coverage</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Widget Row 2 -->
+        <div class="two-columns">
+          <!-- Recent Findings -->
+          <div class="widget">
+            <div class="widget-header">
+              <span class="widget-title">Recent Findings</span>
+              <button class="widget-action">See All</button>
+            </div>
+            <div class="widget-body">
+              <div class="event-row">
+                <span class="event-icon">🛑</span>
+                <span class="severity-badge critical">CRIT</span>
+                <span class="event-layer">CVE</span>
+                <span class="event-desc">SQL Injection — admin login bypass</span>
+                <span class="event-time">14:22</span>
+              </div>
+              <div class="event-row">
+                <span class="event-icon">🛑</span>
+                <span class="severity-badge critical">CRIT</span>
+                <span class="event-layer">CVE</span>
+                <span class="event-desc">RCE via unrestricted file upload</span>
+                <span class="event-time">14:18</span>
+              </div>
+              <div class="event-row">
+                <span class="event-icon">⚠️</span>
+                <span class="severity-badge high">HIGH</span>
+                <span class="event-layer">OWASP</span>
+                <span class="event-desc">Stored XSS in comment field</span>
+                <span class="event-time">13:55</span>
+              </div>
+              <div class="event-row">
+                <span class="event-icon">⚠️</span>
+                <span class="severity-badge medium">MED</span>
+                <span class="event-layer">CONFIG</span>
+                <span class="event-desc">Missing CSRF tokens on forms</span>
+                <span class="event-time">13:40</span>
+              </div>
+              <div class="event-row">
+                <span class="event-icon">📝</span>
+                <span class="severity-badge low">LOW</span>
+                <span class="event-layer">INFO</span>
+                <span class="event-desc">Server version disclosed in headers</span>
+                <span class="event-time">13:32</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Top Vulnerabilities -->
+          <div class="widget">
+            <div class="widget-header">
+              <span class="widget-title">Top Vulnerability Categories</span>
+              <span style="font-size: 11px; color: var(--zerok-text-dim);">All Engagements</span>
+            </div>
+            <div class="widget-body">
+              <div class="event-row">
+                <span class="event-layer">A03</span>
+                <span class="event-desc">Injection (SQLi, Command, LDAP)</span>
+                <span style="color: var(--zerok-critical); font-weight: 600; font-size: 13px;">12</span>
+              </div>
+              <div class="event-row">
+                <span class="event-layer">A01</span>
+                <span class="event-desc">Broken Access Control (IDOR, Privesc)</span>
+                <span style="color: var(--zerok-critical); font-weight: 600; font-size: 13px;">9</span>
+              </div>
+              <div class="event-row">
+                <span class="event-layer">A05</span>
+                <span class="event-desc">Security Misconfiguration</span>
+                <span style="color: var(--zerok-high); font-weight: 600; font-size: 13px;">8</span>
+              </div>
+              <div class="event-row">
+                <span class="event-layer">A07</span>
+                <span class="event-desc">Auth Failures (Weak passwords, No MFA)</span>
+                <span style="color: var(--zerok-high); font-weight: 600; font-size: 13px;">6</span>
+              </div>
+              <div class="event-row">
+                <span class="event-layer">A06</span>
+                <span class="event-desc">Vulnerable & Outdated Components</span>
+                <span style="color: var(--zerok-medium); font-weight: 600; font-size: 13px;">5</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced Charts Row -->
+        <div class="widget-grid">
+          <!-- Area Chart with Gradient -->
+          <div class="widget">
+            <div class="widget-header">
+              <span class="widget-title">Findings Over Time</span>
+              <span style="font-size: 11px; color: var(--zerok-text-dim);">Last 30 days</span>
+            </div>
+            <div class="widget-body">
+              <canvas id="areaChart" height="140"></canvas>
+            </div>
+          </div>
+
+          <!-- Radar/Spider Chart -->
+          <div class="widget">
+            <div class="widget-header">
+              <span class="widget-title">Attack Surface Coverage</span>
+            </div>
+            <div class="widget-body" style="display: flex; justify-content: center;">
+              <canvas id="radarChart" height="160" width="200"></canvas>
+            </div>
+          </div>
+
+          <!-- Donut Chart -->
+          <div class="widget">
+            <div class="widget-header">
+              <span class="widget-title">Finding Status</span>
+            </div>
+            <div class="widget-body" style="display: flex; justify-content: center; align-items: center;">
+              <div style="position: relative; width: 140px; height: 140px;">
+                <canvas id="donutChart"></canvas>
+                <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
+                  <span style="font-size: 20px; font-weight: 700;">156</span>
+                  <span style="font-size: 10px; color: var(--zerok-text-dim);">Total</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Framework Coverage Matrix -->
+        <div class="full-width">
+          <div class="framework-matrix">
+            <div class="framework-header">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="widget-title">Methodology Coverage</span>
+                <div class="framework-tabs">
+                  <button class="framework-tab active" onclick="switchFramework('atlas')">PTES Phases</button>
+                  <button class="framework-tab" onclick="switchFramework('owasp-llm')">OWASP Top 10</button>
+                  <button class="framework-tab" onclick="switchFramework('owasp-agentic')">Tool Matrix</button>
+                </div>
+              </div>
+              <div class="framework-stats">
+                <div class="framework-stat">
+                  <span class="framework-stat-dot covered"></span>
+                  <span style="color: var(--zerok-text-muted);">Covered</span>
+                </div>
+                <div class="framework-stat">
+                  <span class="framework-stat-dot partial"></span>
+                  <span style="color: var(--zerok-text-muted);">Partial</span>
+                </div>
+                <div class="framework-stat">
+                  <span class="framework-stat-dot none"></span>
+                  <span style="color: var(--zerok-text-muted);">No Coverage</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- PTES Phase Matrix -->
+            <div id="matrix-atlas" class="matrix-container active" >
+              <div class="matrix-table">
+                <!-- Pre-Engagement -->
+                <div class="tactic-column">
+                  <div class="tactic-header">Pre-Engagement</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-1</span>
+                    <span class="technique-name">Authorization</span>
+                    <span class="technique-count">Planning Agent</span>
+                  </div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-1</span>
+                    <span class="technique-name">Scope Validation</span>
+                    <span class="technique-count">Planning Agent</span>
+                  </div>
+                </div>
+                <!-- Intelligence Gathering -->
+                <div class="tactic-column">
+                  <div class="tactic-header">Intel Gathering</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-2</span>
+                    <span class="technique-name">Passive OSINT</span>
+                    <span class="technique-count">GAU, crt.sh, Amass</span>
+                  </div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-2</span>
+                    <span class="technique-name">Active Recon</span>
+                    <span class="technique-count">Naabu, Httpx, Katana</span>
+                  </div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-2</span>
+                    <span class="technique-name">Port Discovery</span>
+                    <span class="technique-count">Naabu, Nmap</span>
+                  </div>
+                </div>
+                <!-- Threat Modeling -->
+                <div class="tactic-column">
+                  <div class="tactic-header">Threat Modeling</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-3</span>
+                    <span class="technique-name">CVE Research</span>
+                    <span class="technique-count">7+ databases</span>
+                  </div>
+                  <div class="technique-cell partial">
+                    <span class="technique-id">PTES-3</span>
+                    <span class="technique-name">Attack Path Classification</span>
+                    <span class="technique-count">LLM-based</span>
+                  </div>
+                </div>
+                <!-- Vulnerability Analysis -->
+                <div class="tactic-column">
+                  <div class="tactic-header">Vuln Analysis</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-4</span>
+                    <span class="technique-name">Nuclei Scanning</span>
+                    <span class="technique-count">10K+ templates</span>
+                  </div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-4</span>
+                    <span class="technique-name">Web App Testing</span>
+                    <span class="technique-count">OWASP Top 10</span>
+                  </div>
+                  <div class="technique-cell partial">
+                    <span class="technique-id">PTES-4</span>
+                    <span class="technique-name">API Discovery</span>
+                    <span class="technique-count">Kiterunner</span>
+                  </div>
+                </div>
+                <!-- Exploitation -->
+                <div class="tactic-column">
+                  <div class="tactic-header">Exploitation</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-5</span>
+                    <span class="technique-name">Safe POC Validation</span>
+                    <span class="technique-count">HITL Required</span>
+                  </div>
+                  <div class="technique-cell partial">
+                    <span class="technique-id">PTES-5</span>
+                    <span class="technique-name">SQLi Validation</span>
+                    <span class="technique-count">SQLMap (read-only)</span>
+                  </div>
+                </div>
+                <!-- Post-Exploitation -->
+                <div class="tactic-column">
+                  <div class="tactic-header">Post-Exploitation</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-6</span>
+                    <span class="technique-name">Attack Path Simulation</span>
+                    <span class="technique-count">Sim Only</span>
+                  </div>
+                  <div class="technique-cell none">
+                    <span class="technique-id">PTES-6</span>
+                    <span class="technique-name">Lateral Movement</span>
+                  </div>
+                </div>
+                <!-- Reporting -->
+                <div class="tactic-column">
+                  <div class="tactic-header">Reporting</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-7</span>
+                    <span class="technique-name">Executive Summary</span>
+                    <span class="technique-count">Auto-generated</span>
+                  </div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">PTES-7</span>
+                    <span class="technique-name">Technical Report</span>
+                    <span class="technique-count">Combined Mode</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- OWASP Top 10 Web Matrix -->
+            <div id="matrix-owasp-llm" class="matrix-container" >
+              <div class="matrix-table">
+                <div class="tactic-column">
+                  <div class="tactic-header">Access Control</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">A01</span>
+                    <span class="technique-name">Broken Access Ctrl</span>
+                    <span class="technique-count">9 findings</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Crypto</div>
+                  <div class="technique-cell partial">
+                    <span class="technique-id">A02</span>
+                    <span class="technique-name">Cryptographic Fail</span>
+                    <span class="technique-count">2 findings</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Injection</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">A03</span>
+                    <span class="technique-name">SQL/Cmd/LDAP Inj.</span>
+                    <span class="technique-count">12 findings</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Design</div>
+                  <div class="technique-cell partial">
+                    <span class="technique-id">A04</span>
+                    <span class="technique-name">Insecure Design</span>
+                    <span class="technique-count">3 findings</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Misconfig</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">A05</span>
+                    <span class="technique-name">Security Misconfig</span>
+                    <span class="technique-count">8 findings</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Components</div>
+                  <div class="technique-cell partial">
+                    <span class="technique-id">A06</span>
+                    <span class="technique-name">Vulnerable Comps</span>
+                    <span class="technique-count">5 findings</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Auth</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">A07</span>
+                    <span class="technique-name">Auth Failures</span>
+                    <span class="technique-count">6 findings</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tool Availability Matrix -->
+            <div id="matrix-owasp-agentic" class="matrix-container" >
+              <div class="matrix-table">
+                <div class="tactic-column">
+                  <div class="tactic-header">Recon</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">GAU</span>
+                    <span class="technique-name">Historical URLs</span>
+                    <span class="technique-count">Both backends</span>
+                  </div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">Nmap</span>
+                    <span class="technique-name">Port Scanning</span>
+                    <span class="technique-count">Both backends</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Discovery</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">Naabu</span>
+                    <span class="technique-name">Fast SYN Scan</span>
+                    <span class="technique-count">Internal only</span>
+                  </div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">Httpx</span>
+                    <span class="technique-name">HTTP Probing</span>
+                    <span class="technique-count">Both backends</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Scanning</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">Nuclei</span>
+                    <span class="technique-name">Vuln Scanner</span>
+                    <span class="technique-count">Both backends</span>
+                  </div>
+                  <div class="technique-cell partial">
+                    <span class="technique-id">Nikto</span>
+                    <span class="technique-name">Web Scanner</span>
+                    <span class="technique-count">Internal only</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Enumeration</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">Gobuster</span>
+                    <span class="technique-name">Dir Brute-force</span>
+                    <span class="technique-count">Internal only</span>
+                  </div>
+                  <div class="technique-cell partial">
+                    <span class="technique-id">Kiterunner</span>
+                    <span class="technique-name">API Discovery</span>
+                    <span class="technique-count">Internal only</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Exploitation</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">SQLMap</span>
+                    <span class="technique-name">SQL Injection</span>
+                    <span class="technique-count">Internal only</span>
+                  </div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">Metasploit</span>
+                    <span class="technique-name">Exploit Framework</span>
+                    <span class="technique-count">Internal only</span>
+                  </div>
+                </div>
+                <div class="tactic-column">
+                  <div class="tactic-header">Cloud</div>
+                  <div class="technique-cell covered">
+                    <span class="technique-id">S3Scanner</span>
+                    <span class="technique-name">Bucket Enum</span>
+                    <span class="technique-count">Both backends</span>
+                  </div>
+                  <div class="technique-cell none">
+                    <span class="technique-id">GVM</span>
+                    <span class="technique-name">OpenVAS Scanner</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- AI Assistant Drawer (inside .dashboard for flex layout) -->
+    <div class="ai-drawer" id="aiDrawer">
+    <div class="ai-drawer-header">
+      <div class="ai-drawer-title">
+        <div class="pulse-dot disconnected" id="aiPulseDot"></div>
+        <span>AI Assistant</span>
+      </div>
+      <button class="ai-drawer-close" onclick="toggleAIDrawer()">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M5 5l8 8M13 5l-8 8"/>
+        </svg>
+      </button>
+    </div>
+    <div class="ai-drawer-agents" id="agentChips">
+      <span class="agent-chip" data-agent="PL" onclick="toggleChipFilter('PL')">PL<span class="chip-event-count" data-agent-count="PL">0</span></span>
+      <span class="agent-chip" data-agent="OR" onclick="toggleChipFilter('OR')">OR<span class="chip-event-count" data-agent-count="OR">0</span></span>
+      <span class="agent-chip" data-agent="PO" onclick="toggleChipFilter('PO')">PO<span class="chip-event-count" data-agent-count="PO">0</span></span>
+      <span class="agent-chip" data-agent="AR" onclick="toggleChipFilter('AR')">AR<span class="chip-event-count" data-agent-count="AR">0</span></span>
+      <span class="agent-chip" data-agent="CV" onclick="toggleChipFilter('CV')">CV<span class="chip-event-count" data-agent-count="CV">0</span></span>
+      <span class="agent-chip" data-agent="WV" onclick="toggleChipFilter('WV')">WV<span class="chip-event-count" data-agent-count="WV">0</span></span>
+      <span class="agent-chip" data-agent="EX" onclick="toggleChipFilter('EX')">EX<span class="chip-event-count" data-agent-count="EX">0</span></span>
+      <span class="agent-chip" data-agent="PE" onclick="toggleChipFilter('PE')">PE<span class="chip-event-count" data-agent-count="PE">0</span></span>
+      <span class="agent-chip" data-agent="RP" onclick="toggleChipFilter('RP')">RP<span class="chip-event-count" data-agent-count="RP">0</span></span>
+    </div>
+    <div class="phase-badge-row" id="phaseBadgeRow" style="display:none">
+      <span class="phase-badge-label">Phase</span>
+      <span class="phase-badge" id="phaseBadge">—</span>
+    </div>
+    <div class="ai-drawer-timeline" id="aiTimeline">
+      <div class="ai-drawer-empty" id="aiEmpty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4zM6.5 10.5C4 12 3 14.5 3 17h18c0-2.5-1-5-3.5-6.5"/>
+          <circle cx="12" cy="20" r="1"/>
+        </svg>
+        <p>No agent activity yet.<br>Start a scan or run demo to see real-time updates.</p>
+      </div>
+    </div>
+    <div class="ai-drawer-footer">
+      <div class="connection-status">
+        <div class="connection-dot" id="connectionDot"></div>
+        <span id="connectionText">Disconnected</span>
+      </div>
+      <button class="demo-btn" id="demoBtn" onclick="startDemo()">Run Demo</button>
+    </div>
+  </div>
+  </div><!-- /.dashboard -->
+
+  <!-- AI Toggle Button -->
+  <button class="ai-toggle-btn" id="aiToggleBtn" onclick="toggleAIDrawer()">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z"/>
+      <path d="M6.5 10.5C4 12 3 14.5 3 17h18c0-2.5-1-5-3.5-6.5"/>
+      <circle cx="12" cy="20" r="1"/>
+    </svg>
+    <div class="notification-badge" id="notifBadge">0</div>
+  </button>
+
+  <!-- HITL Approval Modal -->
+  <div class="hitl-overlay" id="hitlOverlay">
+    <div class="hitl-modal" id="hitlModal">
+      <div class="hitl-modal-header">
+        <div class="hitl-modal-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 9v4M12 17h.01"/>
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          </svg>
+        </div>
+        <div class="hitl-modal-header-text">
+          <h3 id="hitlTitle">Approval Required</h3>
+          <div class="hitl-agent" id="hitlAgent">Exploitation Agent (EX)</div>
+        </div>
+      </div>
+      <div class="hitl-modal-body">
+        <div class="hitl-field">
+          <div class="hitl-field-label">Action</div>
+          <div class="hitl-field-value" id="hitlAction">—</div>
+        </div>
+        <div class="hitl-field">
+          <div class="hitl-field-label">Description</div>
+          <div class="hitl-field-value" id="hitlDescription">—</div>
+        </div>
+        <div class="hitl-field">
+          <div class="hitl-field-label">Target</div>
+          <div class="hitl-field-value" id="hitlTarget" style="font-family: var(--zerok-font-mono); font-size: 12px;">—</div>
+        </div>
+        <div class="hitl-field">
+          <div class="hitl-field-label">Risk Level</div>
+          <div class="hitl-field-value"><span class="hitl-risk-badge high" id="hitlRisk">HIGH</span></div>
+        </div>
+        <div class="hitl-timer" id="hitlTimer">Pending for 0s</div>
+      </div>
+      <div class="hitl-modal-actions">
+        <button class="hitl-btn hitl-btn-reject" id="hitlRejectBtn" onclick="resolveApproval(false)">Reject</button>
+        <button class="hitl-btn hitl-btn-approve" id="hitlApproveBtn" onclick="resolveApproval(true)">Approve</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('collapsed');
+    }
+
+    function toggleSection(section) {
+      document.getElementById(section + 'Items').classList.toggle('collapsed');
+      document.getElementById(section + 'CollapseBtn').classList.toggle('collapsed');
+    }
+
+    function toggleSettings() {
+      document.getElementById('settingsPanel').classList.toggle('expanded');
+      document.getElementById('settingsChevron').classList.toggle('expanded');
+    }
+
+    // Theme Switcher (layout + accent reset for Default)
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      document.querySelectorAll('.theme-option').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.getAttribute('data-theme') === theme) {
+          btn.classList.add('active');
+        }
+      });
+      localStorage.setItem('zerok-theme', theme);
+    }
+
+    // Accent Color Switcher
+    function setAccent(color) {
+      document.documentElement.setAttribute('data-accent', color);
+      document.querySelectorAll('.color-option').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.getAttribute('data-color') === color) {
+          btn.classList.add('active');
+        }
+      });
+      localStorage.setItem('zerok-accent', color);
+    }
+
+    // Framework Matrix Switcher
+    function switchFramework(framework) {
+      // Update tabs
+      document.querySelectorAll('.framework-tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      event.target.classList.add('active');
+
+      // Update matrix visibility
+      document.querySelectorAll('.matrix-container').forEach(matrix => {
+        matrix.classList.remove('active');
+      });
+      document.getElementById('matrix-' + framework).classList.add('active');
+    }
+
+    // Load saved preferences on page load
+    (function() {
+      const savedTheme = localStorage.getItem('zerok-theme') || 'default';
+      const savedAccent = localStorage.getItem('zerok-accent') || 'red';
+      setTheme(savedTheme);
+      setAccent(savedAccent);
+    })();
+
+    // ========== CHART.JS INITIALIZATION ==========
+    //
+    // COLOR PHILOSOPHY FOR CHARTS
+    // ─────────────────────────────────────────────
+    // Accent color (primaryColor) is DOMINANT in every chart.
+    // Secondary colors are FIXED semantic values - they don't change with accent.
+    //
+    //   Green  #22c55e  → positive/resolved/blocked/success
+    //   Blue   #3b82f6  → info/monitoring/watching
+    //   Yellow #eab308  → warning/pending/waiting
+    //   Amber  #f59e0b  → alerts/attention
+    //   Gray   #6b7280  → historical/comparison/previous period
+    //   Red    #ef4444  → critical (used in severity bars, not charts)
+    //
+    // This palette works alongside ANY accent color because the secondaries
+    // serve distinct semantic purposes. Accent stays dominant via thicker
+    // lines, gradient fills, and larger point sizes.
+    //
+    // Charts that DON'T need multi-color (single metric): gauge, sparklines.
+    // Charts that DO: donut (status), line (trends), radar (comparison).
+    // ─────────────────────────────────────────────
+
+    // Get computed primary color from CSS variable
+    function getPrimaryColor() {
+      return getComputedStyle(document.documentElement).getPropertyValue('--zerok-primary').trim();
+    }
+
+    // Chart instances (for cleanup on theme change)
+    let areaChart, radarChart, donutChart;
+
+    function initCharts() {
+      const primaryColor = getPrimaryColor();
+      const primaryColorAlpha = primaryColor + '40'; // 25% opacity for fill
+
+      // Destroy existing charts if they exist
+      if (areaChart) areaChart.destroy();
+      if (radarChart) radarChart.destroy();
+      if (donutChart) donutChart.destroy();
+
+      // Common chart defaults
+      Chart.defaults.color = '#a0a0a0';
+      Chart.defaults.borderColor = '#3a3a3a';
+      Chart.defaults.font.family = "'Inter', sans-serif";
+
+      // ===== Area Chart with Gradient Fill =====
+      const areaCtx = document.getElementById('areaChart').getContext('2d');
+      const areaGradient = areaCtx.createLinearGradient(0, 0, 0, 140);
+      areaGradient.addColorStop(0, primaryColor + '60');
+      areaGradient.addColorStop(1, primaryColor + '05');
+
+      const greenGradient = areaCtx.createLinearGradient(0, 0, 0, 140);
+      greenGradient.addColorStop(0, '#22c55e20');
+      greenGradient.addColorStop(1, '#22c55e05');
+
+      areaChart = new Chart(areaCtx, {
+        type: 'line',
+        data: {
+          labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+          datasets: [{
+            label: 'Detected',
+            data: [120, 190, 150, 220, 180, 250, 210],
+            borderColor: primaryColor,
+            backgroundColor: areaGradient,
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2.5,
+            pointRadius: 3,
+            pointBackgroundColor: primaryColor,
+            pointBorderColor: '#1e1e1e',
+            pointBorderWidth: 2,
+          }, {
+            label: 'Blocked',
+            data: [85, 140, 110, 165, 130, 190, 155],
+            borderColor: '#22c55e',
+            backgroundColor: greenGradient,
+            fill: true,
+            tension: 0.4,
+            borderWidth: 1.5,
+            pointRadius: 2,
+            pointBackgroundColor: '#22c55e',
+            pointBorderColor: '#1e1e1e',
+            pointBorderWidth: 1,
+          }, {
+            label: 'Alerts',
+            data: [35, 55, 42, 70, 50, 80, 60],
+            borderColor: '#f59e0b',
+            backgroundColor: 'transparent',
+            fill: false,
+            tension: 0.4,
+            borderWidth: 1.5,
+            borderDash: [5, 4],
+            pointRadius: 2,
+            pointBackgroundColor: '#f59e0b',
+            pointBorderColor: '#1e1e1e',
+            pointBorderWidth: 1,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              align: 'end',
+              labels: {
+                boxWidth: 12,
+                boxHeight: 2,
+                padding: 8,
+                font: { size: 9 },
+                usePointStyle: false,
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { size: 10 } }
+            },
+            y: {
+              grid: { color: '#3a3a3a' },
+              ticks: { font: { size: 10 } }
+            }
+          }
+        }
+      });
+
+      // ===== Radar/Spider Chart =====
+      const radarCtx = document.getElementById('radarChart').getContext('2d');
+      radarChart = new Chart(radarCtx, {
+        type: 'radar',
+        data: {
+          labels: ['Injection', 'Data Leak', 'Manipulation', 'Poisoning', 'Exfiltration', 'Evasion'],
+          datasets: [{
+            label: 'Current',
+            data: [85, 60, 75, 45, 70, 55],
+            borderColor: primaryColor,
+            backgroundColor: primaryColor + '30',
+            borderWidth: 2,
+            pointBackgroundColor: primaryColor,
+            pointBorderColor: '#1e1e1e',
+            pointBorderWidth: 2,
+            pointRadius: 4,
+          }, {
+            label: 'Previous',
+            data: [70, 50, 65, 55, 60, 45],
+            borderColor: '#6b7280',
+            backgroundColor: '#6b728018',
+            borderWidth: 1.5,
+            borderDash: [4, 3],
+            pointBackgroundColor: '#6b7280',
+            pointBorderColor: '#1e1e1e',
+            pointBorderWidth: 1,
+            pointRadius: 3,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              align: 'end',
+              labels: {
+                boxWidth: 12,
+                boxHeight: 2,
+                padding: 8,
+                font: { size: 9 },
+                usePointStyle: false,
+              }
+            }
+          },
+          scales: {
+            r: {
+              angleLines: { color: '#3a3a3a' },
+              grid: { color: '#3a3a3a' },
+              pointLabels: { font: { size: 9 }, color: '#a0a0a0' },
+              ticks: { display: false },
+              suggestedMin: 0,
+              suggestedMax: 100
+            }
+          }
+        }
+      });
+
+      // ===== Donut Chart =====
+      const donutCtx = document.getElementById('donutChart').getContext('2d');
+      donutChart = new Chart(donutCtx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Active', 'Monitoring', 'Resolved', 'Pending'],
+          datasets: [{
+            data: [65, 42, 35, 14],
+            backgroundColor: [
+              primaryColor,   // Active - accent dominant
+              '#3b82f6',      // Monitoring - blue
+              '#22c55e',      // Resolved - green
+              '#eab308'       // Pending - yellow
+            ],
+            borderWidth: 0,
+            spacing: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          cutout: '70%',
+          plugins: {
+            legend: { display: false }
+          }
+        }
+      });
+    }
+
+    // Initialize charts after DOM ready
+    document.addEventListener('DOMContentLoaded', initCharts);
+
+    // Re-initialize charts when accent changes (override setAccent)
+    const originalSetAccent = setAccent;
+    setAccent = function(color) {
+      originalSetAccent(color);
+      // Small delay to let CSS update
+      setTimeout(initCharts, 50);
+    };
+
+    // ========== WEBSOCKET CLIENT & AI ASSISTANT ==========
+
+    const AGENT_NAMES = {
+      PL: 'Planning Agent', OR: 'Orchestrator', PO: 'Passive OSINT',
+      AR: 'Active Recon', CV: 'CVE Researcher', WV: 'Web Vuln Scanner',
+      EX: 'Exploitation', PE: 'Post-Exploitation', RP: 'Reporting'
+    };
+
+    const EVENT_ICONS = {
+      agent_thinking: { icon: '?', cls: 'thinking', label: 'Thinking' },
+      tool_start:     { icon: '>', cls: 'tool',     label: 'Tool' },
+      tool_complete:  { icon: '+', cls: 'complete', label: 'Done' },
+      finding:        { icon: '!', cls: 'finding',  label: 'Finding' },
+      approval_request: { icon: '?', cls: 'approval', label: 'Approval' },
+      approval_resolved: { icon: '+', cls: 'complete', label: 'Resolved' },
+      agent_complete: { icon: '+', cls: 'complete', label: 'Complete' },
+      agent_error:    { icon: 'x', cls: 'finding',  label: 'Error' },
+      agent_status:   { icon: '*', cls: 'system',   label: 'Status' },
+      system:         { icon: '*', cls: 'system',   label: 'System' },
+      scan_progress:  { icon: '>', cls: 'tool',     label: 'Scan' },
+    };
+
+    let ws = null;
+    let wsReconnectTimer = null;
+    let wsReconnectAttempts = 0;
+    let pendingApproval = null;
+    let hitlTimerInterval = null;
+    let notificationCount = 0;
+
+    // ── Live Monitoring State ──
+    const runningTools = {};        // tool_id → { el, startTime, timerInterval, chunks }
+    const agentEventCounts = {};    // agent code → count
+    let activeChipFilter = null;    // null = show all, 'AR' = filter to AR
+
+    // ── Toggle AI Drawer ──
+    function toggleAIDrawer() {
+      const drawer = document.getElementById('aiDrawer');
+      drawer.classList.toggle('open');
+      if (drawer.classList.contains('open')) {
+        notificationCount = 0;
+        updateNotifBadge();
+      }
+    }
+
+    // ── WebSocket Connection ──
+    function connectWebSocket() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = protocol + '//' + location.host + '/ws';
+
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (e) {
+        setConnectionStatus(false);
+        scheduleReconnect();
+        return;
+      }
+
+      ws.onopen = function() {
+        wsReconnectAttempts = 0;
+        setConnectionStatus(true);
+      };
+
+      ws.onclose = function() {
+        ws = null;
+        setConnectionStatus(false);
+        scheduleReconnect();
+      };
+
+      ws.onerror = function() {
+        setConnectionStatus(false);
+      };
+
+      ws.onmessage = function(evt) {
+        try {
+          const msg = JSON.parse(evt.data);
+          handleWSMessage(msg);
+        } catch (e) { /* ignore parse errors */ }
+      };
+    }
+
+    function scheduleReconnect() {
+      if (wsReconnectTimer) return;
+      wsReconnectAttempts++;
+      const delay = Math.min(1000 * Math.pow(2, wsReconnectAttempts), 30000);
+      wsReconnectTimer = setTimeout(() => {
+        wsReconnectTimer = null;
+        connectWebSocket();
+      }, delay);
+    }
+
+    function setConnectionStatus(connected) {
+      const dot = document.getElementById('connectionDot');
+      const text = document.getElementById('connectionText');
+      const pulse = document.getElementById('aiPulseDot');
+      const demoBtn = document.getElementById('demoBtn');
+
+      if (connected) {
+        dot.classList.add('connected');
+        text.textContent = 'Connected';
+        pulse.classList.remove('disconnected');
+        demoBtn.disabled = false;
+      } else {
+        dot.classList.remove('connected');
+        text.textContent = 'Disconnected';
+        pulse.classList.add('disconnected');
+        pulse.classList.remove('active');
+        demoBtn.disabled = true;
+      }
+    }
+
+    // ── Message Handler ──
+    function handleWSMessage(msg) {
+      const type = msg.type;
+
+      if (type === 'state_sync') {
+        handleStateSync(msg);
+        return;
+      }
+      if (type === 'pong' || type === 'error') return;
+
+      if (type === 'phase_update') {
+        handlePhaseUpdate(msg);
+        return;
+      }
+
+      if (type === 'tool_output_chunk') {
+        handleToolOutputChunk(msg);
+        return;
+      }
+
+      if (type === 'agent_status') {
+        updateAgentChip(msg.agent, msg.status);
+        updatePulseDot();
+        if (msg.status === 'running') {
+          addTimelineEvent(msg);
+        }
+        return;
+      }
+
+      if (type === 'agent_thinking') {
+        // Use new expandable ThinkingCard if metadata has thought/reasoning
+        if (msg.metadata && msg.metadata.thought) {
+          renderThinkingCard(msg);
+        } else {
+          addTimelineEvent(msg);
+        }
+        bumpAgentCount(msg.agent);
+        return;
+      }
+
+      if (type === 'tool_start') {
+        // Use new expandable ToolExecutionCard if metadata has tool_id
+        if (msg.metadata && msg.metadata.tool_id) {
+          renderToolCard(msg);
+        } else {
+          addTimelineEvent(msg);
+        }
+        bumpAgentCount(msg.agent);
+        return;
+      }
+
+      if (type === 'tool_complete') {
+        if (msg.metadata && msg.metadata.tool_id) {
+          handleToolComplete(msg);
+        } else {
+          addTimelineEvent(msg);
+        }
+        bumpAgentCount(msg.agent);
+        return;
+      }
+
+      if (type === 'approval_request') {
+        showApprovalModal(msg);
+        addTimelineEvent(msg);
+        showToast('warning', 'Approval Required', msg.agentName + ': ' + msg.action);
+        incrementNotif();
+        bumpAgentCount(msg.agent);
+        return;
+      }
+
+      if (type === 'approval_resolved') {
+        hideApprovalModal();
+        addTimelineEvent(msg);
+        const label = msg.approved ? 'Approved' : 'Rejected';
+        showToast(msg.approved ? 'success' : 'warning', label, msg.agentName + ' action ' + label.toLowerCase());
+        bumpAgentCount(msg.agent);
+        return;
+      }
+
+      if (type === 'finding') {
+        addTimelineEvent(msg);
+        showToast('finding', msg.severity.toUpperCase() + ' Finding', msg.title);
+        incrementNotif();
+        bumpAgentCount(msg.agent);
+        return;
+      }
+
+      // All other events: add to timeline
+      addTimelineEvent(msg);
+      if (msg.agent) bumpAgentCount(msg.agent);
+    }
+
+    function handleStateSync(msg) {
+      // Sync agent chips
+      if (msg.agents) {
+        for (const [code, info] of Object.entries(msg.agents)) {
+          updateAgentChip(code, info.status);
+        }
+      }
+      // Show pending approvals
+      if (msg.pending_approvals && msg.pending_approvals.length > 0) {
+        showApprovalModal(msg.pending_approvals[0]);
+      }
+      // Replay recent events
+      if (msg.recent_events) {
+        for (const evt of msg.recent_events) {
+          addTimelineEvent(evt, true);
+        }
+      }
+      updatePulseDot();
+    }
+
+    // ── Phase Badge ──
+    function handlePhaseUpdate(msg) {
+      const row = document.getElementById('phaseBadgeRow');
+      const badge = document.getElementById('phaseBadge');
+      row.style.display = 'flex';
+      badge.textContent = msg.phase || '—';
+      badge.className = 'phase-badge' + (msg.phase === 'COMPLETE' ? ' complete' : '');
+    }
+
+    // ── Thinking Card Renderer ──
+    function renderThinkingCard(msg) {
+      const timeline = document.getElementById('aiTimeline');
+      const empty = document.getElementById('aiEmpty');
+      if (empty) empty.style.display = 'none';
+
+      const agentName = msg.agentName || AGENT_NAMES[msg.agent] || msg.agent || '';
+      const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+      const thought = msg.metadata.thought || '';
+      const reasoning = msg.metadata.reasoning || '';
+      const action = msg.metadata.action || '';
+
+      const card = document.createElement('div');
+      card.className = 'timeline-card';
+      card.setAttribute('data-agent', msg.agent || '');
+      if (activeChipFilter && msg.agent !== activeChipFilter) {
+        card.classList.add('filtered-out');
+      }
+
+      let bodyHtml = '';
+      if (thought) bodyHtml += '<div class="thinking-section"><div class="thinking-section-label">Thought</div><div class="thinking-section-text">' + escHtml(thought) + '</div></div>';
+      if (reasoning) bodyHtml += '<div class="thinking-section"><div class="thinking-section-label">Reasoning</div><div class="thinking-section-text">' + escHtml(reasoning) + '</div></div>';
+      if (action) bodyHtml += '<div class="thinking-section"><div class="thinking-section-label">Action</div><span class="thinking-action-badge">' + escHtml(action) + '</span></div>';
+
+      card.innerHTML =
+        '<div class="timeline-card-header" onclick="toggleCard(this)">' +
+          '<div class="timeline-card-icon thinking">?</div>' +
+          '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
+          '<span class="timeline-card-preview">' + escHtml(thought).substring(0, 60) + '</span>' +
+          '<div class="timeline-card-meta">' +
+            '<span class="timeline-card-time">' + time + '</span>' +
+            '<span class="timeline-card-chevron">&#9654;</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="timeline-card-body"><div class="timeline-card-body-inner">' + bodyHtml + '</div></div>';
+
+      timeline.appendChild(card);
+      timeline.scrollTop = timeline.scrollHeight;
+    }
+
+    // ── Tool Execution Card Renderer ──
+    function renderToolCard(msg) {
+      const timeline = document.getElementById('aiTimeline');
+      const empty = document.getElementById('aiEmpty');
+      if (empty) empty.style.display = 'none';
+
+      const agentName = msg.agentName || AGENT_NAMES[msg.agent] || msg.agent || '';
+      const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+      const toolName = (msg.metadata && msg.metadata.tool) || 'tool';
+      const toolId = msg.metadata.tool_id;
+
+      const card = document.createElement('div');
+      card.className = 'timeline-card expanded running';
+      card.setAttribute('data-agent', msg.agent || '');
+      card.setAttribute('data-tool-id', toolId);
+      if (activeChipFilter && msg.agent !== activeChipFilter) {
+        card.classList.add('filtered-out');
+      }
+
+      card.innerHTML =
+        '<div class="timeline-card-header" onclick="toggleCard(this)">' +
+          '<div class="timeline-card-icon tool">&#9654;</div>' +
+          '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
+          '<span class="tool-name-badge">' + escHtml(toolName) + '</span>' +
+          '<div class="timeline-card-meta">' +
+            '<span class="tool-status-badge running" data-status-badge="' + toolId + '">Running...</span>' +
+            '<span class="tool-timer running" data-timer="' + toolId + '">0s</span>' +
+            '<span class="timeline-card-chevron">&#9654;</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="timeline-card-body"><div class="timeline-card-body-inner">' +
+          '<div class="tool-output-block" data-output="' + toolId + '"><span class="streaming-cursor"></span></div>' +
+          '<div class="tool-progress-bar"><div class="tool-progress-fill running" data-progress="' + toolId + '"></div></div>' +
+        '</div></div>';
+
+      timeline.appendChild(card);
+      timeline.scrollTop = timeline.scrollHeight;
+
+      // Start timer
+      const startTime = Date.now();
+      const timerEl = card.querySelector('[data-timer="' + toolId + '"]');
+      const interval = setInterval(() => {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        timerEl.textContent = elapsed + 's';
+      }, 1000);
+
+      runningTools[toolId] = { el: card, startTime: startTime, timerInterval: interval, chunks: [] };
+    }
+
+    // ── Handle Streaming Chunks ──
+    function handleToolOutputChunk(msg) {
+      const toolId = msg.tool_id;
+      const tool = runningTools[toolId];
+      if (!tool) return;
+
+      tool.chunks.push(msg.chunk);
+      const outputEl = tool.el.querySelector('[data-output="' + toolId + '"]');
+      if (!outputEl) return;
+
+      // Remove cursor, append text, re-add cursor
+      const cursor = outputEl.querySelector('.streaming-cursor');
+      if (cursor) cursor.remove();
+      outputEl.appendChild(document.createTextNode(msg.chunk));
+      const newCursor = document.createElement('span');
+      newCursor.className = 'streaming-cursor';
+      outputEl.appendChild(newCursor);
+
+      // Auto-scroll output block
+      outputEl.scrollTop = outputEl.scrollHeight;
+
+      // Auto-scroll timeline
+      const timeline = document.getElementById('aiTimeline');
+      timeline.scrollTop = timeline.scrollHeight;
+    }
+
+    // ── Handle Tool Complete ──
+    function handleToolComplete(msg) {
+      const toolId = msg.metadata.tool_id;
+      const tool = runningTools[toolId];
+
+      if (tool) {
+        const elapsed = Math.round((Date.now() - tool.startTime) / 1000);
+
+        // Stop timer
+        clearInterval(tool.timerInterval);
+
+        // Update timer
+        const timerEl = tool.el.querySelector('[data-timer="' + toolId + '"]');
+        if (timerEl) {
+          timerEl.textContent = elapsed + 's';
+          timerEl.className = 'tool-timer done';
+        }
+
+        // Update status badge
+        const statusEl = tool.el.querySelector('[data-status-badge="' + toolId + '"]');
+        if (statusEl) {
+          statusEl.textContent = 'Done (' + elapsed + 's)';
+          statusEl.className = 'tool-status-badge done';
+        }
+
+        // Update progress bar
+        const progressEl = tool.el.querySelector('[data-progress="' + toolId + '"]');
+        if (progressEl) {
+          progressEl.className = 'tool-progress-fill done';
+        }
+
+        // Remove cursor
+        const outputEl = tool.el.querySelector('[data-output="' + toolId + '"]');
+        if (outputEl) {
+          const cursor = outputEl.querySelector('.streaming-cursor');
+          if (cursor) cursor.remove();
+        }
+
+        // Remove running state from card
+        tool.el.classList.remove('running');
+
+        delete runningTools[toolId];
+      } else {
+        // Fallback: tool_complete without a tracked tool_start
+        addTimelineEvent(msg);
+      }
+    }
+
+    // ── Toggle Card Expand/Collapse ──
+    function toggleCard(headerEl) {
+      const card = headerEl.parentElement;
+      card.classList.toggle('expanded');
+    }
+
+    // ── Chip Filter ──
+    function toggleChipFilter(agentCode) {
+      if (activeChipFilter === agentCode) {
+        // Deactivate filter
+        activeChipFilter = null;
+        document.querySelectorAll('.agent-chip').forEach(c => c.classList.remove('filter-active'));
+        // Show all timeline items
+        document.querySelectorAll('.timeline-card, .timeline-event').forEach(el => el.classList.remove('filtered-out'));
+      } else {
+        // Activate filter
+        activeChipFilter = agentCode;
+        document.querySelectorAll('.agent-chip').forEach(c => c.classList.remove('filter-active'));
+        const chip = document.querySelector('.agent-chip[data-agent="' + agentCode + '"]');
+        if (chip) chip.classList.add('filter-active');
+        // Filter timeline items
+        document.querySelectorAll('.timeline-card, .timeline-event').forEach(el => {
+          const elAgent = el.getAttribute('data-agent');
+          if (elAgent === agentCode) {
+            el.classList.remove('filtered-out');
+          } else {
+            el.classList.add('filtered-out');
+          }
+        });
+      }
+    }
+
+    // ── Agent Event Count Badges ──
+    function bumpAgentCount(agent) {
+      if (!agent) return;
+      agentEventCounts[agent] = (agentEventCounts[agent] || 0) + 1;
+      const badge = document.querySelector('[data-agent-count="' + agent + '"]');
+      if (badge) {
+        badge.textContent = agentEventCounts[agent];
+        badge.classList.add('visible');
+      }
+    }
+
+    // ── Agent Chips ──
+    function updateAgentChip(code, status) {
+      const chip = document.querySelector('.agent-chip[data-agent="' + code + '"]');
+      if (!chip) return;
+      chip.className = 'agent-chip';
+      if (status && status !== 'idle') {
+        chip.classList.add(status);
+      }
+    }
+
+    function updatePulseDot() {
+      const pulse = document.getElementById('aiPulseDot');
+      const chips = document.querySelectorAll('.agent-chip.running, .agent-chip.waiting');
+      if (chips.length > 0) {
+        pulse.classList.add('active');
+      } else {
+        pulse.classList.remove('active');
+      }
+    }
+
+    // ── Timeline ──
+    function addTimelineEvent(msg, isReplay) {
+      const timeline = document.getElementById('aiTimeline');
+      const empty = document.getElementById('aiEmpty');
+      if (empty) empty.style.display = 'none';
+
+      const info = EVENT_ICONS[msg.type] || EVENT_ICONS.system;
+      const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+      const agentName = msg.agentName || AGENT_NAMES[msg.agent] || msg.agent || '';
+
+      let contentHtml = '';
+      if (msg.type === 'tool_start' && msg.metadata && msg.metadata.tool) {
+        contentHtml = '<span class="timeline-tool-badge">' + escHtml(msg.metadata.tool) + '</span> ' + escHtml(msg.content);
+      } else if (msg.type === 'finding') {
+        contentHtml = '<strong style="color:var(--zerok-critical)">' + escHtml(msg.severity || '').toUpperCase() + '</strong> ' + escHtml(msg.title || msg.content);
+      } else if (msg.type === 'approval_request') {
+        contentHtml = '<strong style="color:var(--zerok-medium)">HITL:</strong> ' + escHtml(msg.action || msg.content);
+      } else if (msg.type === 'approval_resolved') {
+        const color = msg.approved ? 'var(--zerok-low)' : 'var(--zerok-critical)';
+        const label = msg.approved ? 'APPROVED' : 'REJECTED';
+        contentHtml = '<strong style="color:' + color + '">' + label + '</strong>' + (msg.reason ? ' - ' + escHtml(msg.reason) : '');
+      } else {
+        contentHtml = escHtml(msg.content || '');
+      }
+
+      const el = document.createElement('div');
+      el.className = 'timeline-event';
+      el.setAttribute('data-agent', msg.agent || '');
+      if (isReplay) el.style.animation = 'none';
+      if (activeChipFilter && msg.agent !== activeChipFilter) {
+        el.classList.add('filtered-out');
+      }
+      el.innerHTML =
+        '<div class="timeline-icon ' + info.cls + '">' + info.icon + '</div>' +
+        '<div class="timeline-content">' +
+          '<div class="timeline-header">' +
+            '<span class="timeline-agent">' + escHtml(agentName) + '</span>' +
+            '<span class="timeline-type">' + info.label + '</span>' +
+            '<span class="timeline-time">' + time + '</span>' +
+          '</div>' +
+          '<div class="timeline-text">' + contentHtml + '</div>' +
+        '</div>';
+
+      timeline.appendChild(el);
+      timeline.scrollTop = timeline.scrollHeight;
+    }
+
+    function escHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s || '';
+      return d.innerHTML;
+    }
+
+    // ── HITL Approval Modal ──
+    function showApprovalModal(data) {
+      pendingApproval = data;
+      document.getElementById('hitlTitle').textContent = 'Approval Required';
+      document.getElementById('hitlAgent').textContent = (data.agentName || AGENT_NAMES[data.agent] || data.agent) + ' (' + data.agent + ')';
+      document.getElementById('hitlAction').textContent = data.action || '—';
+      document.getElementById('hitlDescription').textContent = data.description || '—';
+      document.getElementById('hitlTarget').textContent = data.target || '—';
+
+      const risk = document.getElementById('hitlRisk');
+      risk.textContent = (data.risk_level || 'high').toUpperCase();
+      risk.className = 'hitl-risk-badge ' + (data.risk_level || 'high');
+
+      document.getElementById('hitlOverlay').classList.add('visible');
+
+      // Start timer
+      const startTime = data.timestamp ? data.timestamp * 1000 : Date.now();
+      if (hitlTimerInterval) clearInterval(hitlTimerInterval);
+      hitlTimerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        document.getElementById('hitlTimer').textContent = 'Pending for ' + elapsed + 's';
+      }, 1000);
+    }
+
+    function hideApprovalModal() {
+      document.getElementById('hitlOverlay').classList.remove('visible');
+      pendingApproval = null;
+      if (hitlTimerInterval) { clearInterval(hitlTimerInterval); hitlTimerInterval = null; }
+    }
+
+    function resolveApproval(approved) {
+      if (!pendingApproval || !ws) return;
+      ws.send(JSON.stringify({
+        type: approved ? 'approve' : 'reject',
+        request_id: pendingApproval.id,
+        reason: approved ? 'Approved by operator' : 'Rejected by operator',
+      }));
+      hideApprovalModal();
+    }
+
+    // ── Toast Notifications ──
+    function showToast(type, title, message) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.innerHTML =
+        '<div class="toast-icon ' + type + '">' + (type === 'finding' ? '!' : type === 'success' ? '+' : '?') + '</div>' +
+        '<div class="toast-text"><strong>' + escHtml(title) + '</strong><span>' + escHtml(message) + '</span></div>';
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('removing');
+        setTimeout(() => toast.remove(), 300);
+      }, 5000);
+    }
+
+    // ── Notification Badge ──
+    function incrementNotif() {
+      const drawer = document.getElementById('aiDrawer');
+      if (drawer.classList.contains('open')) return;
+      notificationCount++;
+      updateNotifBadge();
+    }
+
+    function updateNotifBadge() {
+      const badge = document.getElementById('notifBadge');
+      if (notificationCount > 0) {
+        badge.textContent = notificationCount > 9 ? '9+' : notificationCount;
+        badge.classList.add('visible');
+      } else {
+        badge.classList.remove('visible');
+      }
+    }
+
+    // ── Demo ──
+    function startDemo() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const btn = document.getElementById('demoBtn');
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+      fetch('/api/demo/start', { method: 'POST' })
+        .then(r => r.json())
+        .then(() => {
+          setTimeout(() => { btn.disabled = false; btn.textContent = 'Run Demo'; }, 60000);
+        })
+        .catch(() => { btn.disabled = false; btn.textContent = 'Run Demo'; });
+    }
+
+    // ── Initialize WebSocket on Load ──
+    document.addEventListener('DOMContentLoaded', function() {
+      // Try connecting — if server isn't running, it will retry silently
+      setTimeout(connectWebSocket, 500);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Dependencies (if added later)
+node_modules/
+
+# Build output (if added later)
+dist/
+build/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Screenshots (local testing)
+screenshots/

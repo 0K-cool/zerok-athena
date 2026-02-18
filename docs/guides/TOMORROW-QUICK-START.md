@@ -29,7 +29,7 @@ Launch dashboard BEFORE starting engagement for real-time tracking:
 
 ```bash
 # Terminal 1: Launch Pentest Monitor Dashboard
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 source venv/bin/activate
 python athena_monitor.py
 ```
@@ -96,7 +96,7 @@ echo $CENSYS_API_TOKEN   # Should show your token
 
 ### 4. Setup Pentest Monitor Dashboard (NEW!)
 ```bash
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 
 # Install dependencies (one-time)
 python3 -m venv venv
@@ -144,7 +144,7 @@ mcp__playwright__playwright_navigate("https://example.com")
 ### Phase 0: Launch Dashboard & Load API Keys (2 min) 🆕
 ```bash
 # Terminal 1: Launch dashboard FIRST
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 source venv/bin/activate
 python athena_monitor.py
 

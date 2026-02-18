@@ -1,0 +1,1 @@
+/Users/kelvinlomboy/Personal_AI_Infrastructure/.claude/hooks/secure-code-linter.ts

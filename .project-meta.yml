@@ -1,8 +1,8 @@
 ---
-name: Pentest
+name: ATHENA
 type: professional
-commands: 5
-description: Penetration Testing toolkit (Kali)
-tags: [Kali]
+commands: 11
+description: Automated Tactical Hacking and Exploitation Network Architecture
+tags: [Kali, Penetration Testing, AI Security, Multi-Agent]
 active: true
 ---

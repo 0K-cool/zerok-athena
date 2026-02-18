@@ -1,18 +1,42 @@
 {
   "mcpServers": {
+    "athena-knowledge-base": {
+      "command": "/Users/kelvinlomboy/tools/vex-rag/.venv/bin/python3",
+      "args": [
+        "/Users/kelvinlomboy/tools/vex-rag/mcp_server/vex_kb_server.py"
+      ],
+      "env": {
+        "RAG_CONFIG": "/Users/kelvinlomboy/VERSANT/Projects/ATHENA/.vex-rag.yml",
+        "PYTHONPATH": "/Users/kelvinlomboy/tools/vex-rag"
+      },
+      "description": "ATHENA Pentest Knowledge Base - Kali tools, methodology, exploitation techniques"
+    },
     "velociraptor": {
       "command": "/Users/kelvinlomboy/VERSANT/MCPs/velociraptor-mcp-venv/bin/python",
       "args": [
         "/Users/kelvinlomboy/VERSANT/MCPs/mcp-velociraptor-main/mcp_velociraptor_bridge.py"
       ]
     },
-    "kali_mcp": {
+    "kali_external": {
       "command": "/Users/kelvinlomboy/VERSANT/MCPs/kali-linux-mcp-venv/bin/python",
       "args": [
         "/Users/kelvinlomboy/VERSANT/MCPs/mcp-kali-linux-main/mcp_server.py",
         "--server",
         "http://kali.linux.vkloud.antsle.us:5000/"
-      ]
+      ],
+      "description": "Kali Linux (antsle cloud) - External pentesting"
+    },
+    "kali_internal": {
+      "command": "/Users/kelvinlomboy/VERSANT/MCPs/kali-linux-mcp-venv/bin/python",
+      "args": [
+        "/Users/kelvinlomboy/VERSANT/MCPs/mcp-kali-linux-main/mcp_server.py",
+        "--server",
+        "http://172.26.80.76:5000/"
+      ],
+      "env": {
+        "KALI_API_KEY": "4SCCNPe72jBD540xZvqwN5Zd74aOQfatmJjZ_4xOYwE"
+      },
+      "description": "Kali Linux (mini-PC via ZeroTier) - Internal pentesting with ProjectDiscovery + AD tools"
     },
     "playwright": {
       "command": "npx",

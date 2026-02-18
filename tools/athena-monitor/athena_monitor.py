@@ -18,10 +18,10 @@ import asyncio
 # DATABASE LAYER
 # ============================================================================
 
-class PentestDatabase:
-    """SQLite database for pentest activity tracking"""
+class AthenaDatabase:
+    """SQLite database for ATHENA activity tracking"""
 
-    def __init__(self, db_path: str = "pentest_tracker.db"):
+    def __init__(self, db_path: str = "athena_tracker.db"):
         self.db_path = db_path
         self.init_database()
 
@@ -297,7 +297,7 @@ class PentestDatabase:
 # ============================================================================
 
 # Initialize database
-db = PentestDatabase()
+db = AthenaDatabase()
 
 # Global state
 current_engagement = None

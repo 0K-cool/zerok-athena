@@ -175,7 +175,7 @@ Claude Skills are reusable workflow packages that include instructions, scripts,
 ### Skills Directory Structure
 
 ```
-/Users/kelvinlomboy/VERSANT/Projects/Pentest/skills/
+/Users/kelvinlomboy/VERSANT/Projects/ATHENA/skills/
 ├── evidence-collection/
 │   ├── SKILL.md                    # Skill instructions
 │   ├── templates/
@@ -754,7 +754,7 @@ Claude (loads kali-tool-parser skill):
 ## Contact & Support
 
 **Project Owner:** Kelvin Lomboy (kelvin.lomboy@cooperton.com)
-**Document Location:** `/Users/kelvinlomboy/VERSANT/Projects/Pentest/CLAUDE-FEATURES-ROADMAP.md`
+**Document Location:** `/Users/kelvinlomboy/VERSANT/Projects/ATHENA/CLAUDE-FEATURES-ROADMAP.md`
 **Related Documentation:**
 - Project Guidelines: `CLAUDE.md`
 - Current Engagement: `engagements/active/SSESL_2025-10-20_Internal-External/README.md`

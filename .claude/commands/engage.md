@@ -24,8 +24,8 @@ Initialize a new authorized penetration testing engagement for: **$ARGUMENTS**
 **Before executing this command, Claude should:**
 1. Initialize database connection:
 ```python
-from athena_monitor import PentestDatabase
-db = PentestDatabase(db_path="/Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor/athena_tracker.db")
+from athena_monitor import AthenaDatabase
+db = AthenaDatabase(db_path="/Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor/athena_tracker.db")
 ```
 
 2. Log engagement creation after user confirms authorization

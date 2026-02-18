@@ -5,7 +5,7 @@
 ### Step 1: Install Dependencies (One-Time Setup)
 
 ```bash
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 
 # Create virtual environment (if not exists)
 python3 -m venv venv
@@ -161,7 +161,7 @@ pip install -r requirements.txt
 - Click "Refresh" button on dashboard
 - Check database file exists:
   ```bash
-  ls -la pentest_tracker.db
+  ls -la athena_tracker.db
   ```
 - Verify auto-refresh enabled (should update every 5-10 seconds)
 
@@ -183,17 +183,17 @@ ui.run(port=8081, ...)
 
 **Dashboard script:**
 ```
-/Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor/athena_monitor.py
+/Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor/athena_monitor.py
 ```
 
 **Database file:**
 ```
-/Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor/pentest_tracker.db
+/Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor/athena_tracker.db
 ```
 
 **Virtual environment:**
 ```
-/Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor/venv/
+/Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor/venv/
 ```
 
 ---
@@ -221,7 +221,7 @@ ui.run(port=8081, ...)
 
 ```bash
 # Copy database for backup/archive
-cp pentest_tracker.db ~/backups/TestCorp_2025-12-16_pentest_tracker.db
+cp athena_tracker.db ~/backups/TestCorp_2025-12-16_athena_tracker.db
 
 # Database contains complete audit trail:
 - All commands executed
@@ -245,7 +245,7 @@ Database provides:
 ### Dashboard Operations
 ```bash
 # Launch dashboard
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 source venv/bin/activate
 python athena_monitor.py
 

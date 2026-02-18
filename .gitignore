@@ -101,8 +101,26 @@ out/
 *.swp
 *.swo
 
+# Large files / PDFs (exceed GitHub 100MB limit)
+*.pdf
+
 # Archives (may contain sensitive data)
 *.zip
 *.tar.gz
 *.7z
 *.rar
+
+# Vector DB / Embeddings (large, regenerable)
+lance_athena_kb/
+
+# Output (generated files, screenshots, temp)
+output/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Screenshots (local testing)
+screenshots/
+
+# SQLite databases
+*.db

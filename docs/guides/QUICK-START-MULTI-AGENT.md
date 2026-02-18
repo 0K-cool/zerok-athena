@@ -25,7 +25,7 @@ curl http://localhost:8000/health
 ```bash
 cd tools/athena-monitor
 source venv/bin/activate  # If not already activated
-python pentest_monitor.py
+python athena_monitor.py
 ```
 
 **Dashboard**: http://localhost:8080
@@ -669,14 +669,14 @@ ACME_2025-12-16_Internal/
 ## Summary: Getting Started Right Now
 
 **External Pentest**:
-1. Launch Pentest Monitor: `python pentest_monitor.py`
+1. Launch Pentest Monitor: `python athena_monitor.py`
 2. Run: `/orchestrate [CLIENT] - External Pentest`
 3. Confirm authorization when prompted
 4. Approve exploitation when HITL checkpoint appears
 5. Review deliverables in `09-reporting/final/`
 
 **Internal Pentest**:
-1. Launch Pentest Monitor: `python pentest_monitor.py`
+1. Launch Pentest Monitor: `python athena_monitor.py`
 2. Run: `/orchestrate [CLIENT] - Internal Pentest`
 3. Provide internal scope (10.x.x.x networks, domain name)
 4. Confirm authorization + VPN access details

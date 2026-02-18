@@ -96,7 +96,7 @@
 
 **Integration**:
 - Pentest Monitor Dashboard (real-time visibility)
-- SQLite database (audit trail: `pentest_tracker.db`)
+- SQLite database (audit trail: `athena_tracker.db`)
 - Slash command system (`/engage`, `/scan`, `/validate`, `/report`)
 
 **Prompt Template**:
@@ -817,7 +817,7 @@ DELIVERABLE: Professional pentest report (PDF + Markdown + JSON)
 
 ## Shared Data Store (Pentest Monitor Database)
 
-**Location**: `tools/athena-monitor/pentest_tracker.db`
+**Location**: `tools/athena-monitor/athena_tracker.db`
 
 **Schema**:
 

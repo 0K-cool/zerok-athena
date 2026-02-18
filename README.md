@@ -128,7 +128,7 @@ For enhanced passive reconnaissance capabilities:
 # See API-KEYS-SETUP.md for obtaining API keys
 
 # 2. Add your API keys to .env file
-# File location: /Users/kelvinlomboy/VERSANT/Projects/Pentest/.env
+# File location: /Users/kelvinlomboy/VERSANT/Projects/ATHENA/.env
 
 # 3. Test all APIs
 ./osint-api-wrapper.sh test

@@ -19,8 +19,8 @@ This guide shows how to integrate the NiceGUI ATHENA Monitor with your existing 
              │
              ▼
 ┌─────────────────────────────────────┐
-│   PentestDatabase (SQLite)          │
-│   (pentest_tracker.db)              │
+│   AthenaDatabase (SQLite)          │
+│   (athena_tracker.db)              │
 └────────────┬────────────────────────┘
              │
              ▼
@@ -35,7 +35,7 @@ This guide shows how to integrate the NiceGUI ATHENA Monitor with your existing 
 ### 1. Launch Dashboard (Before Starting Pentest)
 
 ```bash
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 
 # Activate virtual environment (if not already)
 source venv/bin/activate
@@ -51,11 +51,11 @@ Dashboard opens at: **http://localhost:8080**
 At the start of your engagement, Claude will initialize the database connection:
 
 ```python
-from athena_monitor import PentestDatabase
+from athena_monitor import AthenaDatabase
 
 # Initialize database
-db = PentestDatabase(
-    db_path="/Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor/pentest_tracker.db"
+db = AthenaDatabase(
+    db_path="/Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor/athena_tracker.db"
 )
 ```
 
@@ -285,7 +285,7 @@ if user_approved:
 ### Phase 1: Engagement Start (5 minutes)
 ```bash
 # Terminal 1: Launch dashboard
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 python athena_monitor.py
 
 # Terminal 2: Start pentest
@@ -466,17 +466,17 @@ While Claude executes commands, you can watch the dashboard in your browser:
 
 **Problem:** Dashboard doesn't show executed commands
 **Solution:**
-- Verify PentestDatabase initialized with correct db_path
-- Check database file exists: `ls -la pentest_tracker.db`
+- Verify AthenaDatabase initialized with correct db_path
+- Check database file exists: `ls -la athena_tracker.db`
 - Confirm permissions: Database file must be writable
 
 ### Database File Location
 
-**Default:** `/Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor/pentest_tracker.db`
+**Default:** `/Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor/athena_tracker.db`
 
 **To change location:**
 ```python
-db = PentestDatabase(db_path="/path/to/custom/location/pentest_tracker.db")
+db = AthenaDatabase(db_path="/path/to/custom/location/athena_tracker.db")
 ```
 
 ---

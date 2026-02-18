@@ -46,7 +46,7 @@ curl "https://api.hunter.io/v2/account?api_key=$HUNTER_API_KEY"
 
 ## Solution: OSINT API Wrapper Script
 
-**Location**: `/Users/kelvinlomboy/VERSANT/Projects/Pentest/osint-api-wrapper.sh`
+**Location**: `/Users/kelvinlomboy/VERSANT/Projects/ATHENA/osint-api-wrapper.sh`
 
 ### How It Works
 
@@ -57,7 +57,7 @@ The wrapper script **always sources .env internally** before executing API calls
 # Inside osint-api-wrapper.sh
 
 # 1. Source .env file (happens automatically every time)
-source "/Users/kelvinlomboy/VERSANT/Projects/Pentest/.env"
+source "/Users/kelvinlomboy/VERSANT/Projects/ATHENA/.env"
 
 # 2. Execute API call with loaded environment variables
 curl -s "https://api.hunter.io/v2/domain-search?domain=$1&api_key=$HUNTER_API_KEY"
@@ -67,7 +67,7 @@ curl -s "https://api.hunter.io/v2/domain-search?domain=$1&api_key=$HUNTER_API_KE
 
 #### Testing All APIs
 ```bash
-/Users/kelvinlomboy/VERSANT/Projects/Pentest/osint-api-wrapper.sh test
+/Users/kelvinlomboy/VERSANT/Projects/ATHENA/osint-api-wrapper.sh test
 ```
 
 **Output**:
@@ -259,7 +259,7 @@ The Passive OSINT Agent can now use this wrapper script for **100% reliable** AP
 **Before (Unreliable)**:
 ```bash
 # Source .env (may or may not persist)
-source /Users/kelvinlomboy/VERSANT/Projects/Pentest/.env
+source /Users/kelvinlomboy/VERSANT/Projects/ATHENA/.env
 
 # Try API call (might fail if in different bash session)
 curl "https://api.hunter.io/v2/domain-search?domain=$TARGET&api_key=$HUNTER_API_KEY"
@@ -268,7 +268,7 @@ curl "https://api.hunter.io/v2/domain-search?domain=$TARGET&api_key=$HUNTER_API_
 **After (Reliable)**:
 ```bash
 # Use wrapper script (ALWAYS works)
-/Users/kelvinlomboy/VERSANT/Projects/Pentest/osint-api-wrapper.sh hunter $TARGET
+/Users/kelvinlomboy/VERSANT/Projects/ATHENA/osint-api-wrapper.sh hunter $TARGET
 ```
 
 ### Available Wrapper Commands for Agents
@@ -294,7 +294,7 @@ curl "https://api.hunter.io/v2/domain-search?domain=$TARGET&api_key=$HUNTER_API_
 
 **Fix**:
 ```bash
-chmod +x /Users/kelvinlomboy/VERSANT/Projects/Pentest/osint-api-wrapper.sh
+chmod +x /Users/kelvinlomboy/VERSANT/Projects/ATHENA/osint-api-wrapper.sh
 ```
 
 ### If API Still Returns 401
@@ -302,7 +302,7 @@ chmod +x /Users/kelvinlomboy/VERSANT/Projects/Pentest/osint-api-wrapper.sh
 **Diagnosis**:
 ```bash
 # Check if .env file exists and is readable
-ls -lh /Users/kelvinlomboy/VERSANT/Projects/Pentest/.env
+ls -lh /Users/kelvinlomboy/VERSANT/Projects/ATHENA/.env
 # Should show: -rw------- (600 permissions)
 
 # Test wrapper's API key loading

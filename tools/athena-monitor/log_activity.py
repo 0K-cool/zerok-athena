@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Command-line interface for logging pentest activities to database
+Command-line interface for logging ATHENA activities to database
 Usage: python log_activity.py <action> <parameters>
 """
 
@@ -10,9 +10,9 @@ from datetime import datetime
 from pathlib import Path
 
 # Database path
-DB_PATH = Path(__file__).parent / "pentest_tracker.db"
+DB_PATH = Path(__file__).parent / "athena_tracker.db"
 
-class PentestLogger:
+class AthenaLogger:
     def __init__(self):
         self.db_path = str(DB_PATH)
 
@@ -76,7 +76,7 @@ def main():
         print("  Log finding: python log_activity.py finding <engagement> <severity> <category> <title> [description] [target] [cvss]")
         sys.exit(1)
 
-    logger = PentestLogger()
+    logger = AthenaLogger()
     action = sys.argv[1]
 
     if action == "engagement":

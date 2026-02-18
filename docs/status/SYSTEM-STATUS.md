@@ -66,7 +66,7 @@ All components tested and operational. You can begin professional penetration te
 | VirusTotal | ✅ Active | 4 req/min | Threat intel retrieved successfully |
 
 **Storage**:
-- File: `/Users/kelvinlomboy/VERSANT/Projects/Pentest/.env`
+- File: `/Users/kelvinlomboy/VERSANT/Projects/ATHENA/.env`
 - Permissions: `600` (read/write owner only)
 - Git Protection: ✅ Confirmed in `.gitignore`
 
@@ -129,7 +129,7 @@ source load-api-keys.sh
 - ✅ Session resumption
 - ✅ Evidence browser
 
-**Database**: `tools/athena-monitor/pentest_tracker.db`
+**Database**: `tools/athena-monitor/athena_tracker.db`
 **Dashboard URL**: http://localhost:8080
 **Launch**: `python pentest_monitor.py`
 
@@ -166,7 +166,7 @@ source load-api-keys.sh
 
 ### File Structure
 ```
-/Users/kelvinlomboy/VERSANT/Projects/Pentest/
+/Users/kelvinlomboy/VERSANT/Projects/ATHENA/
 ├── .env                                    # API keys (secure, in .gitignore)
 ├── load-api-keys.sh                        # API key loading script
 ├── CLAUDE.md                               # Project instructions
@@ -198,7 +198,7 @@ source load-api-keys.sh
 └── tools/
     └── athena-monitor/
         ├── pentest_monitor.py
-        ├── pentest_tracker.db
+        ├── athena_tracker.db
         ├── README.md
         ├── QUICK-START.md
         └── INTEGRATION-GUIDE.md
@@ -425,10 +425,10 @@ mcp__playwright__browser_navigate("https://example.com")
 **Database Issues**
 ```bash
 # Check database exists
-ls -lh tools/athena-monitor/pentest_tracker.db
+ls -lh tools/athena-monitor/athena_tracker.db
 
 # Query directly
-sqlite3 tools/athena-monitor/pentest_tracker.db \
+sqlite3 tools/athena-monitor/athena_tracker.db \
   "SELECT * FROM engagements;"
 ```
 

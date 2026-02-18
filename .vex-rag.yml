@@ -1,0 +1,53 @@
+# ATHENA vex-rag Configuration
+# Pentest-Focused Knowledge Base
+# Created: January 31, 2026
+
+project:
+  name: ATHENA
+  description: Penetration testing platform - tools, methodology, exploitation techniques
+
+database:
+  path: ./lance_athena_kb
+  backup_dir: ~/Library/CloudStorage/ProtonDrive-kelvin@lomboy.email/ATHENA-RAG-Backups/
+
+indexing:
+  chunk_size: 384
+  chunk_overlap: 0.15
+  context_model: llama3.1:8b
+  embedding_model: nomic-embed-text:latest
+  enable_sanitization: false  # Pentest content has "suspicious" patterns by design
+  auto_index_extensions:
+    - .md
+    - .pdf
+    - .txt
+  auto_index_paths:
+    - docs/
+    - playbooks/
+    - README.md
+    - CLAUDE.md
+
+retrieval:
+  default_top_k: 5
+  vector_limit: 20
+  bm25_limit: 20
+  fusion_limit: 10
+  enable_reranking: true
+  reranker_model: BAAI/bge-reranker-large
+
+projects_to_index:
+  - name: ATHENA
+    paths:
+      - docs/
+      - playbooks/
+      - README.md
+      - CLAUDE.md
+
+security:
+  # Allowed base directories for file operations
+  allowed_base_paths:
+    - ~/VERSANT/Projects/ATHENA
+    - ~/Personal_AI_Infrastructure/docs/references  # Shared reference books
+
+logging:
+  level: INFO
+  file: .logs/rag.log

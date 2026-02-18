@@ -9,7 +9,7 @@ The NiceGUI ATHENA Monitor is now **fully integrated** with your existing VERSAN
 ## 📦 Deliverables Created
 
 ### 1. Core Dashboard (`athena_monitor.py`)
-- **Location:** `/Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor/athena_monitor.py`
+- **Location:** `/Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor/athena_monitor.py`
 - **What it does:** Real-time monitoring dashboard with SQLite backend
 - **Features:**
   - Main dashboard (all engagements overview)
@@ -18,7 +18,7 @@ The NiceGUI ATHENA Monitor is now **fully integrated** with your existing VERSAN
   - Auto-refresh (5-10 seconds)
   - Material Design UI (NiceGUI)
 
-### 2. Database Schema (`PentestDatabase` class)
+### 2. Database Schema (`AthenaDatabase` class)
 - **5 tables:**
   - `commands` - All executed commands (prevent duplicates)
   - `findings` - Vulnerability findings (with validation status)
@@ -84,7 +84,7 @@ The NiceGUI ATHENA Monitor is now **fully integrated** with your existing VERSAN
   - Test before engagement
 
 #### **Updated: TOMORROW-QUICK-START.md**
-- **Location:** `/Users/kelvinlomboy/VERSANT/Projects/Pentest/TOMORROW-QUICK-START.md`
+- **Location:** `/Users/kelvinlomboy/VERSANT/Projects/ATHENA/TOMORROW-QUICK-START.md`
 - **Updates:**
   - Dashboard launch instructions (Phase 0)
   - Real-time monitoring references throughout
@@ -203,7 +203,7 @@ Dashboard updates every 5-10 seconds automatically
 ### Step 1: Pre-Engagement (Tonight)
 ```bash
 # Test dashboard setup
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -217,7 +217,7 @@ python athena_monitor.py
 ### Step 2: Engagement Start (Tomorrow Morning)
 ```bash
 # Terminal 1: Launch dashboard
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 source venv/bin/activate
 python athena_monitor.py
 # Keep running!
@@ -315,10 +315,10 @@ pip install -r requirements.txt
 ### Database Not Updating
 ```bash
 # Check database file exists
-ls -la pentest_tracker.db
+ls -la athena_tracker.db
 
 # Check permissions
-chmod 644 pentest_tracker.db
+chmod 644 athena_tracker.db
 
 # Refresh dashboard manually
 # Click "Refresh" button

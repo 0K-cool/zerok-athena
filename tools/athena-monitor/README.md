@@ -31,7 +31,7 @@ Real-time monitoring and auditing dashboard for AI-powered penetration testing o
 ### Installation
 
 ```bash
-cd /Users/kelvinlomboy/VERSANT/Projects/Pentest/tools/athena-monitor
+cd /Users/kelvinlomboy/VERSANT/Projects/ATHENA/tools/athena-monitor
 
 # Create virtual environment
 python3 -m venv venv
@@ -84,10 +84,10 @@ Click any engagement to view:
 ### From AI Agent (During Pentest)
 
 ```python
-from athena_monitor import PentestDatabase
+from athena_monitor import AthenaDatabase
 
 # Initialize
-db = PentestDatabase()
+db = AthenaDatabase()
 
 # Before executing command - check if already done
 previous_commands = db.search_commands(

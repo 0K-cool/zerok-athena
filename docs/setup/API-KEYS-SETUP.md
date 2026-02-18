@@ -603,7 +603,7 @@ source .env && echo $SHODAN_API_KEY
 **Diagnosis**:
 ```bash
 # Check if .env file exists
-ls -lh /Users/kelvinlomboy/VERSANT/Projects/Pentest/.env
+ls -lh /Users/kelvinlomboy/VERSANT/Projects/ATHENA/.env
 
 # Check if wrapper script can find .env
 ./osint-api-wrapper.sh check
@@ -625,7 +625,7 @@ ls -lh /Users/kelvinlomboy/VERSANT/Projects/Pentest/.env
 
 **Solution**:
 ```bash
-chmod +x /Users/kelvinlomboy/VERSANT/Projects/Pentest/osint-api-wrapper.sh
+chmod +x /Users/kelvinlomboy/VERSANT/Projects/ATHENA/osint-api-wrapper.sh
 ```
 
 ### Using the OSINT API Wrapper (Recommended)
