@@ -64,6 +64,9 @@ apt-reports/
 threat-actor-*/
 attribution/
 
+# Internal Research & Competitive Intelligence (NEVER COMMIT)
+docs/research/
+
 # Perplexity API Keys & Output
 perplexity-*.json
 api-responses/
