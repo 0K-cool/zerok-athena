@@ -756,6 +756,70 @@ Reference certifications for credibility:
 
 ---
 
+## Competitive Intelligence Brief (February 2026)
+
+**Source:** 5 research reports from 27 parallel agents, 120+ sources — `docs/research/`
+
+### Industry State of the Art
+
+| Platform | Architecture | Key Metric | Differentiator |
+|----------|-------------|------------|----------------|
+| **XBOW** | Coordinator + Solver loops | #1 HackerOne, $117M raised | Canary/CTF flag validation (0% false positive exploits) |
+| **NodeZero** (Horizon3) | Graph-driven orchestration | Solved GOAD AD in 14 min (50x human) | MCP server, Tripwires deception technology |
+| **PentestAgent** | Orchestrator + workers + RAG | 4.5x faster than PentestGPT | Shared vector DB memory across agents |
+| **Team Atlantis** | DARPA AIxCC winner | 77% vuln ID, 61% patching | BCDA false-positive filtering agent, K8s pods |
+| **Big Sleep** (Google) | Variant analysis | 20 real-world vulns | Sandboxed Python + debugger verification |
+| **CALDERA MCP** | LLM Ability Factory | MITRE-backed | STIX RAG pipeline, adversary emulation |
+
+### 5 Dominant Architecture Patterns (Validated Across Competitors)
+
+1. **Coordinator + Specialist decomposition** — Every top platform separates planning from execution
+2. **Deterministic validation separate from LLM** — XBOW uses canary flags, Atlantis uses BCDA agent, Big Sleep uses debugger. LLM should NEVER self-validate exploits
+3. **Graph-based attack state** — NodeZero and PentAGI use Neo4j. Attack paths, lateral movement, and credential chains require graph relationships
+4. **RAG over fine-tuning** — PentestAgent, CALDERA MCP, and Atlantis all use retrieval from exploit DBs rather than fine-tuned models
+5. **Isolated execution environments** — Atlantis uses K8s pods, Big Sleep uses sandboxed Python. Tool execution MUST be containerized
+
+### 10 Identified Gaps in Current ATHENA
+
+| # | Gap | Priority | Industry Reference |
+|---|-----|----------|--------------------|
+| 1 | No ProjectDiscovery pipeline (subfinder, httpx, nuclei, naabu) | HIGH | NodeZero, HexStrike |
+| 2 | No Neo4j/graph intelligence for attack paths | HIGH | NodeZero, PentAGI |
+| 3 | No continuous/autonomous mode | HIGH | XBOW closed-loop |
+| 4 | No PDF report generation | MEDIUM | All commercial platforms |
+| 5 | No internal network pentest agent | MEDIUM | NodeZero GOAD specialization |
+| 6 | No compliance mapping logic (PCI-DSS, HIPAA, SOC2) | MEDIUM | Commercial standard |
+| 7 | No multi-engagement dashboard | MEDIUM | NodeZero portal |
+| 8 | API key handling needs improvement | MEDIUM | Security hygiene |
+| 9 | No remediation verification (retest) | LOW | XBOW closed-loop |
+| 10 | Empty evidence package in dry-run | HIGH | All platforms require evidence |
+
+### ATHENA v2.0 Target Capabilities
+
+Based on competitive analysis, ATHENA v2.0 should target:
+
+- **Deterministic exploit validation** (canary pattern from XBOW — separate from LLM judgment)
+- **Neo4j attack graph** (RedAmon concept — credential chains, lateral movement, kill chain visualization)
+- **ProjectDiscovery integration** (subfinder → httpx → nuclei → naabu pipeline)
+- **Evidence collection automation** (screenshots, terminal output, packet captures — currently Grade F)
+- **PDF report generation** (professional deliverables from markdown sources)
+- **Continuous mode** (agents loop until scope exhausted, with HITL gates at escalation points)
+
+### Key Strategic Insight
+
+**The 87% → 7% gap IS the value proposition.** AI pentesting tools drop from 87% to 7% success without CVE descriptions. Human experts with AI augmentation (ATHENA + pentester) beats fully autonomous (21% solve rate) by 3x with semi-autonomous (64% solve rate). ATHENA's HITL philosophy is validated by industry data.
+
+### Research Reports
+
+Full reports in `docs/research/`:
+1. `2026-02-19-ai-cybersecurity-landscape-synthesis.md` — Synthesized overview (Anthropic vs OpenAI vs Industry)
+2. `2026-02-19-multi-agent-ai-pentesting-landscape.md` — Multi-agent pentest ecosystem (35+ sources)
+3. `2026-02-19-anthropic-cybersecurity-comprehensive-research.md` — Claude cybersecurity capabilities
+4. `2026-02-19-openai-cybersecurity-comprehensive-research.md` — GPT/Aardvark capabilities
+5. `2026-02-19-competitive-pentest-platform-deep-dive.md` — 6 platform architecture teardowns
+
+---
+
 ## Project Vision
 
 **ATHENA Platform Goals**:
