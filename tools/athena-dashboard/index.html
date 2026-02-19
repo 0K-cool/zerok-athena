@@ -1223,6 +1223,228 @@
       padding: 12px 8px;
     }
 
+    /* ========== ENGAGEMENT MANAGEMENT ========== */
+    .engagement-selector-container {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--zerok-border);
+      flex-shrink: 0;
+    }
+
+    .engagement-select {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--zerok-card-hover);
+      border: 1px solid var(--zerok-border);
+      border-radius: 6px;
+      color: var(--zerok-text);
+      font-family: var(--zerok-font-sans);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .engagement-select:hover {
+      border-color: var(--zerok-border-hover);
+    }
+
+    .engagement-select:focus {
+      outline: none;
+      border-color: var(--zerok-primary);
+    }
+
+    .engagement-stats {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+
+    .engagement-stat {
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+    }
+
+    .engagement-stat span {
+      font-weight: 600;
+      color: var(--zerok-text);
+    }
+
+    .engagement-list-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--zerok-text-muted);
+      cursor: pointer;
+      font-size: 12px;
+      width: 100%;
+      text-align: left;
+      transition: all 0.15s ease;
+      border: none;
+      margin-bottom: 2px;
+    }
+
+    .engagement-list-item:hover {
+      background: var(--zerok-sidebar-hover);
+      color: var(--zerok-text);
+    }
+
+    .engagement-list-item.active {
+      background: var(--zerok-sidebar-active);
+      color: var(--zerok-text);
+      border-left: 3px solid var(--zerok-primary);
+      padding-left: 9px;
+    }
+
+    .engagement-status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .engagement-status-dot.active {
+      background: var(--zerok-low);
+    }
+
+    .engagement-status-dot.completed {
+      background: var(--zerok-text-dim);
+    }
+
+    .engagement-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Create Engagement Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      animation: fadeIn 0.2s ease;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--zerok-card);
+      border: 1px solid var(--zerok-border);
+      border-radius: 12px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+      animation: slideUp 0.3s ease;
+    }
+
+    .modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--zerok-border);
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--zerok-text);
+      margin: 0;
+    }
+
+    .modal-body {
+      padding: 24px;
+    }
+
+    .modal-field {
+      margin-bottom: 16px;
+    }
+
+    .modal-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--zerok-text);
+      margin-bottom: 6px;
+    }
+
+    .modal-input, .modal-select {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--zerok-card-hover);
+      border: 1px solid var(--zerok-border);
+      border-radius: 6px;
+      color: var(--zerok-text);
+      font-family: var(--zerok-font-sans);
+      font-size: 13px;
+      transition: all 0.15s ease;
+    }
+
+    .modal-input:focus, .modal-select:focus {
+      outline: none;
+      border-color: var(--zerok-primary);
+    }
+
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--zerok-border);
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+    }
+
+    .modal-btn {
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: none;
+    }
+
+    .modal-btn-cancel {
+      background: transparent;
+      border: 1px solid var(--zerok-border);
+      color: var(--zerok-text-muted);
+    }
+
+    .modal-btn-cancel:hover {
+      border-color: var(--zerok-border-hover);
+      color: var(--zerok-text);
+    }
+
+    .modal-btn-primary {
+      background: var(--zerok-primary);
+      color: white;
+    }
+
+    .modal-btn-primary:hover {
+      background: var(--zerok-primary-hover);
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
     /* ========== AI ASSISTANT DRAWER ========== */
     .ai-drawer {
       width: 0;
@@ -2303,6 +2525,29 @@
         </div>
       </nav>
 
+      <!-- Engagements Section -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-header" onclick="toggleSection('engagements')">
+          <span class="sidebar-section-label">Engagements</span>
+          <button class="section-collapse-btn" id="engagementsCollapseBtn">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 6l4 4 4-4"/>
+            </svg>
+          </button>
+        </div>
+        <div class="sidebar-section-items" id="engagementsItems">
+          <div id="engagementsList">
+            <div style="text-align: center; padding: 12px; color: var(--zerok-text-dim); font-size: 11px;">Loading...</div>
+          </div>
+          <button class="sidebar-section-item" onclick="openCreateEngagementModal()" style="border-top: 1px solid var(--zerok-border); margin-top: 8px; padding-top: 12px; color: var(--zerok-primary);">
+            <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 3v12M3 9h12"/>
+            </svg>
+            <span class="sidebar-section-text">New Engagement</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Tools Section -->
       <div class="sidebar-section">
         <div class="sidebar-section-header" onclick="toggleSection('tools')">
@@ -2969,6 +3214,20 @@
         </svg>
       </button>
     </div>
+    <!-- Engagement Selector -->
+    <div class="engagement-selector-container">
+      <label for="engagementSelect" style="font-size: 11px; color: var(--zerok-text-dim); margin-bottom: 4px;">Engagement</label>
+      <select id="engagementSelect" class="engagement-select" onchange="switchEngagement()">
+        <option value="">Loading...</option>
+      </select>
+      <div class="engagement-stats" id="engagementStats" style="display: none;">
+        <span class="engagement-stat"><span id="stat-hosts">0</span> hosts</span>
+        <span class="engagement-stat"><span id="stat-services">0</span> services</span>
+        <span class="engagement-stat"><span id="stat-vulns">0</span> vulns</span>
+        <span class="engagement-stat"><span id="stat-findings">0</span> findings</span>
+      </div>
+    </div>
+
     <div class="ai-drawer-agents" id="agentChips">
       <span class="agent-chip" data-agent="PL" onclick="toggleChipFilter('PL')">PL<span class="chip-event-count" data-agent-count="PL">0</span></span>
       <span class="agent-chip" data-agent="OR" onclick="toggleChipFilter('OR')">OR<span class="chip-event-count" data-agent-count="OR">0</span></span>
@@ -3946,7 +4205,161 @@
     document.addEventListener('DOMContentLoaded', function() {
       // Try connecting — if server isn't running, it will retry silently
       setTimeout(connectWebSocket, 500);
+      // Load engagements list
+      loadEngagements();
     });
+
+    // ────────────────────────────────────────
+    // ENGAGEMENT MANAGEMENT
+    // ────────────────────────────────────────
+
+    let currentEngagementId = 'eng-001';
+
+    async function loadEngagements() {
+      try {
+        const res = await fetch('/api/engagements');
+        const engagements = await res.json();
+
+        // Populate dropdown
+        const select = document.getElementById('engagementSelect');
+        select.innerHTML = engagements.map(e =>
+          `<option value="${e.id}" ${e.id === currentEngagementId ? 'selected' : ''}>${e.name}</option>`
+        ).join('');
+
+        // Populate sidebar list
+        const list = document.getElementById('engagementsList');
+        list.innerHTML = engagements.map(e => `
+          <button class="engagement-list-item ${e.id === currentEngagementId ? 'active' : ''}" onclick="selectEngagement('${e.id}')">
+            <div class="engagement-status-dot ${e.status || 'active'}"></div>
+            <span class="engagement-name">${escHtml(e.name)}</span>
+          </button>
+        `).join('');
+
+        // Load summary for current engagement
+        if (currentEngagementId) {
+          loadEngagementSummary(currentEngagementId);
+        }
+      } catch (e) {
+        console.error('Failed to load engagements:', e);
+      }
+    }
+
+    async function loadEngagementSummary(eid) {
+      try {
+        const res = await fetch(`/api/engagements/${eid}/summary`);
+        const summary = await res.json();
+
+        document.getElementById('stat-hosts').textContent = summary.hosts || 0;
+        document.getElementById('stat-services').textContent = summary.services || 0;
+        document.getElementById('stat-vulns').textContent = summary.vulnerabilities || 0;
+        document.getElementById('stat-findings').textContent = summary.findings || 0;
+        document.getElementById('engagementStats').style.display = 'flex';
+      } catch (e) {
+        console.error('Failed to load engagement summary:', e);
+      }
+    }
+
+    function selectEngagement(eid) {
+      currentEngagementId = eid;
+      document.getElementById('engagementSelect').value = eid;
+
+      // Update sidebar active state
+      document.querySelectorAll('.engagement-list-item').forEach(el => {
+        if (el.onclick.toString().includes(eid)) {
+          el.classList.add('active');
+        } else {
+          el.classList.remove('active');
+        }
+      });
+
+      loadEngagementSummary(eid);
+      // Reload timeline and findings for this engagement
+      // (timeline filtering would be implemented if we add engagement_id to events)
+    }
+
+    function switchEngagement() {
+      const select = document.getElementById('engagementSelect');
+      selectEngagement(select.value);
+    }
+
+    function openCreateEngagementModal() {
+      document.getElementById('createEngagementModal').classList.add('active');
+    }
+
+    function closeCreateEngagementModal() {
+      document.getElementById('createEngagementModal').classList.remove('active');
+      document.getElementById('createEngagementForm').reset();
+    }
+
+    async function createEngagement() {
+      const form = document.getElementById('createEngagementForm');
+      const data = {
+        name: form.engName.value,
+        client: form.engClient.value,
+        scope: form.engScope.value,
+        type: form.engType.value,
+      };
+
+      try {
+        const res = await fetch('/api/engagements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        const result = await res.json();
+
+        if (result.ok) {
+          closeCreateEngagementModal();
+          loadEngagements();
+          showToast('success', 'Success', 'Engagement created');
+        } else {
+          showToast('error', 'Error', 'Failed to create engagement');
+        }
+      } catch (e) {
+        console.error('Failed to create engagement:', e);
+        showToast('error', 'Error', 'Failed to create engagement');
+      }
+    }
   </script>
+
+  <!-- Create Engagement Modal -->
+  <div class="modal-overlay" id="createEngagementModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Create New Engagement</h3>
+      </div>
+      <div class="modal-body">
+        <form id="createEngagementForm" onsubmit="event.preventDefault(); createEngagement();">
+          <div class="modal-field">
+            <label class="modal-label" for="engName">Engagement Name</label>
+            <input type="text" id="engName" class="modal-input" placeholder="Acme Corp External Pentest" required>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label" for="engClient">Client</label>
+            <input type="text" id="engClient" class="modal-input" placeholder="Acme Corporation" required>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label" for="engScope">Scope</label>
+            <input type="text" id="engScope" class="modal-input" placeholder="*.acme.com, 10.0.0.0/24" required>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label" for="engType">Type</label>
+            <select id="engType" class="modal-select">
+              <option value="external">External</option>
+              <option value="internal">Internal</option>
+              <option value="webapp">Web Application</option>
+              <option value="api">API</option>
+              <option value="mobile">Mobile</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-cancel" onclick="closeCreateEngagementModal()">Cancel</button>
+        <button class="modal-btn modal-btn-primary" onclick="createEngagement()">Create</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

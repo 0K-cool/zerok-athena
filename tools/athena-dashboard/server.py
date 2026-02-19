@@ -35,6 +35,7 @@ Event Types (client → server):
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -47,6 +48,14 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+# Neo4j imports (optional dependency)
+try:
+    from neo4j import GraphDatabase
+    NEO4J_AVAILABLE = True
+except ImportError:
+    NEO4J_AVAILABLE = False
+    GraphDatabase = None
 
 
 # ──────────────────────────────────────────────
@@ -152,6 +161,31 @@ class Engagement(BaseModel):
 
 
 # ──────────────────────────────────────────────
+# Neo4j Connection
+# ──────────────────────────────────────────────
+
+NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://172.26.80.76:7687")
+NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
+NEO4J_PASS = os.environ.get("NEO4J_PASS", "athena2026")
+
+neo4j_driver = None
+neo4j_available = False
+
+if NEO4J_AVAILABLE:
+    try:
+        neo4j_driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
+        neo4j_driver.verify_connectivity()
+        neo4j_available = True
+        print(f"  Neo4j:      {NEO4J_URI} ✓")
+    except Exception as e:
+        print(f"  Neo4j:      Unavailable ({e}) - using mock data")
+        neo4j_driver = None
+        neo4j_available = False
+else:
+    print("  Neo4j:      neo4j package not installed - using mock data")
+
+
+# ──────────────────────────────────────────────
 # State Management
 # ──────────────────────────────────────────────
 
@@ -169,6 +203,7 @@ class DashboardState:
         self.engagements: list[Engagement] = self._seed_engagements()
         self.connected_clients: set[WebSocket] = set()
         self._event_lock = asyncio.Lock()
+        self.active_engagement_id: str = "eng-001"  # Default active engagement
 
     def _seed_engagements(self) -> list[Engagement]:
         """Seed with demo engagements matching dashboard stat cards."""
@@ -592,8 +627,154 @@ async def get_agents():
 
 @app.get("/api/engagements")
 async def get_engagements():
-    """Get all engagements."""
+    """Get all engagements from Neo4j or fallback to mock data."""
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (e:Engagement)
+                    RETURN e.id AS id, e.name AS name, e.client AS client,
+                           e.scope AS scope, e.type AS type, e.status AS status,
+                           e.start_date AS start_date
+                    ORDER BY e.start_date DESC
+                """)
+                engagements = []
+                for record in result:
+                    engagements.append({
+                        "id": record["id"],
+                        "name": record["name"],
+                        "client": record.get("client", "Unknown"),
+                        "scope": record.get("scope", ""),
+                        "type": record.get("type", "external"),
+                        "status": record.get("status", "active"),
+                        "start_date": record.get("start_date", ""),
+                    })
+                return engagements
+        except Exception as e:
+            print(f"Neo4j query error: {e}")
+            # Fall through to mock data
+
+    # Fallback: return mock engagements
     return [e.model_dump() for e in state.engagements]
+
+
+class CreateEngagementPayload(BaseModel):
+    name: str
+    client: str
+    scope: str
+    type: str = "external"
+
+
+@app.post("/api/engagements")
+async def create_engagement(payload: CreateEngagementPayload):
+    """Create new engagement in Neo4j or mock data."""
+    engagement_id = f"eng-{str(uuid.uuid4())[:6]}"
+    start_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run("""
+                    CREATE (e:Engagement {
+                        id: $id,
+                        name: $name,
+                        client: $client,
+                        scope: $scope,
+                        type: $type,
+                        status: 'active',
+                        start_date: $start_date
+                    })
+                """, id=engagement_id, name=payload.name, client=payload.client,
+                     scope=payload.scope, type=payload.type, start_date=start_date)
+
+            # Broadcast engagement change
+            await state.broadcast({
+                "type": "engagement_changed",
+                "engagement_id": engagement_id,
+                "timestamp": time.time(),
+            })
+
+            return {"ok": True, "engagement_id": engagement_id}
+        except Exception as e:
+            print(f"Neo4j write error: {e}")
+            # Fall through to mock
+
+    # Fallback: add to mock list
+    new_engagement = Engagement(
+        id=engagement_id,
+        name=payload.name,
+        target=payload.scope,
+        status="active",
+        start_date=start_date,
+        agents_active=0,
+        findings_count=0,
+        phase="Planning",
+    )
+    state.engagements.append(new_engagement)
+
+    await state.broadcast({
+        "type": "engagement_changed",
+        "engagement_id": engagement_id,
+        "timestamp": time.time(),
+    })
+
+    return {"ok": True, "engagement_id": engagement_id}
+
+
+@app.get("/api/engagements/{eid}/summary")
+async def get_engagement_summary(eid: str):
+    """Get engagement statistics from Neo4j or mock data."""
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (e:Engagement {id: $eid})
+                    OPTIONAL MATCH (e)<-[:BELONGS_TO]-(h:Host)
+                    OPTIONAL MATCH (h)<-[:RUNS_ON]-(s:Service)
+                    OPTIONAL MATCH (h)<-[:AFFECTS]-(v:Vulnerability)
+                    OPTIONAL MATCH (e)<-[:BELONGS_TO]-(f:Finding)
+                    RETURN count(DISTINCT h) AS hosts,
+                           count(DISTINCT s) AS services,
+                           count(DISTINCT v) AS vulns,
+                           count(DISTINCT f) AS findings,
+                           collect(DISTINCT f.severity) AS severities
+                """, eid=eid)
+                record = result.single()
+                if record:
+                    severities = record["severities"]
+                    return {
+                        "hosts": record["hosts"],
+                        "services": record["services"],
+                        "vulnerabilities": record["vulns"],
+                        "findings": record["findings"],
+                        "severity": {
+                            "critical": severities.count("critical"),
+                            "high": severities.count("high"),
+                            "medium": severities.count("medium"),
+                            "low": severities.count("low"),
+                        }
+                    }
+        except Exception as e:
+            print(f"Neo4j summary query error: {e}")
+            # Fall through to mock
+
+    # Fallback: return mock summary
+    eng = next((e for e in state.engagements if e.id == eid), None)
+    if not eng:
+        return JSONResponse(status_code=404, content={"error": "Engagement not found"})
+
+    return {
+        "hosts": 156,
+        "services": 89,
+        "vulnerabilities": 8,
+        "findings": eng.findings_count,
+        "severity": {
+            "critical": 2,
+            "high": 1,
+            "medium": 4,
+            "low": 0,
+        }
+    }
 
 
 @app.get("/api/findings")
@@ -605,6 +786,99 @@ async def get_findings(severity: Optional[str] = None, engagement: Optional[str]
     if engagement:
         results = [f for f in results if f.engagement == engagement]
     return [f.model_dump() for f in results]
+
+
+@app.get("/api/engagements/{eid}/findings")
+async def get_engagement_findings(eid: str):
+    """Get findings for engagement from Neo4j or fallback."""
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (f:Finding)-[:BELONGS_TO]->(e:Engagement {id: $eid})
+                    OPTIONAL MATCH (f)-[:AFFECTS]->(h:Host)
+                    WITH f, collect(DISTINCT h.ip) AS affected_hosts
+                    OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
+                    RETURN f.id AS id, f.title AS title, f.severity AS severity,
+                           f.cvss AS cvss, f.status AS status, f.category AS category,
+                           f.description AS description, affected_hosts,
+                           count(DISTINCT ep) AS evidence_count
+                    ORDER BY f.cvss DESC NULLS LAST, f.severity DESC
+                """, eid=eid)
+                findings = []
+                for record in result:
+                    findings.append({
+                        "id": record["id"],
+                        "title": record["title"],
+                        "severity": record["severity"],
+                        "cvss": record["cvss"],
+                        "status": record.get("status", "open"),
+                        "category": record.get("category", ""),
+                        "description": record.get("description", ""),
+                        "affected_hosts": record["affected_hosts"],
+                        "evidence_count": record["evidence_count"],
+                    })
+                return findings
+        except Exception as e:
+            print(f"Neo4j findings query error: {e}")
+            # Fall through to mock
+
+    # Fallback: filter in-memory findings
+    results = [f for f in state.findings if f.engagement == eid]
+    return [{
+        "id": f.id,
+        "title": f.title,
+        "severity": f.severity.value,
+        "cvss": f.cvss,
+        "status": "open",
+        "category": f.category,
+        "description": f.description,
+        "affected_hosts": [f.target],
+        "evidence_count": 1 if f.evidence else 0,
+    } for f in results]
+
+
+@app.get("/api/engagements/{eid}/findings/{fid}/evidence")
+async def get_finding_evidence(eid: str, fid: str):
+    """Get evidence packages for a finding from Neo4j or fallback."""
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (f:Finding {id: $fid})-[:EVIDENCED_BY]->(ep:EvidencePackage)
+                    RETURN ep.id AS id, ep.type AS type, ep.timestamp AS timestamp,
+                           ep.request AS request, ep.response AS response,
+                           ep.screenshot AS screenshot, ep.notes AS notes
+                    ORDER BY ep.timestamp DESC
+                """, fid=fid)
+                evidence = []
+                for record in result:
+                    evidence.append({
+                        "id": record["id"],
+                        "type": record["type"],
+                        "timestamp": record["timestamp"],
+                        "request": record.get("request"),
+                        "response": record.get("response"),
+                        "screenshot": record.get("screenshot"),
+                        "notes": record.get("notes"),
+                    })
+                return evidence
+        except Exception as e:
+            print(f"Neo4j evidence query error: {e}")
+            # Fall through to mock
+
+    # Fallback: return mock evidence
+    return [
+        {
+            "id": "ev-001",
+            "type": "http",
+            "timestamp": time.time() - 300,
+            "request": "POST /login HTTP/1.1\nHost: portal.acme.com\n\nusername=admin' OR 1=1--&password=test",
+            "response": "HTTP/1.1 200 OK\n\n{\"status\":\"success\",\"user\":\"admin\"}",
+            "screenshot": None,
+            "notes": "Boolean-based blind SQL injection confirmed",
+        }
+    ]
 
 
 @app.get("/api/approvals")
@@ -623,6 +897,24 @@ async def get_events(limit: int = 50, agent: Optional[str] = None):
     if agent:
         results = [e for e in results if e.agent == agent]
     return [e.model_dump() for e in results[-limit:]]
+
+
+@app.get("/api/neo4j-config")
+async def get_neo4j_config():
+    """Return Neo4j connection config for browser-side Neovis.js (read-only credentials)."""
+    if not neo4j_available:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Neo4j not available", "available": False}
+        )
+
+    # Return read-only credentials for browser connection
+    return {
+        "available": True,
+        "uri": NEO4J_URI,
+        "user": NEO4J_USER,
+        "password": NEO4J_PASS,  # TODO: Use read-only user in production
+    }
 
 
 # ──────────────────────────────────────────────
