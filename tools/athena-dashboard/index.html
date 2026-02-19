@@ -6,6 +6,7 @@
   <title>0K ATHENA - Penetration Testing Platform</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Mono:wght@400;700&family=Share+Tech+Mono&family=Orbitron:wght@400;700&family=Audiowide&family=Michroma&family=Oxanium:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/neovis.js@2.1.0"></script>
   <style>
     /* ========== THEME: Default (0K) ========== */
     :root, html[data-theme="default"] {
@@ -481,6 +482,15 @@
       min-width: 0;
       width: 0;
       background: var(--zerok-content-bg);  /* Dark backdrop behind widgets */
+    }
+
+    /* View Container - for tab switching */
+    .view-container {
+      display: none;
+    }
+
+    .view-container.active {
+      display: block;
     }
 
     /* Content Header - same charcoal as sidebar (upside-down L) */
@@ -1443,6 +1453,292 @@
         opacity: 1;
         transform: translateY(0);
       }
+    }
+
+    /* ========== FINDINGS TABLE ========== */
+    .findings-view {
+      display: none;
+      padding: 24px;
+    }
+
+    .findings-view.active {
+      display: block;
+    }
+
+    .findings-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .findings-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--zerok-text);
+    }
+
+    .findings-summary {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 20px;
+      padding: 16px;
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 8px;
+    }
+
+    .findings-summary-item {
+      text-align: center;
+    }
+
+    .findings-summary-value {
+      font-size: 28px;
+      font-weight: 700;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .findings-summary-label {
+      font-size: 11px;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .findings-filters {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .severity-filter-chip {
+      padding: 8px 16px;
+      border-radius: 20px;
+      border: 1px solid var(--zerok-border);
+      background: transparent;
+      color: var(--zerok-text-muted);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .severity-filter-chip:hover {
+      border-color: var(--zerok-border-hover);
+      color: var(--zerok-text);
+    }
+
+    .severity-filter-chip.active {
+      border-color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+      color: var(--zerok-primary);
+    }
+
+    .severity-filter-chip.critical.active {
+      border-color: var(--zerok-critical);
+      background: color-mix(in srgb, var(--zerok-critical) 15%, transparent);
+      color: var(--zerok-critical);
+    }
+
+    .severity-filter-chip.high.active {
+      border-color: var(--zerok-high);
+      background: color-mix(in srgb, var(--zerok-high) 15%, transparent);
+      color: var(--zerok-high);
+    }
+
+    .severity-filter-chip.medium.active {
+      border-color: var(--zerok-medium);
+      background: color-mix(in srgb, var(--zerok-medium) 15%, transparent);
+      color: var(--zerok-medium);
+    }
+
+    .severity-filter-chip.low.active {
+      border-color: var(--zerok-low);
+      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+      color: var(--zerok-low);
+    }
+
+    .findings-table-container {
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .findings-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .findings-table thead {
+      background: var(--zerok-card-hover);
+      border-bottom: 1px solid var(--zerok-border);
+    }
+
+    .findings-table th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .findings-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--zerok-border);
+      font-size: 13px;
+      color: var(--zerok-text);
+    }
+
+    .findings-table tbody tr {
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .findings-table tbody tr:hover {
+      background: var(--zerok-card-hover);
+    }
+
+    .findings-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .finding-severity-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .finding-severity-badge.critical {
+      background: var(--zerok-critical);
+      color: white;
+    }
+
+    .finding-severity-badge.high {
+      background: var(--zerok-high);
+      color: white;
+    }
+
+    .finding-severity-badge.medium {
+      background: var(--zerok-medium);
+      color: white;
+    }
+
+    .finding-severity-badge.low {
+      background: var(--zerok-low);
+      color: white;
+    }
+
+    .finding-status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 500;
+      background: color-mix(in srgb, var(--zerok-text-dim) 20%, transparent);
+      color: var(--zerok-text);
+    }
+
+    .finding-evidence-count {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--zerok-text-muted);
+    }
+
+    .finding-details {
+      display: none;
+      padding: 20px;
+      background: var(--zerok-bg);
+      border-top: 1px solid var(--zerok-border);
+    }
+
+    .finding-details.expanded {
+      display: block;
+    }
+
+    .finding-details-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .finding-detail-section {
+      background: var(--zerok-card);
+      padding: 16px;
+      border-radius: 6px;
+    }
+
+    .finding-detail-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .finding-detail-value {
+      font-size: 13px;
+      color: var(--zerok-text);
+      font-family: var(--zerok-font-mono);
+    }
+
+    .evidence-gallery {
+      margin-top: 20px;
+    }
+
+    .evidence-item {
+      background: var(--zerok-card);
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+
+    .evidence-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .evidence-type {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--zerok-primary);
+      text-transform: uppercase;
+    }
+
+    .evidence-timestamp {
+      font-size: 11px;
+      color: var(--zerok-text-dim);
+    }
+
+    .evidence-block {
+      background: var(--zerok-bg);
+      border: 1px solid var(--zerok-border);
+      border-radius: 4px;
+      padding: 12px;
+      font-family: var(--zerok-font-mono);
+      font-size: 12px;
+      color: var(--zerok-text-muted);
+      white-space: pre-wrap;
+      overflow-x: auto;
+      margin-bottom: 8px;
+    }
+
+    .evidence-notes {
+      font-size: 12px;
+      color: var(--zerok-text-muted);
+      font-style: italic;
+      margin-top: 8px;
     }
 
     /* ========== AI ASSISTANT DRAWER ========== */
@@ -2659,6 +2955,8 @@
 
       <!-- Dashboard Content -->
       <main class="content">
+        <!-- Dashboard View -->
+        <div id="dashboardView" class="view-container active">
         <!-- Stats Row -->
         <div class="stat-grid">
           <div class="stat-card">
@@ -3198,6 +3496,87 @@
             </div>
           </div>
         </div>
+        </div><!-- /#dashboardView -->
+
+        <!-- Findings View -->
+        <div id="findingsView" class="findings-view">
+          <div class="findings-header">
+            <h2 class="findings-title">Findings</h2>
+          </div>
+
+          <div class="findings-summary">
+            <div class="findings-summary-item">
+              <span class="findings-summary-value" style="color: var(--zerok-critical);" id="findings-critical-count">0</span>
+              <span class="findings-summary-label">Critical</span>
+            </div>
+            <div class="findings-summary-item">
+              <span class="findings-summary-value" style="color: var(--zerok-high);" id="findings-high-count">0</span>
+              <span class="findings-summary-label">High</span>
+            </div>
+            <div class="findings-summary-item">
+              <span class="findings-summary-value" style="color: var(--zerok-medium);" id="findings-medium-count">0</span>
+              <span class="findings-summary-label">Medium</span>
+            </div>
+            <div class="findings-summary-item">
+              <span class="findings-summary-value" style="color: var(--zerok-low);" id="findings-low-count">0</span>
+              <span class="findings-summary-label">Low</span>
+            </div>
+            <div class="findings-summary-item">
+              <span class="findings-summary-value" id="findings-total-count">0</span>
+              <span class="findings-summary-label">Total</span>
+            </div>
+          </div>
+
+          <div class="findings-filters">
+            <button class="severity-filter-chip active" data-severity="all" onclick="filterFindings('all')">ALL</button>
+            <button class="severity-filter-chip critical" data-severity="critical" onclick="filterFindings('critical')">CRITICAL</button>
+            <button class="severity-filter-chip high" data-severity="high" onclick="filterFindings('high')">HIGH</button>
+            <button class="severity-filter-chip medium" data-severity="medium" onclick="filterFindings('medium')">MEDIUM</button>
+            <button class="severity-filter-chip low" data-severity="low" onclick="filterFindings('low')">LOW</button>
+          </div>
+
+          <div class="findings-table-container">
+            <table class="findings-table">
+              <thead>
+                <tr>
+                  <th>Severity</th>
+                  <th>Title</th>
+                  <th>CVSS</th>
+                  <th>Status</th>
+                  <th>Affected Hosts</th>
+                  <th>Evidence</th>
+                </tr>
+              </thead>
+              <tbody id="findingsTableBody">
+                <tr>
+                  <td colspan="6" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">
+                    Loading findings...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div><!-- /#findingsView -->
+
+        <!-- Attack Graph View -->
+        <div id="attackGraphView" class="findings-view">
+          <div class="findings-header">
+            <h2 class="findings-title">Attack Graph</h2>
+            <button class="modal-btn modal-btn-primary" onclick="refreshAttackGraph()">Refresh</button>
+          </div>
+          <div id="attack-graph" style="height: 600px; background: var(--zerok-card); border: var(--zerok-card-border); border-radius: 8px; position: relative;">
+            <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--zerok-text-dim);">
+              <div style="text-align: center;">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.3; margin: 0 auto 12px;">
+                  <circle cx="9" cy="9" r="2"/><circle cx="15" cy="9" r="2"/><circle cx="9" cy="15" r="2"/><circle cx="15" cy="15" r="2"/>
+                  <path d="M11 9h2M9 11v2M15 11v2M11 15h2"/>
+                </svg>
+                <p id="graphStatus">Loading Neo4j connection...</p>
+              </div>
+            </div>
+          </div>
+        </div><!-- /#attackGraphView -->
+
       </main>
     </div>
 
@@ -4318,6 +4697,315 @@
       } catch (e) {
         console.error('Failed to create engagement:', e);
         showToast('error', 'Error', 'Failed to create engagement');
+      }
+    }
+
+    // ────────────────────────────────────────
+    // VIEW SWITCHING
+    // ────────────────────────────────────────
+
+    function switchView(viewName) {
+      // Hide all views
+      document.querySelectorAll('.view-container, .findings-view').forEach(v => v.classList.remove('active'));
+
+      // Show selected view
+      const viewId = viewName + 'View';
+      const view = document.getElementById(viewId);
+      if (view) {
+        view.classList.add('active');
+
+        // Update nav active state
+        document.querySelectorAll('.nav-item').forEach(item => {
+          const label = item.querySelector('.nav-label');
+          if (label && label.textContent.toLowerCase() === viewName.toLowerCase()) {
+            item.classList.add('active');
+          } else {
+            item.classList.remove('active');
+          }
+        });
+
+        // Load data for view
+        if (viewName === 'findings') {
+          loadFindings();
+        } else if (viewName === 'attackGraph') {
+          initAttackGraph();
+        }
+      }
+    }
+
+    // Wire up navigation
+    document.addEventListener('DOMContentLoaded', function() {
+      // Add click handlers to nav items
+      const navItems = document.querySelectorAll('.nav-item');
+      navItems.forEach(item => {
+        const label = item.querySelector('.nav-label');
+        if (label) {
+          const viewName = label.textContent.toLowerCase().replace(' ', '');
+          item.addEventListener('click', () => {
+            if (viewName === 'dashboard') switchView('dashboard');
+            else if (viewName === 'findings') switchView('findings');
+            else if (viewName === 'attackgraph') switchView('attackGraph');
+          });
+        }
+      });
+    });
+
+    // ────────────────────────────────────────
+    // FINDINGS TABLE
+    // ────────────────────────────────────────
+
+    let allFindings = [];
+    let expandedFindingId = null;
+
+    async function loadFindings() {
+      if (!currentEngagementId) return;
+
+      try {
+        const res = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+        allFindings = await res.json();
+
+        // Update summary counts
+        const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+        allFindings.forEach(f => counts[f.severity]++);
+
+        document.getElementById('findings-critical-count').textContent = counts.critical;
+        document.getElementById('findings-high-count').textContent = counts.high;
+        document.getElementById('findings-medium-count').textContent = counts.medium;
+        document.getElementById('findings-low-count').textContent = counts.low;
+        document.getElementById('findings-total-count').textContent = allFindings.length;
+
+        renderFindings(allFindings);
+      } catch (e) {
+        console.error('Failed to load findings:', e);
+        document.getElementById('findingsTableBody').innerHTML =
+          '<tr><td colspan="6" style="text-align: center; padding: 40px; color: var(--zerok-critical);">Failed to load findings</td></tr>';
+      }
+    }
+
+    function renderFindings(findings) {
+      const tbody = document.getElementById('findingsTableBody');
+
+      if (findings.length === 0) {
+        tbody.innerHTML =
+          '<tr><td colspan="6" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">No findings found</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = findings.map(f => `
+        <tr onclick="toggleFindingDetails('${f.id}')" data-finding-id="${f.id}">
+          <td><span class="finding-severity-badge ${f.severity}">${f.severity.toUpperCase()}</span></td>
+          <td style="font-weight: 500;">${escHtml(f.title)}</td>
+          <td>${f.cvss !== null && f.cvss !== undefined ? f.cvss.toFixed(1) : '—'}</td>
+          <td><span class="finding-status-badge">${f.status || 'open'}</span></td>
+          <td>${f.affected_hosts ? f.affected_hosts.length : 0}</td>
+          <td><span class="finding-evidence-count">${f.evidence_count || 0}</span></td>
+        </tr>
+        <tr class="finding-details-row" data-finding-id="${f.id}" style="display: none;">
+          <td colspan="6" style="padding: 0;">
+            <div class="finding-details" id="details-${f.id}">
+              <div class="finding-details-grid">
+                <div class="finding-detail-section">
+                  <div class="finding-detail-label">Description</div>
+                  <div class="finding-detail-value" style="font-family: var(--zerok-font-sans);">${escHtml(f.description || 'No description')}</div>
+                </div>
+                <div class="finding-detail-section">
+                  <div class="finding-detail-label">Category</div>
+                  <div class="finding-detail-value">${escHtml(f.category || 'N/A')}</div>
+                </div>
+                <div class="finding-detail-section">
+                  <div class="finding-detail-label">Affected Hosts</div>
+                  <div class="finding-detail-value">${(f.affected_hosts || []).join(', ') || 'N/A'}</div>
+                </div>
+              </div>
+              <div class="evidence-gallery" id="evidence-${f.id}">
+                <div style="text-align: center; padding: 20px; color: var(--zerok-text-dim);">Loading evidence...</div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function toggleFindingDetails(findingId) {
+      const detailsRow = document.querySelector(`.finding-details-row[data-finding-id="${findingId}"]`);
+      const details = document.getElementById(`details-${findingId}`);
+
+      if (expandedFindingId === findingId) {
+        // Collapse
+        detailsRow.style.display = 'none';
+        details.classList.remove('expanded');
+        expandedFindingId = null;
+      } else {
+        // Collapse previous
+        if (expandedFindingId) {
+          document.querySelector(`.finding-details-row[data-finding-id="${expandedFindingId}"]`).style.display = 'none';
+          document.getElementById(`details-${expandedFindingId}`).classList.remove('expanded');
+        }
+
+        // Expand new
+        detailsRow.style.display = 'table-row';
+        details.classList.add('expanded');
+        expandedFindingId = findingId;
+
+        // Load evidence
+        loadEvidence(findingId);
+      }
+    }
+
+    async function loadEvidence(findingId) {
+      const evidenceContainer = document.getElementById(`evidence-${findingId}`);
+
+      try {
+        const res = await fetch(`/api/engagements/${currentEngagementId}/findings/${findingId}/evidence`);
+        const evidence = await res.json();
+
+        if (evidence.length === 0) {
+          evidenceContainer.innerHTML =
+            '<div style="text-align: center; padding: 20px; color: var(--zerok-text-dim);">No evidence available</div>';
+          return;
+        }
+
+        evidenceContainer.innerHTML = evidence.map(ev => {
+          const timestamp = new Date(ev.timestamp * 1000).toLocaleString();
+          return `
+            <div class="evidence-item">
+              <div class="evidence-header">
+                <span class="evidence-type">${ev.type || 'http'}</span>
+                <span class="evidence-timestamp">${timestamp}</span>
+              </div>
+              ${ev.request ? `<div class="evidence-block">${escHtml(ev.request)}</div>` : ''}
+              ${ev.response ? `<div class="evidence-block">${escHtml(ev.response)}</div>` : ''}
+              ${ev.screenshot ? `<img src="${ev.screenshot}" style="max-width: 100%; border-radius: 4px; margin-top: 8px;">` : ''}
+              ${ev.notes ? `<div class="evidence-notes">${escHtml(ev.notes)}</div>` : ''}
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        console.error('Failed to load evidence:', e);
+        evidenceContainer.innerHTML =
+          '<div style="text-align: center; padding: 20px; color: var(--zerok-critical);">Failed to load evidence</div>';
+      }
+    }
+
+    function filterFindings(severity) {
+      // Update filter chip active state
+      document.querySelectorAll('.severity-filter-chip').forEach(chip => {
+        if (chip.dataset.severity === severity) {
+          chip.classList.add('active');
+        } else {
+          chip.classList.remove('active');
+        }
+      });
+
+      // Filter findings
+      const filtered = severity === 'all' ? allFindings : allFindings.filter(f => f.severity === severity);
+      renderFindings(filtered);
+    }
+
+    // ────────────────────────────────────────
+    // ATTACK GRAPH (Neovis.js)
+    // ────────────────────────────────────────
+
+    let neovisInstance = null;
+
+    async function initAttackGraph() {
+      const statusEl = document.getElementById('graphStatus');
+
+      try {
+        const res = await fetch('/api/neo4j-config');
+        const config = await res.json();
+
+        if (!config.available) {
+          statusEl.textContent = 'Neo4j not available. Graph visualization requires Neo4j connection.';
+          return;
+        }
+
+        statusEl.textContent = 'Rendering attack graph...';
+
+        const neovisConfig = {
+          containerId: "attack-graph",
+          neo4j: {
+            serverUrl: config.uri,
+            serverUser: config.user,
+            serverPassword: config.password,
+          },
+          labels: {
+            Host: {
+              label: "ip",
+              value: "ip",
+              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
+                static: {
+                  color: "#4CAF50",
+                  shape: "box"
+                }
+              }
+            },
+            Service: {
+              label: "port",
+              value: "port",
+              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
+                static: {
+                  color: "#2196F3",
+                  shape: "dot"
+                }
+              }
+            },
+            Vulnerability: {
+              label: "name",
+              value: "name",
+              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
+                static: {
+                  color: "#f44336",
+                  shape: "diamond"
+                }
+              }
+            },
+            Finding: {
+              label: "title",
+              value: "title",
+              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
+                static: {
+                  color: "#FF9800",
+                  shape: "star"
+                }
+              }
+            },
+            Credential: {
+              label: "username",
+              value: "username",
+              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
+                static: {
+                  color: "#9C27B0",
+                  shape: "triangle"
+                }
+              }
+            },
+          },
+          relationships: {
+            RUNS_ON: { label: "type" },
+            AFFECTS: { label: "type" },
+            BELONGS_TO: { label: "type" },
+            EVIDENCED_BY: { label: "type" },
+            EXPLOITS: { label: "type" },
+          },
+          initialCypher: `MATCH (n) WHERE n.engagement_id = '${currentEngagementId}' OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 100`
+        };
+
+        neovisInstance = new NeoVis(neovisConfig);
+        neovisInstance.render();
+        statusEl.textContent = '';
+
+      } catch (e) {
+        console.error('Failed to load attack graph:', e);
+        statusEl.textContent = 'Failed to load attack graph: ' + e.message;
+      }
+    }
+
+    function refreshAttackGraph() {
+      if (neovisInstance) {
+        neovisInstance.reload();
+      } else {
+        initAttackGraph();
       }
     }
   </script>
