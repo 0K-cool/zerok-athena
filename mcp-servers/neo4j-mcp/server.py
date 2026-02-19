@@ -19,7 +19,7 @@ NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://your-internal-kali:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASS = os.environ.get("NEO4J_PASS", "$NEO4J_PASS")
 
-mcp = FastMCP("athena-neo4j", description="ATHENA Knowledge Graph — Neo4j CRUD and Cypher queries")
+mcp = FastMCP("athena-neo4j")
 
 driver = None
 
