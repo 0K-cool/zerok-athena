@@ -444,6 +444,26 @@ async def websocket_endpoint(ws: WebSocket):
                         "timestamp": time.time(),
                     }))
 
+            elif msg_type == "operator_command":
+                cmd_text = msg.get("content", "").strip()
+                if cmd_text:
+                    # Broadcast the command so all clients see it
+                    await state.broadcast({
+                        "type": "operator_command",
+                        "content": cmd_text,
+                        "timestamp": time.time(),
+                    })
+                    # Generate an AI acknowledgment response
+                    await asyncio.sleep(0.8)
+                    response = _generate_command_response(cmd_text)
+                    await state.broadcast({
+                        "type": "operator_response",
+                        "agent": "OR",
+                        "agentName": AGENT_NAMES.get("OR", "Orchestrator"),
+                        "content": response,
+                        "timestamp": time.time(),
+                    })
+
             elif msg_type == "ping":
                 await ws.send_text(json.dumps({
                     "type": "pong",
@@ -1287,6 +1307,25 @@ async def _run_demo_scenario():
 
     await _emit_phase("COMPLETE")
     await _emit("system", "OR", "Acme Corp External engagement completed. All 9 agents finished. Report ready for review.")
+
+
+def _generate_command_response(cmd: str) -> str:
+    """Generate a contextual AI acknowledgment for operator commands (demo mode)."""
+    cmd_lower = cmd.lower()
+    if "pause" in cmd_lower or "stop" in cmd_lower or "halt" in cmd_lower:
+        return f"Acknowledged. Pausing active operations. Agents will hold current state until further instructions."
+    elif "focus" in cmd_lower or "target" in cmd_lower or "prioritize" in cmd_lower:
+        return f"Understood. Redirecting agent focus as requested. Updating task queue and notifying active agents."
+    elif "stealth" in cmd_lower or "slow" in cmd_lower or "reduce" in cmd_lower or "rate" in cmd_lower:
+        return f"Roger. Adjusting scan parameters to stealth profile. Rate limiting and timing randomization enabled."
+    elif "skip" in cmd_lower or "exclude" in cmd_lower or "ignore" in cmd_lower:
+        return f"Confirmed. Adding exclusions to scope. Active agents will avoid specified targets."
+    elif "report" in cmd_lower or "status" in cmd_lower or "summary" in cmd_lower:
+        return f"Generating status update. Compiling findings from all active agents..."
+    elif "resume" in cmd_lower or "continue" in cmd_lower or "proceed" in cmd_lower:
+        return f"Resuming operations. All paused agents re-entering active state."
+    else:
+        return f"Command received. Routing to relevant agents for execution."
 
 
 async def _emit(event_type: str, agent: str, content: str, metadata: dict = None):
