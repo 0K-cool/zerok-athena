@@ -1028,39 +1028,81 @@
     }
 
     /* Bar chart mock */
-    .bar-chart {
+    .bar-chart-wrapper {
+      display: flex;
+      height: 140px;
+      gap: 0;
+    }
+
+    .bar-chart-yaxis {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding: 0 6px 18px 0;
+      width: 28px;
+      flex-shrink: 0;
+    }
+
+    .bar-chart-yaxis span {
+      font-size: 9px;
+      color: var(--zerok-text-dim);
+      line-height: 1;
+    }
+
+    .bar-chart-area {
+      flex: 1;
+      position: relative;
       display: flex;
       align-items: flex-end;
-      gap: 8px;
-      height: 120px;
-      padding-top: 10px;
+      justify-content: space-evenly;
+      gap: 0;
+      padding-top: 4px;
+    }
+
+    .bar-chart-grid {
+      position: absolute;
+      inset: 0 0 18px 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .bar-chart-grid span {
+      display: block;
+      height: 1px;
+      background: color-mix(in srgb, var(--zerok-border) 30%, transparent);
     }
 
     .bar-item {
-      flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
+      width: 10px;
+      z-index: 1;
     }
 
     .bar {
       width: 100%;
-      border-radius: 4px 4px 0 0;
+      min-height: 10px;
+      border-radius: 5px;
       transition: all 0.3s ease;
     }
 
-    .bar:hover { opacity: 0.8; }
+    .bar:hover { opacity: 0.85; transform: scaleY(1.03); transform-origin: bottom; }
 
     .bar-label {
       font-size: 10px;
+      font-weight: 500;
       color: var(--zerok-text-dim);
     }
 
     .bar-value {
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--zerok-text-muted);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--zerok-text);
     }
 
     /* Settings Panel */
@@ -3067,31 +3109,43 @@
               <span class="widget-title">Findings by Severity</span>
             </div>
             <div class="widget-body">
-              <div class="bar-chart">
-                <div class="bar-item">
-                  <span class="bar-value">8</span>
-                  <div class="bar" style="height: 100%; background: var(--zerok-critical);"></div>
-                  <span class="bar-label">Critical</span>
+              <div class="bar-chart-wrapper">
+                <div class="bar-chart-yaxis">
+                  <span>20</span>
+                  <span>15</span>
+                  <span>10</span>
+                  <span>5</span>
+                  <span>0</span>
                 </div>
-                <div class="bar-item">
-                  <span class="bar-value">14</span>
-                  <div class="bar" style="height: 85%; background: var(--zerok-high);"></div>
-                  <span class="bar-label">High</span>
-                </div>
-                <div class="bar-item">
-                  <span class="bar-value">15</span>
-                  <div class="bar" style="height: 70%; background: var(--zerok-medium);"></div>
-                  <span class="bar-label">Medium</span>
-                </div>
-                <div class="bar-item">
-                  <span class="bar-value">7</span>
-                  <div class="bar" style="height: 40%; background: var(--zerok-low);"></div>
-                  <span class="bar-label">Low</span>
-                </div>
-                <div class="bar-item">
-                  <span class="bar-value">3</span>
-                  <div class="bar" style="height: 20%; background: var(--zerok-info);"></div>
-                  <span class="bar-label">Info</span>
+                <div class="bar-chart-area">
+                  <div class="bar-chart-grid">
+                    <span></span><span></span><span></span><span></span><span></span>
+                  </div>
+                  <div class="bar-item">
+                    <span class="bar-value">15</span>
+                    <div class="bar" style="height: 82px; background: var(--zerok-medium);"></div>
+                    <span class="bar-label">Medium</span>
+                  </div>
+                  <div class="bar-item">
+                    <span class="bar-value">14</span>
+                    <div class="bar" style="height: 77px; background: var(--zerok-high);"></div>
+                    <span class="bar-label">High</span>
+                  </div>
+                  <div class="bar-item">
+                    <span class="bar-value">8</span>
+                    <div class="bar" style="height: 44px; background: var(--zerok-critical);"></div>
+                    <span class="bar-label">Critical</span>
+                  </div>
+                  <div class="bar-item">
+                    <span class="bar-value">7</span>
+                    <div class="bar" style="height: 38px; background: var(--zerok-low);"></div>
+                    <span class="bar-label">Low</span>
+                  </div>
+                  <div class="bar-item">
+                    <span class="bar-value">3</span>
+                    <div class="bar" style="height: 16px; background: var(--zerok-info);"></div>
+                    <span class="bar-label">Info</span>
+                  </div>
                 </div>
               </div>
             </div>
