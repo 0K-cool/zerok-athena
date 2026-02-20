@@ -68,9 +68,13 @@ class AgentCode(str, Enum):
     PASSIVE_OSINT = "PO"
     ACTIVE_RECON = "AR"
     CVE_RESEARCHER = "CV"
+    ATTACK_PATH = "AP"
     WEB_VULN_SCANNER = "WV"
+    EXPLOIT_CRAFTER = "EC"
     EXPLOITATION = "EX"
+    VERIFICATION = "VF"
     POST_EXPLOITATION = "PE"
+    DETECTION_VALIDATOR = "DV"
     REPORTING = "RP"
 
 
@@ -80,15 +84,20 @@ AGENT_NAMES = {
     "PO": "Passive OSINT",
     "AR": "Active Recon",
     "CV": "CVE Researcher",
+    "AP": "Attack Path Analyzer",
     "WV": "Web Vuln Scanner",
+    "EC": "Exploit Crafter",
     "EX": "Exploitation",
+    "VF": "Verification",
     "PE": "Post-Exploitation",
+    "DV": "Detection Validator",
     "RP": "Reporting",
 }
 
 AGENT_PTES_PHASE = {
     "PL": 1, "OR": 0, "PO": 2, "AR": 2,
-    "CV": 3, "WV": 4, "EX": 5, "PE": 6, "RP": 7,
+    "CV": 3, "AP": 3, "WV": 4, "EC": 4,
+    "EX": 5, "VF": 5, "PE": 6, "DV": 6, "RP": 7,
 }
 
 
@@ -651,27 +660,31 @@ async def get_agents():
 
 
 @app.get("/api/engagements")
-async def get_engagements():
+async def get_engagements(include_archived: bool = False):
     """Get all engagements from Neo4j or fallback to mock data."""
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
-                result = session.run("""
+                query = """
                     MATCH (e:Engagement)
                     RETURN e.id AS id, e.name AS name, e.client AS client,
                            e.scope AS scope, e.type AS type, e.status AS status,
                            e.start_date AS start_date
                     ORDER BY e.start_date DESC
-                """)
+                """
+                result = session.run(query)
                 engagements = []
                 for record in result:
+                    status = record.get("status", "active")
+                    if not include_archived and status == "archived":
+                        continue
                     engagements.append({
                         "id": record["id"],
                         "name": record["name"],
                         "client": record.get("client", "Unknown"),
                         "scope": record.get("scope", ""),
                         "type": record.get("type", "external"),
-                        "status": record.get("status", "active"),
+                        "status": status,
                         "start_date": record.get("start_date", ""),
                     })
                 return engagements
@@ -680,7 +693,10 @@ async def get_engagements():
             # Fall through to mock data
 
     # Fallback: return mock engagements
-    return [e.model_dump() for e in state.engagements]
+    all_eng = [e.model_dump() for e in state.engagements]
+    if not include_archived:
+        all_eng = [e for e in all_eng if e.get("status") != "archived"]
+    return all_eng
 
 
 class CreateEngagementPayload(BaseModel):
@@ -744,6 +760,75 @@ async def create_engagement(payload: CreateEngagementPayload):
     })
 
     return {"ok": True, "engagement_id": engagement_id}
+
+
+class UpdateEngagementPayload(BaseModel):
+    status: str  # "active", "archived", "completed"
+
+
+@app.patch("/api/engagements/{eid}")
+async def update_engagement(eid: str, payload: UpdateEngagementPayload):
+    """Update engagement status (archive, complete, reactivate)."""
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run(
+                    "MATCH (e:Engagement {id: $id}) SET e.status = $status",
+                    id=eid, status=payload.status,
+                )
+            await state.broadcast({
+                "type": "engagement_changed",
+                "engagement_id": eid,
+                "timestamp": time.time(),
+            })
+            return {"ok": True}
+        except Exception as e:
+            print(f"Neo4j update error: {e}")
+
+    # Fallback: update mock data
+    for eng in state.engagements:
+        if eng.id == eid:
+            eng.status = payload.status
+            break
+    else:
+        return JSONResponse(status_code=404, content={"error": "Engagement not found"})
+
+    await state.broadcast({
+        "type": "engagement_changed",
+        "engagement_id": eid,
+        "timestamp": time.time(),
+    })
+    return {"ok": True}
+
+
+@app.delete("/api/engagements/{eid}")
+async def delete_engagement(eid: str):
+    """Delete an engagement permanently."""
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run(
+                    "MATCH (e:Engagement {id: $id}) DETACH DELETE e",
+                    id=eid,
+                )
+            await state.broadcast({
+                "type": "engagement_changed",
+                "engagement_id": eid,
+                "timestamp": time.time(),
+            })
+            return {"ok": True}
+        except Exception as e:
+            print(f"Neo4j delete error: {e}")
+
+    # Fallback: remove from mock data
+    state.engagements = [e for e in state.engagements if e.id != eid]
+
+    await state.broadcast({
+        "type": "engagement_changed",
+        "engagement_id": eid,
+        "timestamp": time.time(),
+    })
+    return {"ok": True}
 
 
 @app.get("/api/engagements/{eid}/summary")
@@ -1157,6 +1242,17 @@ async def _run_demo_scenario():
     await _emit_chunk("CV", cv_tool, "\n[CISA KEV] 3 actively exploited CVEs found\n")
     await _emit_tool_complete("CV", "Found 8 critical CVEs. 3 in CISA KEV. CVE-2026-21345 (Struts RCE) high priority.", cv_tool)
     await state.update_agent_status("CV", AgentStatus.COMPLETED)
+    await asyncio.sleep(0.5)
+
+    # Attack Path Analyzer — graph-based kill chain discovery
+    await state.update_agent_status("AP", AgentStatus.RUNNING, "Building attack graph")
+    await _emit_thinking("AP",
+        thought="Constructing multi-step attack paths from CVE data and network topology.",
+        reasoning="8 CVEs across 156 hosts create multiple kill chains. Need to identify paths from external-facing services to high-value targets (databases, AD controllers).",
+        action="analyze_attack_paths")
+    await asyncio.sleep(2)
+    await _emit("agent_complete", "AP", "3 critical attack paths identified. Priority: Struts RCE → lateral movement → DB compromise.")
+    await state.update_agent_status("AP", AgentStatus.COMPLETED)
     await asyncio.sleep(1)
 
     # ── Phase 4: VULNERABILITY ANALYSIS ──
@@ -1250,7 +1346,17 @@ async def _run_demo_scenario():
     await _emit_tool_complete("WV", "Nuclei scan complete. 2 critical, 1 high, 4 medium findings.", nuclei_id)
     await _emit_stats(hosts=156, services=89, vulns=7, findings=4)
     await state.update_agent_status("WV", AgentStatus.COMPLETED)
-    await asyncio.sleep(2)
+    await asyncio.sleep(0.5)
+
+    # Exploit Crafter — custom payload generation for unmatched vulns
+    await state.update_agent_status("EC", AgentStatus.RUNNING, "Crafting custom payloads")
+    await _emit_thinking("EC",
+        thought="Nuclei confirmed standard CVEs. Checking for edge cases where no pre-built exploit exists.",
+        reasoning="The CORS misconfiguration + missing CSP combo could allow chained exploitation. Crafting a custom XSS-to-CSRF payload for the admin panel.")
+    await asyncio.sleep(2.5)
+    await _emit("agent_complete", "EC", "Custom payload crafted: chained XSS→CSRF for admin panel. Ready for exploitation phase.")
+    await state.update_agent_status("EC", AgentStatus.COMPLETED)
+    await asyncio.sleep(1)
 
     # ── Phase 5: EXPLOITATION ── (HITL required)
     if not await _demo_checkpoint(): return
@@ -1314,7 +1420,17 @@ async def _run_demo_scenario():
     await _emit_tool_complete("EX", "SQLMap confirmed: MySQL 8.0, 3 databases accessible. Boolean-based blind injection validated.", sqlmap_id)
     await _emit_stats(hosts=156, services=89, vulns=8, findings=5)
     await state.update_agent_status("EX", AgentStatus.COMPLETED)
-    await asyncio.sleep(2)
+    await asyncio.sleep(0.5)
+
+    # Verification Agent — independent exploit re-verification
+    await state.update_agent_status("VF", AgentStatus.RUNNING, "Re-verifying SQLi exploit")
+    await _emit_thinking("VF",
+        thought="Independently re-executing SQLMap exploit to verify Exploitation Agent findings.",
+        reasoning="The finder is not the verifier. Re-running with fresh session to confirm boolean-based blind SQLi on portal.acme.com/search. Must produce matching evidence.")
+    await asyncio.sleep(3)
+    await _emit("agent_complete", "VF", "VERIFIED: SQLi confirmed independently. Evidence hash matches. Finding elevated to CONFIRMED status.")
+    await state.update_agent_status("VF", AgentStatus.COMPLETED)
+    await asyncio.sleep(1)
 
     # ── Phase 6: POST-EXPLOITATION ──
     if not await _demo_checkpoint(): return
@@ -1336,6 +1452,16 @@ async def _run_demo_scenario():
     await _emit_tool_complete("PE", "3 attack paths simulated: DB pivot, credential reuse (12 hosts), MySQL UDF escalation.", pe_tool)
     await _emit_stats(hosts=156, services=89, vulns=8, findings=7)
     await state.update_agent_status("PE", AgentStatus.COMPLETED)
+    await asyncio.sleep(0.5)
+
+    # Detection Validator — purple team detection coverage
+    await state.update_agent_status("DV", AgentStatus.RUNNING, "Checking detection coverage")
+    await _emit_thinking("DV",
+        thought="Querying client SIEM/EDR for detection of exploitation and post-exploitation activity.",
+        reasoning="Need to determine if the SQLi exploitation, lateral movement simulation, and UDF escalation attempts triggered any alerts. Undetected activity is often the most critical finding for the client.")
+    await asyncio.sleep(2.5)
+    await _emit("agent_complete", "DV", "Detection gaps: SQLi exploitation UNDETECTED by WAF. Lateral movement triggered 1 of 3 EDR rules. UDF escalation UNDETECTED.")
+    await state.update_agent_status("DV", AgentStatus.COMPLETED)
     await asyncio.sleep(1)
 
     # ── Phase 7: REPORTING ──
@@ -1362,7 +1488,7 @@ async def _run_demo_scenario():
     await state.update_agent_status("OR", AgentStatus.COMPLETED, "Engagement complete")
 
     await _emit_phase("COMPLETE")
-    await _emit("system", "OR", "Acme Corp External engagement completed. All 9 agents finished. Report ready for review.")
+    await _emit("system", "OR", "Acme Corp External engagement completed. All 13 agents finished. Report ready for review.")
 
 
 def _generate_command_response(cmd: str) -> str:
