@@ -1025,6 +1025,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(0.2)
     await _emit_chunk("AR", naabu_id, "[INF] Top ports: 80(156) 443(142) 8080(34) 22(89) 3306(12)\n")
     await _emit_tool_complete("AR", "Naabu found 156 live hosts, 847 open ports. Top: 80, 443, 8080, 22, 3306.", naabu_id)
+    await _emit_stats(hosts=156)
     await asyncio.sleep(1)
 
     # Active Recon — Httpx
@@ -1053,6 +1054,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(0.2)
     await _emit_chunk("AR", httpx_id, "  WordPress: 3 | React SPA: 5 | API: 12 | Static: 69\n")
     await _emit_tool_complete("AR", "Httpx identified 89 web services. WordPress: 3, React SPA: 5, API: 12.", httpx_id)
+    await _emit_stats(hosts=156, services=89)
 
     await state.update_agent_status("PO", AgentStatus.COMPLETED)
     await state.update_agent_status("AR", AgentStatus.COMPLETED)
@@ -1173,6 +1175,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(0.3)
     await _emit_chunk("WV", nuclei_id, "\n[INF] Scan complete: 2 critical, 1 high, 4 medium\n")
     await _emit_tool_complete("WV", "Nuclei scan complete. 2 critical, 1 high, 4 medium findings.", nuclei_id)
+    await _emit_stats(hosts=156, services=89, vulns=7, findings=4)
     await state.update_agent_status("WV", AgentStatus.COMPLETED)
     await asyncio.sleep(2)
 
@@ -1235,6 +1238,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(0.3)
     await _emit_chunk("EX", sqlmap_id, "back-end DBMS: MySQL >= 8.0\n")
     await _emit_tool_complete("EX", "SQLMap confirmed: MySQL 8.0, 3 databases accessible. Boolean-based blind injection validated.", sqlmap_id)
+    await _emit_stats(hosts=156, services=89, vulns=8, findings=5)
     await state.update_agent_status("EX", AgentStatus.COMPLETED)
     await asyncio.sleep(2)
 
@@ -1255,6 +1259,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(0.5)
     await _emit_chunk("PE", pe_tool, "[SIM] Path 3: Privilege escalation via MySQL UDF injection\n")
     await _emit_tool_complete("PE", "3 attack paths simulated: DB pivot, credential reuse (12 hosts), MySQL UDF escalation.", pe_tool)
+    await _emit_stats(hosts=156, services=89, vulns=8, findings=7)
     await state.update_agent_status("PE", AgentStatus.COMPLETED)
     await asyncio.sleep(1)
 
@@ -1334,6 +1339,20 @@ async def _emit_phase(phase: str):
         "phase": phase,
         "timestamp": time.time(),
     })
+
+
+async def _emit_stats(hosts=None, services=None, vulns=None, findings=None):
+    """Emit stat_update to update engagement statistics in real-time."""
+    data = {"type": "stat_update", "timestamp": time.time()}
+    if hosts is not None:
+        data["hosts"] = hosts
+    if services is not None:
+        data["services"] = services
+    if vulns is not None:
+        data["vulns"] = vulns
+    if findings is not None:
+        data["findings"] = findings
+    await state.broadcast(data)
 
 
 # ──────────────────────────────────────────────
