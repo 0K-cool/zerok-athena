@@ -204,6 +204,11 @@ class DashboardState:
         self.connected_clients: set[WebSocket] = set()
         self._event_lock = asyncio.Lock()
         self.active_engagement_id: str = "eng-001"  # Default active engagement
+        # Demo control
+        self.demo_pause_event = asyncio.Event()
+        self.demo_pause_event.set()  # Not paused initially
+        self.demo_stopped = False
+        self.demo_task: asyncio.Task | None = None
 
     def _seed_engagements(self) -> list[Engagement]:
         """Seed with demo engagements matching dashboard stat cards."""
@@ -943,18 +948,63 @@ async def get_neo4j_config():
 
 @app.post("/api/demo/start")
 async def start_demo():
-    """
-    Start a demo simulation showing agent activity.
-    Useful for testing the dashboard without real agents.
-    """
-    asyncio.create_task(_run_demo_scenario())
+    """Start a demo simulation showing agent activity."""
+    # Reset control flags
+    state.demo_stopped = False
+    state.demo_pause_event.set()
+    # Cancel any existing demo
+    if state.demo_task and not state.demo_task.done():
+        state.demo_stopped = True
+        state.demo_pause_event.set()
+        await asyncio.sleep(0.2)
+        state.demo_stopped = False
+    state.demo_task = asyncio.create_task(_run_demo_scenario())
     return {"ok": True, "message": "Demo scenario started"}
+
+
+@app.post("/api/demo/pause")
+async def pause_demo():
+    """Pause the running demo. Agents hold current state."""
+    state.demo_pause_event.clear()
+    # Set all running agents to waiting
+    for code, status in state.agent_statuses.items():
+        if status == AgentStatus.RUNNING:
+            await state.update_agent_status(code, AgentStatus.WAITING, "Paused by operator")
+    await _emit_system("Engagement paused by operator")
+    return {"ok": True, "message": "Demo paused"}
+
+
+@app.post("/api/demo/resume")
+async def resume_demo():
+    """Resume a paused demo."""
+    # Restore waiting agents to running
+    for code, status in state.agent_statuses.items():
+        if status == AgentStatus.WAITING:
+            await state.update_agent_status(code, AgentStatus.RUNNING, "Resumed")
+    state.demo_pause_event.set()
+    await _emit_system("Engagement resumed by operator")
+    return {"ok": True, "message": "Demo resumed"}
+
+
+@app.post("/api/demo/stop")
+async def stop_demo():
+    """Stop the running demo entirely."""
+    state.demo_stopped = True
+    state.demo_pause_event.set()  # Unblock if paused so task can exit
+    # Set all non-idle agents to idle
+    for code in AGENT_NAMES:
+        if state.agent_statuses[code] != AgentStatus.IDLE:
+            await state.update_agent_status(code, AgentStatus.IDLE)
+    await _emit_system("Engagement stopped by operator")
+    await _emit_phase("STOPPED")
+    return {"ok": True, "message": "Demo stopped"}
 
 
 async def _run_demo_scenario():
     """Simulate a realistic ATHENA engagement workflow with streaming tool output."""
 
     # ── Phase 1: PLANNING ──
+    if not await _demo_checkpoint(): return
     await _emit_phase("PLANNING")
     await state.update_agent_status("PL", AgentStatus.RUNNING, "Validating authorization")
     await _emit_thinking("PL",
@@ -978,6 +1028,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(1)
 
     # ── Phase 2: INTELLIGENCE GATHERING ──
+    if not await _demo_checkpoint(): return
     await _emit_phase("INTELLIGENCE GATHERING")
     await state.update_agent_status("OR", AgentStatus.RUNNING, "Dispatching recon agents")
     await _emit_thinking("OR",
@@ -1081,6 +1132,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(1)
 
     # ── Phase 3: THREAT MODELING ──
+    if not await _demo_checkpoint(): return
     await _emit_phase("THREAT MODELING")
     await state.update_agent_status("CV", AgentStatus.RUNNING, "CVE database queries")
     await _emit_thinking("CV",
@@ -1108,6 +1160,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(1)
 
     # ── Phase 4: VULNERABILITY ANALYSIS ──
+    if not await _demo_checkpoint(): return
     await _emit_phase("VULNERABILITY ANALYSIS")
     await state.update_agent_status("WV", AgentStatus.RUNNING, "Nuclei scanning")
     await _emit_thinking("WV",
@@ -1200,6 +1253,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(2)
 
     # ── Phase 5: EXPLOITATION ── (HITL required)
+    if not await _demo_checkpoint(): return
     await _emit_phase("EXPLOITATION")
     await state.update_agent_status("EX", AgentStatus.RUNNING, "Preparing exploitation validation")
     await _emit_thinking("EX",
@@ -1263,6 +1317,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(2)
 
     # ── Phase 6: POST-EXPLOITATION ──
+    if not await _demo_checkpoint(): return
     await _emit_phase("POST-EXPLOITATION")
     await state.update_agent_status("PE", AgentStatus.RUNNING, "Simulating attack paths")
     await _emit_thinking("PE",
@@ -1284,6 +1339,7 @@ async def _run_demo_scenario():
     await asyncio.sleep(1)
 
     # ── Phase 7: REPORTING ──
+    if not await _demo_checkpoint(): return
     await _emit_phase("REPORTING")
     await state.update_agent_status("RP", AgentStatus.RUNNING, "Generating report")
     await _emit_thinking("RP",
@@ -1378,6 +1434,25 @@ async def _emit_phase(phase: str):
         "phase": phase,
         "timestamp": time.time(),
     })
+
+
+async def _emit_system(message: str):
+    """Emit a system message to the timeline."""
+    await state.broadcast({
+        "type": "system",
+        "content": message,
+        "agent": "OR",
+        "agentName": "Orchestrator",
+        "timestamp": time.time(),
+    })
+
+
+async def _demo_checkpoint():
+    """Check pause/stop state. Returns True if demo should continue, False if stopped."""
+    if state.demo_stopped:
+        return False
+    await state.demo_pause_event.wait()  # Blocks if paused
+    return not state.demo_stopped
 
 
 async def _emit_stats(hosts=None, services=None, vulns=None, findings=None):

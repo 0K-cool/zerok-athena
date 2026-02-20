@@ -1827,8 +1827,13 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
+      background: var(--zerok-text-dim);
+      animation: none;
+    }
+
+    .ai-drawer-title .pulse-dot.connected {
       background: var(--zerok-low);
-      animation: pulse-glow 2s infinite;
+      animation: none;
     }
 
     .ai-drawer-title .pulse-dot.active {
@@ -2078,6 +2083,11 @@
       color: var(--zerok-low);
     }
 
+    .phase-badge.stopped {
+      background: color-mix(in srgb, var(--zerok-critical) 15%, transparent);
+      color: var(--zerok-critical);
+    }
+
     /* ========== EXPANDABLE CARDS ========== */
     .timeline-card {
       background: var(--zerok-sidebar-active);
@@ -2309,6 +2319,10 @@
       background: #0a0a0a;
     }
 
+    html[data-theme="minimal"] .ai-command-input {
+      background: #1a1a1a;
+    }
+
     .tool-output-block::-webkit-scrollbar {
       width: 4px;
     }
@@ -2531,9 +2545,10 @@
       background: var(--zerok-low);
     }
 
-    .ai-drawer-footer .demo-btn {
+    .ai-drawer-footer .ctrl-btn {
       font-size: 11px;
-      padding: 5px 12px;
+      font-weight: 600;
+      padding: 5px 14px;
       border-radius: 6px;
       border: 1px solid var(--zerok-border);
       background: var(--zerok-card);
@@ -2542,15 +2557,46 @@
       transition: all 0.2s;
     }
 
-    .ai-drawer-footer .demo-btn:hover {
-      border-color: var(--zerok-primary);
-      color: var(--zerok-primary);
-    }
-
-    .ai-drawer-footer .demo-btn:disabled {
+    .ai-drawer-footer .ctrl-btn:disabled {
       opacity: 0.4;
       cursor: not-allowed;
     }
+
+    .ai-drawer-footer .ctrl-btn.btn-engage {
+      background: var(--zerok-critical);
+      border-color: var(--zerok-critical);
+      color: #fff;
+    }
+    .ai-drawer-footer .ctrl-btn.btn-engage:hover { opacity: 0.85; }
+
+    .ai-drawer-footer .ctrl-btn.btn-pause {
+      background: color-mix(in srgb, var(--zerok-medium) 20%, transparent);
+      border-color: var(--zerok-medium);
+      color: var(--zerok-medium);
+    }
+    .ai-drawer-footer .ctrl-btn.btn-pause:hover { background: color-mix(in srgb, var(--zerok-medium) 35%, transparent); }
+
+    .ai-drawer-footer .ctrl-btn.btn-stop {
+      background: color-mix(in srgb, var(--zerok-critical) 15%, transparent);
+      border-color: var(--zerok-critical);
+      color: var(--zerok-critical);
+    }
+    .ai-drawer-footer .ctrl-btn.btn-stop:hover { background: color-mix(in srgb, var(--zerok-critical) 30%, transparent); }
+
+    .ai-drawer-footer .ctrl-btn.btn-resume {
+      background: var(--zerok-low);
+      border-color: var(--zerok-low);
+      color: #111;
+    }
+    .ai-drawer-footer .ctrl-btn.btn-resume:hover { opacity: 0.85; }
+
+    .ai-drawer-footer .ctrl-btn.btn-clear {
+      border-color: var(--zerok-border);
+      color: var(--zerok-text-dim);
+    }
+    .ai-drawer-footer .ctrl-btn.btn-clear:hover { border-color: var(--zerok-text-muted); color: var(--zerok-text-muted); }
+
+    .ai-ctrl-group { display: flex; gap: 6px; margin-right: auto; margin-left: 12px; }
 
     /* ========== AI TOGGLE BUTTON ========== */
     .ai-toggle-btn {
@@ -2790,10 +2836,29 @@
       border-radius: 10px;
       background: var(--zerok-bg);
       border: 1px solid var(--zerok-border);
+      border-left: 3px solid var(--zerok-border);
       box-shadow: 0 8px 24px rgba(0,0,0,0.3);
       animation: toast-in 0.3s ease-out;
       min-width: 280px;
       max-width: 400px;
+    }
+
+    /* Severity-colored toast variants */
+    .toast.sev-critical {
+      border-left: 3px solid var(--zerok-critical);
+      background: color-mix(in srgb, var(--zerok-critical) 8%, var(--zerok-bg));
+    }
+    .toast.sev-high {
+      border-left: 3px solid var(--zerok-high);
+      background: color-mix(in srgb, var(--zerok-high) 8%, var(--zerok-bg));
+    }
+    .toast.sev-medium {
+      border-left: 3px solid var(--zerok-medium);
+      background: color-mix(in srgb, var(--zerok-medium) 6%, var(--zerok-bg));
+    }
+    .toast.sev-low {
+      border-left: 3px solid var(--zerok-low);
+      background: color-mix(in srgb, var(--zerok-low) 6%, var(--zerok-bg));
     }
 
     @keyframes toast-in {
@@ -2810,19 +2875,20 @@
     }
 
     .toast-icon {
-      width: 24px;
-      height: 24px;
+      width: 28px;
+      height: 28px;
       border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      font-size: 12px;
+      font-size: 13px;
+      font-weight: 700;
     }
 
-    .toast-icon.finding { background: color-mix(in srgb, var(--zerok-critical) 15%, transparent); color: var(--zerok-critical); }
-    .toast-icon.success { background: color-mix(in srgb, var(--zerok-low) 15%, transparent); color: var(--zerok-low); }
-    .toast-icon.warning { background: color-mix(in srgb, var(--zerok-medium) 15%, transparent); color: var(--zerok-medium); }
+    .toast-icon.finding { background: color-mix(in srgb, var(--zerok-critical) 25%, transparent); color: var(--zerok-critical); }
+    .toast-icon.success { background: color-mix(in srgb, var(--zerok-low) 25%, transparent); color: var(--zerok-low); }
+    .toast-icon.warning { background: color-mix(in srgb, var(--zerok-medium) 25%, transparent); color: var(--zerok-medium); }
 
     .toast-text {
       font-size: 12px;
@@ -3786,9 +3852,17 @@
         <div class="connection-dot" id="connectionDot"></div>
         <span id="connectionText">Disconnected</span>
       </div>
-      <div style="display:flex;gap:6px;margin-right:auto;margin-left:12px;">
-        <button class="demo-btn" onclick="clearDrawer()" title="Clear timeline">Clear</button>
-        <button class="demo-btn" id="demoBtn" onclick="startDemo()">Run Demo</button>
+      <div class="ai-ctrl-group" id="ctrlIdle">
+        <button class="ctrl-btn btn-clear" onclick="clearDrawer()" title="Clear timeline">Clear</button>
+        <button class="ctrl-btn btn-engage" id="engageBtn" onclick="startEngage()">Engage</button>
+      </div>
+      <div class="ai-ctrl-group" id="ctrlRunning" style="display:none;">
+        <button class="ctrl-btn btn-pause" onclick="pauseEngage()">Pause</button>
+        <button class="ctrl-btn btn-stop" onclick="stopEngage()">Stop</button>
+      </div>
+      <div class="ai-ctrl-group" id="ctrlPaused" style="display:none;">
+        <button class="ctrl-btn btn-resume" onclick="resumeEngage()">Resume</button>
+        <button class="ctrl-btn btn-stop" onclick="stopEngage()">Stop</button>
       </div>
     </div>
   </div>
@@ -4276,19 +4350,20 @@
       const dot = document.getElementById('connectionDot');
       const text = document.getElementById('connectionText');
       const pulse = document.getElementById('aiPulseDot');
-      const demoBtn = document.getElementById('demoBtn');
+      const engageBtn = document.getElementById('engageBtn');
 
       if (connected) {
         dot.classList.add('connected');
         text.textContent = 'Connected';
         pulse.classList.remove('disconnected');
-        demoBtn.disabled = false;
+        pulse.classList.add('connected');
+        if (engageBtn) engageBtn.disabled = false;
       } else {
         dot.classList.remove('connected');
         text.textContent = 'Disconnected';
         pulse.classList.add('disconnected');
-        pulse.classList.remove('active');
-        demoBtn.disabled = true;
+        pulse.classList.remove('active', 'connected');
+        if (engageBtn) engageBtn.disabled = true;
       }
     }
 
@@ -4303,6 +4378,11 @@
 
       if (type === 'operator_response') {
         renderOperatorResponse(msg);
+        return;
+      }
+
+      if (type === 'system') {
+        renderSystemMessage(msg);
         return;
       }
 
@@ -4382,7 +4462,7 @@
 
       if (type === 'finding') {
         addTimelineEvent(msg);
-        showToast('finding', msg.severity.toUpperCase() + ' Finding', msg.title);
+        showToast('finding', msg.severity.toUpperCase() + ' Finding', msg.title, msg.severity);
         incrementNotif();
         bumpAgentCount(msg.agent);
         return;
@@ -4394,8 +4474,11 @@
     }
 
     function handleStateSync(msg) {
-      // Sync agent chips
-      if (msg.agents) {
+      // Only sync agent chip colors if timeline has events (demo was running)
+      // On fresh load, chips stay neutral regardless of server-side status
+      const timeline = document.getElementById('aiTimeline');
+      const hasEvents = timeline && timeline.querySelectorAll('.timeline-event, .timeline-card').length > 0;
+      if (msg.agents && hasEvents) {
         for (const [code, info] of Object.entries(msg.agents)) {
           updateAgentChip(code, info.status);
         }
@@ -4415,7 +4498,9 @@
       const badge = document.getElementById('phaseBadge');
       row.style.display = 'flex';
       badge.textContent = msg.phase || '—';
-      badge.className = 'phase-badge' + (msg.phase === 'COMPLETE' ? ' complete' : '');
+      badge.className = 'phase-badge' + (msg.phase === 'COMPLETE' ? ' complete' : '') + (msg.phase === 'STOPPED' ? ' stopped' : '');
+      // Return to idle controls when engagement completes or stops
+      if (msg.phase === 'COMPLETE' || msg.phase === 'STOPPED') setCtrlState('idle');
     }
 
     // ── Thinking Card Renderer ──
@@ -4747,10 +4832,10 @@
     }
 
     // ── Toast Notifications ──
-    function showToast(type, title, message) {
+    function showToast(type, title, message, severity) {
       const container = document.getElementById('toastContainer');
       const toast = document.createElement('div');
-      toast.className = 'toast';
+      toast.className = 'toast' + (severity ? ' sev-' + severity.toLowerCase() : '');
       toast.innerHTML =
         '<div class="toast-icon ' + type + '">' + (type === 'finding' ? '!' : type === 'success' ? '+' : '?') + '</div>' +
         '<div class="toast-text"><strong>' + escHtml(title) + '</strong><span>' + escHtml(message) + '</span></div>';
@@ -4838,6 +4923,32 @@
       }
     }
 
+    function renderSystemMessage(msg) {
+      const timeline = document.getElementById('aiTimeline');
+      const empty = document.getElementById('aiEmpty');
+      if (empty) empty.style.display = 'none';
+
+      const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+
+      const el = document.createElement('div');
+      el.className = 'timeline-event';
+      el.setAttribute('data-agent', 'OR');
+      el.innerHTML =
+        '<span class="event-icon" style="background:var(--zerok-medium);">⏸</span>' +
+        '<div class="event-body">' +
+          '<div class="event-header">' +
+            '<span><strong>System</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-medium) 20%,transparent);color:var(--zerok-medium);">CONTROL</span></span>' +
+            '<span class="event-time">' + time + '</span>' +
+          '</div>' +
+          '<div class="event-detail" style="color:var(--zerok-text-muted);">' + escHtml(msg.content || '') + '</div>' +
+        '</div>';
+
+      if (timeline) {
+        timeline.appendChild(el);
+        smartScroll(timeline);
+      }
+    }
+
     // ── Clear Drawer ──
     function clearDrawer() {
       // Reset auto-scroll for fresh demo run
@@ -4853,13 +4964,17 @@
       if (phaseRow) phaseRow.style.display = 'none';
       const phaseBadge = document.getElementById('phaseBadge');
       if (phaseBadge) phaseBadge.textContent = '—';
-      // Reset agent chip badges and filter
+      // Reset agent chips to neutral idle state
       activeChipFilter = null;
-      document.querySelectorAll('.ai-agent-chip').forEach(chip => {
-        chip.classList.remove('filter-active');
-        const badge = chip.querySelector('.chip-count');
-        if (badge) badge.textContent = '0';
+      document.querySelectorAll('.agent-chip').forEach(chip => {
+        chip.className = 'agent-chip';
+        chip.setAttribute('data-agent', chip.getAttribute('data-agent'));
+        const badge = chip.querySelector('.chip-event-count');
+        if (badge) { badge.textContent = '0'; badge.classList.remove('visible'); }
       });
+      // Reset pulse dot to connected (static, no pulsing)
+      const pulse = document.getElementById('aiPulseDot');
+      if (pulse) { pulse.classList.remove('active'); pulse.classList.add('connected'); }
       // Stop any running tool timers
       Object.keys(runningTools).forEach(tid => {
         if (runningTools[tid].timerInterval) clearInterval(runningTools[tid].timerInterval);
@@ -4870,23 +4985,45 @@
         const el = document.getElementById(id);
         if (el) el.textContent = '0';
       });
-      // Re-enable demo button
-      const btn = document.getElementById('demoBtn');
-      if (btn) { btn.disabled = false; btn.textContent = 'Run Demo'; }
+      // Reset controls to idle state
+      setCtrlState('idle');
     }
 
-    // ── Demo ──
-    function startDemo() {
+    // ── Engagement Controls ──
+    function setCtrlState(state) {
+      // state: 'idle' | 'running' | 'paused'
+      document.getElementById('ctrlIdle').style.display = state === 'idle' ? 'flex' : 'none';
+      document.getElementById('ctrlRunning').style.display = state === 'running' ? 'flex' : 'none';
+      document.getElementById('ctrlPaused').style.display = state === 'paused' ? 'flex' : 'none';
+    }
+
+    function startEngage() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      const btn = document.getElementById('demoBtn');
-      btn.disabled = true;
-      btn.textContent = 'Running...';
+      setCtrlState('running');
       fetch('/api/demo/start', { method: 'POST' })
         .then(r => r.json())
-        .then(() => {
-          setTimeout(() => { btn.disabled = false; btn.textContent = 'Run Demo'; }, 60000);
-        })
-        .catch(() => { btn.disabled = false; btn.textContent = 'Run Demo'; });
+        .catch(() => setCtrlState('idle'));
+    }
+
+    function pauseEngage() {
+      fetch('/api/demo/pause', { method: 'POST' })
+        .then(r => r.json())
+        .then(() => setCtrlState('paused'))
+        .catch(() => {});
+    }
+
+    function resumeEngage() {
+      fetch('/api/demo/resume', { method: 'POST' })
+        .then(r => r.json())
+        .then(() => setCtrlState('running'))
+        .catch(() => {});
+    }
+
+    function stopEngage() {
+      fetch('/api/demo/stop', { method: 'POST' })
+        .then(r => r.json())
+        .then(() => setCtrlState('idle'))
+        .catch(() => setCtrlState('idle'));
     }
 
     // ── Initialize WebSocket on Load ──
