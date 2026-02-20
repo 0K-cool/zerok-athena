@@ -2449,8 +2449,62 @@
       line-height: 1.5;
     }
 
+    /* ── Operator Command Input ── */
+    .ai-command-bar {
+      padding: 10px 14px;
+      border-top: 1px solid var(--zerok-border);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--zerok-sidebar-active);
+    }
+
+    .ai-command-input {
+      flex: 1;
+      background: var(--zerok-content-bg);
+      border: 1px solid var(--zerok-border);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--zerok-text);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .ai-command-input::placeholder {
+      color: var(--zerok-text-dim);
+    }
+
+    .ai-command-input:focus {
+      border-color: var(--zerok-primary);
+    }
+
+    .ai-command-send {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      border: none;
+      background: var(--zerok-primary);
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: opacity 0.2s;
+    }
+
+    .ai-command-send:hover { opacity: 0.85; }
+
+    .ai-command-send:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
     .ai-drawer-footer {
-      padding: 12px 20px;
+      padding: 8px 14px;
       border-top: 1px solid var(--zerok-border);
       flex-shrink: 0;
       display: flex;
@@ -3717,6 +3771,16 @@
         <p>No agent activity yet.<br>Start a scan or run demo to see real-time updates.</p>
       </div>
     </div>
+    <div class="ai-command-bar">
+      <input type="text" class="ai-command-input" id="aiCommandInput"
+        placeholder="Command the AI team..." autocomplete="off"
+        onkeydown="if(event.key==='Enter')sendOperatorCommand()">
+      <button class="ai-command-send" id="aiCommandSend" onclick="sendOperatorCommand()" title="Send command">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+        </svg>
+      </button>
+    </div>
     <div class="ai-drawer-footer">
       <div class="connection-status">
         <div class="connection-dot" id="connectionDot"></div>
@@ -4152,9 +4216,13 @@
     function toggleAIDrawer() {
       const drawer = document.getElementById('aiDrawer');
       drawer.classList.toggle('open');
+      const fab = document.getElementById('aiToggleBtn');
       if (drawer.classList.contains('open')) {
         notificationCount = 0;
         updateNotifBadge();
+        if (fab) fab.style.display = 'none';
+      } else {
+        if (fab) fab.style.display = '';
       }
     }
 
@@ -4231,7 +4299,12 @@
         handleStateSync(msg);
         return;
       }
-      if (type === 'pong' || type === 'error') return;
+      if (type === 'pong' || type === 'error' || type === 'operator_command') return;
+
+      if (type === 'operator_response') {
+        renderOperatorResponse(msg);
+        return;
+      }
 
       if (type === 'phase_update') {
         handlePhaseUpdate(msg);
@@ -4331,12 +4404,8 @@
       if (msg.pending_approvals && msg.pending_approvals.length > 0) {
         showApprovalModal(msg.pending_approvals[0]);
       }
-      // Replay recent events
-      if (msg.recent_events) {
-        for (const evt of msg.recent_events) {
-          addTimelineEvent(evt, true);
-        }
-      }
+      // Skip recent_events replay — timeline starts empty until Run Demo
+      // Events are delivered live via WebSocket during demo execution
       updatePulseDot();
     }
 
@@ -4710,11 +4779,69 @@
       }
     }
 
+    // ── Operator Command ──
+    function sendOperatorCommand() {
+      const input = document.getElementById('aiCommandInput');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+
+      // Show the command in the timeline as an operator message
+      const timeline = document.getElementById('aiTimeline');
+      if (timeline) {
+        const el = document.createElement('div');
+        el.className = 'timeline-event';
+        el.innerHTML =
+          '<span class="event-icon" style="background:var(--zerok-primary);">▶</span>' +
+          '<div class="event-body">' +
+            '<div class="event-header">' +
+              '<span><strong>Operator</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-primary) 20%,transparent);color:var(--zerok-primary);">COMMAND</span></span>' +
+              '<span class="event-time">' + new Date().toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) + '</span>' +
+            '</div>' +
+            '<div class="event-detail" style="color:var(--zerok-text);">' + text.replace(/</g,'&lt;') + '</div>' +
+          '</div>';
+        timeline.appendChild(el);
+        smartScroll(timeline);
+      }
+
+      // Send via WebSocket if connected
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'operator_command', content: text }));
+      }
+    }
+
+    // ── Render AI Response to Operator Command ──
+    function renderOperatorResponse(msg) {
+      const timeline = document.getElementById('aiTimeline');
+      const empty = document.getElementById('aiEmpty');
+      if (empty) empty.style.display = 'none';
+
+      const agentName = msg.agentName || AGENT_NAMES[msg.agent] || 'Orchestrator';
+      const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+
+      const el = document.createElement('div');
+      el.className = 'timeline-event';
+      el.setAttribute('data-agent', msg.agent || 'OR');
+      el.innerHTML =
+        '<span class="event-icon" style="background:var(--zerok-info);">⚡</span>' +
+        '<div class="event-body">' +
+          '<div class="event-header">' +
+            '<span><strong>' + escHtml(agentName) + '</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-info) 20%,transparent);color:var(--zerok-info);">RESPONSE</span></span>' +
+            '<span class="event-time">' + time + '</span>' +
+          '</div>' +
+          '<div class="event-detail" style="color:var(--zerok-text-muted);">' + escHtml(msg.content || '') + '</div>' +
+        '</div>';
+
+      if (timeline) {
+        timeline.appendChild(el);
+        smartScroll(timeline);
+      }
+    }
+
     // ── Clear Drawer ──
     function clearDrawer() {
       // Reset auto-scroll for fresh demo run
       _autoScrollEnabled = true;
-      _isProgrammaticScroll = false;
       // Clear timeline
       const timeline = document.getElementById('aiTimeline');
       if (timeline) timeline.innerHTML = '';
