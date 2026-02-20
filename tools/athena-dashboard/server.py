@@ -1160,6 +1160,103 @@ async def get_scans():
     ]
 
 
+@app.get("/api/reports")
+async def get_reports():
+    """Get mock report data for the Reports view (Phase A — mock only)."""
+    return [
+        {
+            "id": "rpt-001",
+            "title": "Acme Corp External — Executive Summary",
+            "type": "executive",
+            "engagement": "eng-001",
+            "engagement_name": "Acme Corp External",
+            "status": "final",
+            "created_at": "2026-02-20T14:00:00Z",
+            "updated_at": "2026-02-20T16:30:00Z",
+            "author": "RP",
+            "pages": 8,
+            "findings_included": 7,
+            "format": "pdf",
+            "summary": "Executive overview for C-suite. Risk rating: HIGH. 2 critical, 1 high, 4 medium findings across 156 hosts.",
+        },
+        {
+            "id": "rpt-002",
+            "title": "Acme Corp External — Technical Report",
+            "type": "technical",
+            "engagement": "eng-001",
+            "engagement_name": "Acme Corp External",
+            "status": "final",
+            "created_at": "2026-02-20T14:15:00Z",
+            "updated_at": "2026-02-20T17:00:00Z",
+            "author": "RP",
+            "pages": 42,
+            "findings_included": 7,
+            "format": "pdf",
+            "summary": "Full technical detail with reproduction steps, evidence packages, CVSS scoring, and affected host inventory.",
+        },
+        {
+            "id": "rpt-003",
+            "title": "Acme Corp External — Remediation Roadmap",
+            "type": "remediation",
+            "engagement": "eng-001",
+            "engagement_name": "Acme Corp External",
+            "status": "review",
+            "created_at": "2026-02-20T15:00:00Z",
+            "updated_at": "2026-02-20T15:45:00Z",
+            "author": "RP",
+            "pages": 12,
+            "findings_included": 7,
+            "format": "pdf",
+            "summary": "Prioritized remediation plan with effort estimates, quick wins, and 30/60/90 day milestones.",
+        },
+        {
+            "id": "rpt-004",
+            "title": "GlobalBank API — Executive Summary",
+            "type": "executive",
+            "engagement": "eng-002",
+            "engagement_name": "GlobalBank API",
+            "status": "draft",
+            "created_at": "2026-02-20T16:00:00Z",
+            "updated_at": "2026-02-20T16:00:00Z",
+            "author": "RP",
+            "pages": 5,
+            "findings_included": 15,
+            "format": "pdf",
+            "summary": "Draft executive summary. Engagement still active — findings count may increase.",
+        },
+        {
+            "id": "rpt-005",
+            "title": "GlobalBank API — Technical Report",
+            "type": "technical",
+            "engagement": "eng-002",
+            "engagement_name": "GlobalBank API",
+            "status": "generating",
+            "created_at": "2026-02-20T16:30:00Z",
+            "updated_at": "2026-02-20T16:30:00Z",
+            "author": "RP",
+            "pages": None,
+            "findings_included": 15,
+            "format": "pdf",
+            "summary": "Technical report generation in progress...",
+        },
+        {
+            "id": "rpt-006",
+            "title": "Acme Corp External — Full Report",
+            "type": "full",
+            "engagement": "eng-001",
+            "engagement_name": "Acme Corp External",
+            "status": "delivered",
+            "created_at": "2026-02-18T10:00:00Z",
+            "updated_at": "2026-02-19T09:00:00Z",
+            "author": "RP",
+            "pages": 58,
+            "findings_included": 7,
+            "format": "pdf",
+            "summary": "Combined executive + technical + remediation report. Delivered to client on 2026-02-19.",
+        },
+    ]
+
+
 @app.get("/api/approvals")
 async def get_approvals(status: Optional[str] = None):
     """Get approval requests with optional status filter."""

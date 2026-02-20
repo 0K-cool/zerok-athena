@@ -2266,6 +2266,175 @@
       overflow-y: auto;
     }
 
+    /* ========== REPORTS TABLE ========== */
+    .report-status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .report-status-badge.final {
+      background: color-mix(in srgb, var(--zerok-low) 20%, transparent);
+      color: var(--zerok-low);
+    }
+
+    .report-status-badge.delivered {
+      background: color-mix(in srgb, var(--zerok-primary) 20%, transparent);
+      color: var(--zerok-primary);
+    }
+
+    .report-status-badge.review {
+      background: color-mix(in srgb, var(--zerok-warning) 20%, transparent);
+      color: var(--zerok-warning);
+    }
+
+    .report-status-badge.draft {
+      background: color-mix(in srgb, var(--zerok-text-muted) 20%, transparent);
+      color: var(--zerok-text-muted);
+    }
+
+    .report-status-badge.generating {
+      background: color-mix(in srgb, var(--zerok-info) 20%, transparent);
+      color: var(--zerok-info);
+      animation: scan-pulse 2s ease-in-out infinite;
+    }
+
+    .report-type-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+
+    .report-type-badge.executive {
+      background: color-mix(in srgb, var(--zerok-info) 15%, transparent);
+      color: var(--zerok-info);
+    }
+
+    .report-type-badge.technical {
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+      color: var(--zerok-primary);
+    }
+
+    .report-type-badge.remediation {
+      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+      color: var(--zerok-low);
+    }
+
+    .report-type-badge.full {
+      background: color-mix(in srgb, var(--zerok-text) 15%, transparent);
+      color: var(--zerok-text);
+    }
+
+    [data-report-status="generating"].active {
+      border-color: var(--zerok-info);
+      background: color-mix(in srgb, var(--zerok-info) 15%, transparent);
+      color: var(--zerok-info);
+    }
+
+    [data-report-status="draft"].active {
+      border-color: var(--zerok-text-muted);
+      background: color-mix(in srgb, var(--zerok-text-muted) 15%, transparent);
+      color: var(--zerok-text-muted);
+    }
+
+    [data-report-status="review"].active {
+      border-color: var(--zerok-warning);
+      background: color-mix(in srgb, var(--zerok-warning) 15%, transparent);
+      color: var(--zerok-warning);
+    }
+
+    [data-report-status="final"].active {
+      border-color: var(--zerok-low);
+      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+      color: var(--zerok-low);
+    }
+
+    [data-report-status="delivered"].active {
+      border-color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+      color: var(--zerok-primary);
+    }
+
+    .report-detail-row td {
+      padding: 0 !important;
+      border-bottom: 1px solid var(--zerok-border);
+    }
+
+    .report-detail-content {
+      display: none;
+      padding: 20px;
+      background: var(--zerok-bg);
+      border-top: 1px solid var(--zerok-border);
+    }
+
+    .report-detail-content.expanded {
+      display: block;
+    }
+
+    .report-detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .report-detail-section {
+      background: var(--zerok-card);
+      padding: 16px;
+      border-radius: 6px;
+    }
+
+    .report-summary-block {
+      background: var(--zerok-sidebar-active);
+      border: 1px solid var(--zerok-border);
+      border-radius: 6px;
+      padding: 16px;
+      font-size: 13px;
+      color: var(--zerok-text-muted);
+      line-height: 1.6;
+    }
+
+    .report-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .report-action-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--zerok-border);
+      background: transparent;
+      color: var(--zerok-text-muted);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .report-action-btn:hover {
+      border-color: var(--zerok-border-hover);
+      color: var(--zerok-text);
+    }
+
+    .report-action-btn.primary {
+      border-color: var(--zerok-primary);
+      color: var(--zerok-primary);
+    }
+
+    .report-action-btn.primary:hover {
+      background: color-mix(in srgb, var(--zerok-primary) 10%, transparent);
+    }
+
     /* ========== AI ASSISTANT DRAWER ========== */
     .ai-drawer {
       width: 0;
@@ -4371,6 +4540,67 @@
           </div>
         </div><!-- /#attackGraphView -->
 
+        <!-- Reports View -->
+        <div id="reportsView" class="findings-view">
+          <div class="findings-header">
+            <h2 class="findings-title">Reports</h2>
+            <button class="modal-btn modal-btn-primary" onclick="generateReport()" style="font-size: 12px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M12 5v14M5 12h14"/></svg>
+              Generate Report
+            </button>
+          </div>
+
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Total Reports</span></div>
+              <div class="stat-value-row"><span class="stat-value" id="reports-total-count">0</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Final</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-low);" id="reports-final-count">0</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">In Review</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-warning);" id="reports-review-count">0</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Delivered</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-primary);" id="reports-delivered-count">0</span></div>
+            </div>
+          </div>
+
+          <div class="findings-filters">
+            <button class="severity-filter-chip active" data-report-status="all" onclick="filterReports('all')">ALL</button>
+            <button class="severity-filter-chip" data-report-status="generating" onclick="filterReports('generating')">GENERATING</button>
+            <button class="severity-filter-chip" data-report-status="draft" onclick="filterReports('draft')">DRAFT</button>
+            <button class="severity-filter-chip" data-report-status="review" onclick="filterReports('review')">REVIEW</button>
+            <button class="severity-filter-chip" data-report-status="final" onclick="filterReports('final')">FINAL</button>
+            <button class="severity-filter-chip" data-report-status="delivered" onclick="filterReports('delivered')">DELIVERED</button>
+          </div>
+
+          <div class="findings-table-container">
+            <table class="findings-table">
+              <thead>
+                <tr>
+                  <th>Report</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Pages</th>
+                  <th>Findings</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody id="reportsTableBody">
+                <tr>
+                  <td colspan="6" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">
+                    Loading reports...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div><!-- /#reportsView -->
+
       </main>
     </div>
 
@@ -5992,6 +6222,8 @@
         loadFindings();
       } else if (viewName === 'scans') {
         loadScans();
+      } else if (viewName === 'reports') {
+        loadReports();
       } else if (viewName === 'attackGraph') {
         initAttackGraph();
       }
@@ -6284,6 +6516,167 @@
       // Filter scans
       const filtered = status === 'all' ? allScans : allScans.filter(s => s.status === status);
       renderScans(filtered);
+    }
+
+    // ────────────────────────────────────────
+    // REPORTS
+    // ────────────────────────────────────────
+
+    let allReports = [];
+    let expandedReportId = null;
+
+    async function loadReports() {
+      try {
+        const res = await fetch('/api/reports');
+        allReports = await res.json();
+
+        // Update summary counts
+        const counts = { total: allReports.length, final: 0, review: 0, delivered: 0 };
+        allReports.forEach(r => {
+          if (r.status === 'final') counts.final++;
+          if (r.status === 'review') counts.review++;
+          if (r.status === 'delivered') counts.delivered++;
+        });
+        document.getElementById('reports-total-count').textContent = counts.total;
+        document.getElementById('reports-final-count').textContent = counts.final;
+        document.getElementById('reports-review-count').textContent = counts.review;
+        document.getElementById('reports-delivered-count').textContent = counts.delivered;
+
+        renderReports(allReports);
+      } catch (e) {
+        console.error('Failed to load reports:', e);
+        document.getElementById('reportsTableBody').innerHTML =
+          '<tr><td colspan="6" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">Failed to load reports</td></tr>';
+      }
+    }
+
+    function renderReports(reports) {
+      const tbody = document.getElementById('reportsTableBody');
+
+      if (reports.length === 0) {
+        tbody.innerHTML =
+          '<tr><td colspan="6" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">No reports found</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = reports.map(r => `
+        <tr onclick="toggleReportDetail('${r.id}')" data-report-id="${r.id}">
+          <td>
+            <div style="font-weight: 500;">${escHtml(r.title)}</div>
+            <div style="color: var(--zerok-text-muted); font-size: 11px; margin-top: 2px;">${escHtml(r.engagement_name)}</div>
+          </td>
+          <td><span class="report-type-badge ${r.type}">${r.type.toUpperCase()}</span></td>
+          <td><span class="report-status-badge ${r.status}">${r.status.toUpperCase()}</span></td>
+          <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${r.pages || '—'}</td>
+          <td>${r.findings_included || 0}</td>
+          <td style="font-size: 12px; color: var(--zerok-text-muted);">${r.updated_at ? new Date(r.updated_at).toLocaleDateString() : '—'}</td>
+        </tr>
+        <tr class="report-detail-row" data-report-id="${r.id}" style="display: none;">
+          <td colspan="6">
+            <div class="report-detail-content" id="report-details-${r.id}">
+              <div class="report-detail-grid">
+                <div class="report-detail-section">
+                  <div class="scan-detail-label">Author</div>
+                  <div class="scan-detail-value">${escHtml(r.author || 'AI Generated')}</div>
+                </div>
+                <div class="report-detail-section">
+                  <div class="scan-detail-label">Format</div>
+                  <div class="scan-detail-value">${escHtml((r.format || 'PDF').toUpperCase())}</div>
+                </div>
+                <div class="report-detail-section">
+                  <div class="scan-detail-label">Created</div>
+                  <div class="scan-detail-value">${r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</div>
+                </div>
+              </div>
+              ${r.summary ? `
+              <div class="scan-detail-label" style="margin-bottom: 8px;">Summary</div>
+              <div class="report-summary-block">${escHtml(r.summary)}</div>
+              ` : ''}
+              <div class="report-actions">
+                ${r.status === 'final' || r.status === 'delivered' ? `<button class="report-action-btn primary" onclick="event.stopPropagation(); downloadReport('${r.id}')">Download PDF</button>` : ''}
+                ${r.status === 'review' ? `<button class="report-action-btn primary" onclick="event.stopPropagation(); markReportFinal('${r.id}')">Mark as Final</button>` : ''}
+                ${r.status === 'draft' ? `<button class="report-action-btn" onclick="event.stopPropagation(); submitForReview('${r.id}')">Submit for Review</button>` : ''}
+                <button class="report-action-btn" onclick="event.stopPropagation(); duplicateReport('${r.id}')">Duplicate</button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function toggleReportDetail(reportId) {
+      const detailsRow = document.querySelector(`.report-detail-row[data-report-id="${reportId}"]`);
+      const details = document.getElementById(`report-details-${reportId}`);
+
+      if (expandedReportId === reportId) {
+        detailsRow.style.display = 'none';
+        details.classList.remove('expanded');
+        expandedReportId = null;
+      } else {
+        if (expandedReportId) {
+          const prevRow = document.querySelector(`.report-detail-row[data-report-id="${expandedReportId}"]`);
+          if (prevRow) prevRow.style.display = 'none';
+          const prevDetails = document.getElementById(`report-details-${expandedReportId}`);
+          if (prevDetails) prevDetails.classList.remove('expanded');
+        }
+        detailsRow.style.display = 'table-row';
+        details.classList.add('expanded');
+        expandedReportId = reportId;
+      }
+    }
+
+    function filterReports(status) {
+      document.querySelectorAll('[data-report-status]').forEach(chip => {
+        if (chip.dataset.reportStatus === status) {
+          chip.classList.add('active');
+        } else {
+          chip.classList.remove('active');
+        }
+      });
+
+      const filtered = status === 'all' ? allReports : allReports.filter(r => r.status === status);
+      renderReports(filtered);
+    }
+
+    function generateReport() {
+      // Mock — show toast notification
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: var(--zerok-primary); color: #000; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000; animation: fadeInUp 0.3s ease;';
+      toast.textContent = 'Report generation started...';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    function downloadReport(reportId) {
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: var(--zerok-low); color: #000; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000;';
+      toast.textContent = 'Downloading report PDF...';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+    }
+
+    function markReportFinal(reportId) {
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: var(--zerok-low); color: #000; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000;';
+      toast.textContent = 'Report marked as Final';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+    }
+
+    function submitForReview(reportId) {
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: var(--zerok-warning); color: #000; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000;';
+      toast.textContent = 'Report submitted for review';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+    }
+
+    function duplicateReport(reportId) {
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: var(--zerok-info); color: #fff; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000;';
+      toast.textContent = 'Report duplicated as draft';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
     }
 
     // ────────────────────────────────────────
