@@ -707,20 +707,20 @@
     }
 
     .widget-action {
-      padding: 4px 12px;
-      font-size: 11px;
+      padding: 4px 10px;
+      font-size: 10px;
       font-weight: 500;
-      border: 1px solid var(--zerok-primary);
+      border: 1px solid var(--zerok-border);
       border-radius: 4px;
       background: transparent;
-      color: var(--zerok-primary);
+      color: var(--zerok-text-muted);
       cursor: pointer;
       transition: all 0.15s ease;
     }
 
     .widget-action:hover {
-      background: var(--zerok-primary);
-      color: white;
+      border-color: var(--zerok-text-muted);
+      color: var(--zerok-text);
     }
 
     .widget-body {
@@ -998,13 +998,13 @@
     .technique-id {
       font-weight: 600;
       color: var(--zerok-text);
-      font-size: 9px;
+      font-size: 10px;
     }
 
     .technique-name {
       color: var(--zerok-text-muted);
-      font-size: 8px;
-      line-height: 1.2;
+      font-size: 9px;
+      line-height: 1.3;
       margin-top: 2px;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1012,9 +1012,9 @@
     }
 
     .technique-count {
-      font-size: 8px;
-      font-weight: 600;
-      color: var(--zerok-primary);
+      font-size: 9px;
+      font-weight: 500;
+      color: color-mix(in srgb, var(--zerok-primary) 80%, var(--zerok-text));
       margin-top: 2px;
     }
 
@@ -3732,10 +3732,15 @@
 
   <!-- AI Toggle Button -->
   <button class="ai-toggle-btn" id="aiToggleBtn" onclick="toggleAIDrawer()">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z"/>
-      <path d="M6.5 10.5C4 12 3 14.5 3 17h18c0-2.5-1-5-3.5-6.5"/>
-      <circle cx="12" cy="20" r="1"/>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4" y="8" width="16" height="12" rx="3"/>
+      <circle cx="9" cy="14" r="1.5" fill="currentColor" stroke="none"/>
+      <circle cx="15" cy="14" r="1.5" fill="currentColor" stroke="none"/>
+      <path d="M10 18h4"/>
+      <path d="M12 2v4"/>
+      <circle cx="12" cy="2" r="1" fill="currentColor" stroke="none"/>
+      <path d="M2 13h2"/>
+      <path d="M20 13h2"/>
     </svg>
     <div class="notification-badge" id="notifBadge">0</div>
   </button>
