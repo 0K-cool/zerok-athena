@@ -1634,6 +1634,212 @@
       }
     }
 
+    /* Type Chips (multi-select) */
+    .type-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .type-chip {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--zerok-border);
+      background: transparent;
+      color: var(--zerok-text-muted);
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+
+    .type-chip:hover {
+      border-color: var(--zerok-border-hover);
+      color: var(--zerok-text);
+    }
+
+    .type-chip.selected {
+      border-color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+      color: var(--zerok-primary);
+    }
+
+    /* Scope Upload Zone */
+    .scope-upload-zone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 16px;
+      border: 1px dashed var(--zerok-border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: var(--zerok-text-dim);
+      background: var(--zerok-card-hover);
+    }
+
+    .scope-upload-zone:hover {
+      border-color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 5%, transparent);
+      color: var(--zerok-text-muted);
+    }
+
+    .scope-upload-zone.dragging {
+      border-color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 10%, transparent);
+    }
+
+    .scope-upload-text {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .scope-upload-hint {
+      font-size: 11px;
+      opacity: 0.6;
+    }
+
+    .scope-upload-status {
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .scope-upload-status.parsing {
+      background: color-mix(in srgb, var(--zerok-info) 10%, transparent);
+      color: var(--zerok-info);
+      border: 1px solid color-mix(in srgb, var(--zerok-info) 20%, transparent);
+    }
+
+    .scope-upload-status.success {
+      background: color-mix(in srgb, var(--zerok-low) 10%, transparent);
+      color: var(--zerok-low);
+      border: 1px solid color-mix(in srgb, var(--zerok-low) 20%, transparent);
+    }
+
+    .scope-upload-status.error {
+      background: color-mix(in srgb, var(--zerok-critical) 10%, transparent);
+      color: var(--zerok-critical);
+      border: 1px solid color-mix(in srgb, var(--zerok-critical) 20%, transparent);
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .scope-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid transparent;
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      flex-shrink: 0;
+    }
+
+    /* Authorization Acknowledgment */
+    .auth-acknowledgment {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--zerok-warning) 8%, transparent);
+      border: 1px solid color-mix(in srgb, var(--zerok-warning) 20%, transparent);
+      margin-top: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .auth-acknowledgment:hover {
+      background: color-mix(in srgb, var(--zerok-warning) 12%, transparent);
+    }
+
+    .auth-acknowledgment.checked {
+      background: color-mix(in srgb, var(--zerok-low) 8%, transparent);
+      border-color: color-mix(in srgb, var(--zerok-low) 20%, transparent);
+    }
+
+    .auth-checkbox {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1.5px solid var(--zerok-text-dim);
+      background: transparent;
+      flex-shrink: 0;
+      margin-top: 1px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .auth-acknowledgment.checked .auth-checkbox {
+      background: var(--zerok-low);
+      border-color: var(--zerok-low);
+    }
+
+    .auth-checkbox svg {
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+
+    .auth-acknowledgment.checked .auth-checkbox svg {
+      opacity: 1;
+    }
+
+    .auth-text {
+      font-size: 12px;
+      color: var(--zerok-text-muted);
+      line-height: 1.4;
+    }
+
+    .auth-text strong {
+      color: var(--zerok-warning);
+      font-weight: 600;
+    }
+
+    .auth-acknowledgment.checked .auth-text strong {
+      color: var(--zerok-low);
+    }
+
+    /* Authorization Badge on Engagement List */
+    .auth-badge {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      padding: 2px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+
+    .auth-badge.documented {
+      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+      color: var(--zerok-low);
+    }
+
+    .auth-badge.manual {
+      background: color-mix(in srgb, var(--zerok-warning) 15%, transparent);
+      color: var(--zerok-warning);
+    }
+
+    .sidebar.collapsed .auth-badge {
+      display: none;
+    }
+
+    @keyframes pulse-warning {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); box-shadow: 0 0 12px color-mix(in srgb, var(--zerok-warning) 40%, transparent); }
+    }
+
     /* ========== FINDINGS TABLE ========== */
     .findings-view {
       display: none;
@@ -2458,6 +2664,51 @@
 
     html[data-theme="minimal"] .ai-command-input {
       background: #1a1a1a;
+    }
+
+    /* Minimal theme: Modal and form overrides for better contrast */
+    html[data-theme="minimal"] .modal {
+      background: #1e1e1e;
+      border-color: #4a4a4a;
+    }
+
+    html[data-theme="minimal"] .modal-input,
+    html[data-theme="minimal"] .modal-select {
+      background: #111111;
+      border-color: #444444;
+    }
+
+    html[data-theme="minimal"] .type-chip {
+      border-color: #4a4a4a;
+      color: #b0b0b0;
+    }
+
+    html[data-theme="minimal"] .type-chip:hover {
+      border-color: #5a5a5a;
+      color: #e0e0e0;
+    }
+
+    html[data-theme="minimal"] .type-chip.selected {
+      background: color-mix(in srgb, var(--zerok-primary) 20%, transparent);
+      border-color: var(--zerok-primary);
+    }
+
+    html[data-theme="minimal"] .scope-upload-zone {
+      border-color: #4a4a4a;
+      background: #111111;
+    }
+
+    html[data-theme="minimal"] .scope-upload-zone:hover {
+      border-color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 8%, #111111);
+    }
+
+    html[data-theme="minimal"] .modal-header {
+      border-bottom-color: #3a3a3a;
+    }
+
+    html[data-theme="minimal"] .modal-footer {
+      border-top-color: #3a3a3a;
     }
 
     .tool-output-block::-webkit-scrollbar {
@@ -5209,6 +5460,7 @@
           <div class="engagement-list-item ${e.id === currentEngagementId ? 'active' : ''}" onclick="selectEngagement('${e.id}')">
             <div class="engagement-status-dot ${e.status || 'active'}"></div>
             <span class="engagement-name">${escHtml(e.name)}</span>
+            ${e.authorization ? `<span class="auth-badge ${e.authorization}">${e.authorization === 'documented' ? 'Doc' : 'Manual'}</span>` : ''}
             <span class="engagement-actions" onclick="event.stopPropagation()">
               <span class="engagement-action-btn" role="button" onclick="archiveEngagement('${e.id}', '${escHtml(e.name)}')" title="Archive">
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M3 4v9a1 1 0 001 1h8a1 1 0 001-1V4M6 7h4"/></svg>
@@ -5274,15 +5526,127 @@
     function closeCreateEngagementModal() {
       document.getElementById('createEngagementModal').classList.remove('active');
       document.getElementById('createEngagementForm').reset();
+      // Reset type chips
+      document.querySelectorAll('.type-chip').forEach(c => c.classList.remove('selected'));
+      document.querySelector('.type-chip[data-type="external"]').classList.add('selected');
+      // Reset upload status
+      const status = document.getElementById('scopeUploadStatus');
+      status.style.display = 'none';
+      status.className = 'scope-upload-status';
+      document.getElementById('scopeFileInput').value = '';
+      // Reset authorization state
+      _scopeDocUploaded = false;
+      _authAcknowledged = false;
+      const ack = document.getElementById('authAcknowledgment');
+      ack.classList.remove('checked');
+      ack.style.display = 'flex';
     }
+
+    let _scopeDocUploaded = false;
+    let _authAcknowledged = false;
+
+    function toggleAuthAck() {
+      _authAcknowledged = !_authAcknowledged;
+      const el = document.getElementById('authAcknowledgment');
+      el.classList.toggle('checked', _authAcknowledged);
+    }
+
+    function updateAuthVisibility() {
+      const ack = document.getElementById('authAcknowledgment');
+      if (_scopeDocUploaded) {
+        ack.style.display = 'none';
+      } else {
+        ack.style.display = 'flex';
+      }
+    }
+
+    function toggleTypeChip(chip) {
+      chip.classList.toggle('selected');
+    }
+
+    function getSelectedTypes() {
+      return Array.from(document.querySelectorAll('.type-chip.selected')).map(c => c.dataset.type);
+    }
+
+    async function handleScopeUpload(input) {
+      const file = input.files[0];
+      if (!file) return;
+
+      const status = document.getElementById('scopeUploadStatus');
+      status.style.display = 'flex';
+      status.className = 'scope-upload-status parsing';
+      status.innerHTML = '<span class="scope-spinner"></span>Parsing ' + escHtml(file.name) + '...';
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/api/engagements/parse-scope', { method: 'POST', body: formData });
+        const result = await res.json();
+
+        if (result.ok && result.scope_text) {
+          const scopeInput = document.getElementById('engScope');
+          // Append to existing scope or set
+          if (scopeInput.value.trim()) {
+            scopeInput.value = scopeInput.value.trim() + ', ' + result.scope_text;
+          } else {
+            scopeInput.value = result.scope_text;
+          }
+          status.className = 'scope-upload-status success';
+          status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>' +
+            result.scope_targets.length + ' targets extracted from ' + escHtml(file.name);
+          _scopeDocUploaded = true;
+          updateAuthVisibility();
+        } else {
+          status.className = 'scope-upload-status error';
+          status.innerHTML = 'No targets found in ' + escHtml(file.name) + '. Enter scope manually.';
+        }
+      } catch (e) {
+        console.error('Scope parse error:', e);
+        status.className = 'scope-upload-status error';
+        status.innerHTML = 'Failed to parse file. Enter scope manually.';
+      }
+    }
+
+    // Drag and drop for scope upload
+    (function() {
+      const zone = document.getElementById('scopeUploadZone');
+      if (!zone) return;
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragging'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('dragging'));
+      zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('dragging');
+        const file = e.dataTransfer.files[0];
+        if (file) {
+          const input = document.getElementById('scopeFileInput');
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          input.files = dt.files;
+          handleScopeUpload(input);
+        }
+      });
+    })();
 
     async function createEngagement() {
       const form = document.getElementById('createEngagementForm');
+      const types = getSelectedTypes();
+      if (types.length === 0) {
+        showToast('error', 'Error', 'Select at least one engagement type');
+        return;
+      }
+      // Authorization validation
+      if (!_scopeDocUploaded && !_authAcknowledged) {
+        showToast('error', 'Authorization Required', 'Upload a SoW/RoE document or confirm written authorization');
+        document.getElementById('authAcknowledgment').style.animation = 'pulse-warning 0.4s ease';
+        setTimeout(() => document.getElementById('authAcknowledgment').style.animation = '', 400);
+        return;
+      }
       const data = {
         name: form.engName.value,
         client: form.engClient.value,
-        scope: form.engScope.value,
-        type: form.engType.value,
+        scope: form.engScope.value || form.engScope.placeholder,
+        types: types,
+        authorization: _scopeDocUploaded ? 'documented' : 'manual',
       };
 
       try {
@@ -5729,18 +6093,32 @@
             <input type="text" id="engClient" class="modal-input" placeholder="Acme Corporation" required>
           </div>
           <div class="modal-field">
-            <label class="modal-label" for="engScope">Scope</label>
-            <input type="text" id="engScope" class="modal-input" placeholder="*.acme.com, 10.0.0.0/24" required>
+            <label class="modal-label">Scope</label>
+            <input type="text" id="engScope" class="modal-input" placeholder="*.acme.com, 10.0.0.0/24" style="margin-bottom:8px;">
+            <div class="scope-upload-zone" id="scopeUploadZone" onclick="document.getElementById('scopeFileInput').click()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="12" y2="12"/><line x1="15" y1="15" x2="12" y2="12"/></svg>
+              <span class="scope-upload-text">Upload SoW or RoE to auto-extract scope</span>
+              <span class="scope-upload-hint">.txt, .md, .pdf, .docx — AI will parse targets</span>
+            </div>
+            <input type="file" id="scopeFileInput" accept=".txt,.md,.pdf,.doc,.docx" style="display:none" onchange="handleScopeUpload(this)">
+            <div class="scope-upload-status" id="scopeUploadStatus" style="display:none"></div>
+            <!-- Authorization acknowledgment (shown when no SoW/RoE uploaded) -->
+            <div class="auth-acknowledgment" id="authAcknowledgment" onclick="toggleAuthAck()">
+              <div class="auth-checkbox" id="authCheckbox">
+                <svg viewBox="0 0 12 12" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2 6 5 9 10 3"/></svg>
+              </div>
+              <span class="auth-text">I confirm the operator has <strong>written authorization</strong> (SoW, RoE, or equivalent) to perform this penetration test. No document was uploaded.</span>
+            </div>
           </div>
           <div class="modal-field">
-            <label class="modal-label" for="engType">Type</label>
-            <select id="engType" class="modal-select">
-              <option value="external">External</option>
-              <option value="internal">Internal</option>
-              <option value="webapp">Web Application</option>
-              <option value="api">API</option>
-              <option value="mobile">Mobile</option>
-            </select>
+            <label class="modal-label">Type <span style="color:var(--zerok-text-dim);font-weight:400">(select one or more)</span></label>
+            <div class="type-chips" id="engTypeChips">
+              <span class="type-chip selected" data-type="external" onclick="toggleTypeChip(this)">External</span>
+              <span class="type-chip" data-type="internal" onclick="toggleTypeChip(this)">Internal</span>
+              <span class="type-chip" data-type="webapp" onclick="toggleTypeChip(this)">Web Application</span>
+              <span class="type-chip" data-type="api" onclick="toggleTypeChip(this)">API</span>
+              <span class="type-chip" data-type="cloud" onclick="toggleTypeChip(this)">Cloud</span>
+            </div>
           </div>
         </form>
       </div>

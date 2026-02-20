@@ -44,7 +44,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -167,6 +167,7 @@ class Engagement(BaseModel):
     agents_active: int
     findings_count: int
     phase: str
+    authorization: str = "documented"
 
 
 # ──────────────────────────────────────────────
@@ -703,7 +704,48 @@ class CreateEngagementPayload(BaseModel):
     name: str
     client: str
     scope: str
-    type: str = "external"
+    types: list[str] = ["external"]
+    authorization: str = "manual"  # "documented" (SoW/RoE uploaded) or "manual" (operator assertion)
+
+
+@app.post("/api/engagements/parse-scope")
+async def parse_scope_document(file: UploadFile = File(...)):
+    """Parse uploaded SoW/RoE document and extract scope information.
+
+    Supports .txt, .md, .pdf (text extraction). Returns extracted scope targets.
+    In production this would call an LLM — for now uses regex extraction.
+    """
+    import re
+
+    content = await file.read()
+    try:
+        text = content.decode("utf-8", errors="ignore")
+    except Exception:
+        text = str(content)
+
+    # Extract common scope patterns
+    targets = []
+    # IP ranges (CIDR)
+    targets.extend(re.findall(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:/\d{1,2})?\b", text))
+    # Domains / wildcards
+    targets.extend(re.findall(r"\b\*?\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\b", text))
+    targets.extend(re.findall(r"\b(?:https?://)?[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}(?:\.[a-zA-Z]{2,})?\b", text))
+    # Deduplicate and clean
+    seen = set()
+    unique = []
+    for t in targets:
+        t_clean = t.strip().lower()
+        if t_clean not in seen and len(t_clean) > 3:
+            seen.add(t_clean)
+            unique.append(t.strip())
+
+    return {
+        "ok": True,
+        "filename": file.filename,
+        "scope_targets": unique[:50],  # Cap at 50
+        "scope_text": ", ".join(unique[:50]) if unique else "",
+        "raw_length": len(text),
+    }
 
 
 @app.post("/api/engagements")
@@ -711,6 +753,7 @@ async def create_engagement(payload: CreateEngagementPayload):
     """Create new engagement in Neo4j or mock data."""
     engagement_id = f"eng-{str(uuid.uuid4())[:6]}"
     start_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    types_str = ",".join(payload.types)
 
     if neo4j_available and neo4j_driver:
         try:
@@ -721,12 +764,14 @@ async def create_engagement(payload: CreateEngagementPayload):
                         name: $name,
                         client: $client,
                         scope: $scope,
-                        type: $type,
+                        types: $types,
+                        authorization: $authorization,
                         status: 'active',
                         start_date: $start_date
                     })
                 """, id=engagement_id, name=payload.name, client=payload.client,
-                     scope=payload.scope, type=payload.type, start_date=start_date)
+                     scope=payload.scope, types=types_str,
+                     authorization=payload.authorization, start_date=start_date)
 
             # Broadcast engagement change
             await state.broadcast({
@@ -750,6 +795,7 @@ async def create_engagement(payload: CreateEngagementPayload):
         agents_active=0,
         findings_count=0,
         phase="Planning",
+        authorization=payload.authorization,
     )
     state.engagements.append(new_engagement)
 
