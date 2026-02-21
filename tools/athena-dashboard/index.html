@@ -150,7 +150,7 @@
     /* Upside-down L Layout: Sidebar full height, content beside it */
     .dashboard {
       display: flex;
-      min-height: 100vh;
+      height: 100vh;
       width: 100%;
     }
 
@@ -2337,13 +2337,13 @@
     }
 
     .graph-legend-line.dashed {
-      height: 0;
-      border-top: 2px dashed;
+      height: 2px;
+      background: repeating-linear-gradient(to right, var(--dash-color) 0, var(--dash-color) 4px, transparent 4px, transparent 8px);
     }
 
     .graph-container {
       height: calc(100vh - 390px);
-      min-height: 350px;
+      min-height: 150px;
       background: var(--zerok-card);
       border: var(--zerok-card-border);
       border-radius: 8px;
@@ -2353,6 +2353,34 @@
 
     .graph-container canvas {
       outline: none;
+    }
+
+    .graph-resize-handle {
+      height: 6px;
+      cursor: ns-resize;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .graph-resize-handle:hover,
+    .graph-resize-handle.active {
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+    }
+
+    .graph-resize-grip {
+      width: 32px;
+      height: 2px;
+      background: var(--zerok-text-dim);
+      border-radius: 1px;
+      opacity: 0.4;
+    }
+
+    .graph-resize-handle:hover .graph-resize-grip,
+    .graph-resize-handle.active .graph-resize-grip {
+      opacity: 0.8;
     }
 
     .graph-placeholder {
@@ -2404,7 +2432,24 @@
     }
 
     .graph-detail-body {
-      padding: 16px;
+      padding: 0;
+      overflow-y: auto;
+    }
+
+    .graph-detail-card {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--zerok-border);
+    }
+
+    .graph-detail-card:last-child {
+      border-bottom: none;
+    }
+
+    .graph-detail-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
     }
 
     .graph-detail-grid {
@@ -4797,7 +4842,7 @@
               <span>Lateral Movement</span>
             </div>
             <div class="graph-legend-item" style="cursor: default;">
-              <div class="graph-legend-line dashed" style="border-color: #9C27B0;"></div>
+              <div class="graph-legend-line dashed" style="--dash-color: #9C27B0;"></div>
               <span>Harvested Creds</span>
             </div>
             <div class="graph-legend-item" style="cursor: default;">
@@ -4818,21 +4863,18 @@
             </div>
           </div>
 
+          <div class="graph-resize-handle" id="graphResizeHandle">
+            <div class="graph-resize-grip"></div>
+          </div>
+
           <div class="graph-detail-panel" id="graphDetailPanel">
             <div class="graph-detail-header">
               <div class="graph-detail-title">
-                <span class="graph-detail-type" id="graphDetailType">HOST</span>
-                <span id="graphDetailName">—</span>
+                <span id="graphDetailCount">0</span> <span>selected</span>
               </div>
-              <button class="modal-btn" onclick="closeGraphDetail()" style="font-size: 11px; padding: 4px 10px;">Close</button>
+              <button class="modal-btn" onclick="closeGraphDetail()" style="font-size: 11px; padding: 4px 10px;">Close All</button>
             </div>
-            <div class="graph-detail-body">
-              <div class="graph-detail-grid" id="graphDetailGrid"></div>
-              <div class="graph-path-list" id="graphPathList" style="display: none;">
-                <div class="graph-detail-field-label" style="margin-bottom: 8px;">Connected Paths</div>
-                <div id="graphPathItems"></div>
-              </div>
-            </div>
+            <div class="graph-detail-body" id="graphDetailBody"></div>
           </div>
         </div><!-- /#attackGraphView -->
 
@@ -7116,12 +7158,23 @@
 
       graphNetwork = new vis.Network(container, { nodes: graphNodes, edges: graphEdges }, options);
 
-      // Node click handler — only update detail on node click, don't close on empty click
+      // Node click handler — show detail only on clean click, not drag; multi-select
+      let graphClickTimer = null;
+      graphNetwork.on('dragStart', function() {
+        if (graphClickTimer) { clearTimeout(graphClickTimer); graphClickTimer = null; }
+      });
+
       graphNetwork.on('click', function(params) {
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
           const node = graphNodes.get(nodeId);
-          showGraphDetail(node);
+          graphClickTimer = setTimeout(() => {
+            toggleGraphNode(node);
+            graphClickTimer = null;
+          }, 200);
+        } else if (selectedGraphNodes.size > 0) {
+          // Background click — re-select nodes so highlights stay
+          graphNetwork.selectNodes(Array.from(selectedGraphNodes.keys()));
         }
       });
 
@@ -7232,58 +7285,122 @@
       document.getElementById('graph-paths-count').textContent = paths;
     }
 
-    function showGraphDetail(node) {
+    let selectedGraphNodes = new Map(); // nodeId -> node data
+
+    function renderGraphDetailPanel() {
       const panel = document.getElementById('graphDetailPanel');
-      const typeEl = document.getElementById('graphDetailType');
-      const nameEl = document.getElementById('graphDetailName');
-      const gridEl = document.getElementById('graphDetailGrid');
-      const pathListEl = document.getElementById('graphPathList');
-      const pathItemsEl = document.getElementById('graphPathItems');
+      const body = document.getElementById('graphDetailBody');
+      const countEl = document.getElementById('graphDetailCount');
 
-      const d = node.nodeData;
-      typeEl.textContent = d.type.toUpperCase();
-      typeEl.style.background = `color-mix(in srgb, ${NODE_COLORS[d.type]} 20%, transparent)`;
-      typeEl.style.color = NODE_COLORS[d.type];
-      nameEl.textContent = d.label;
-
-      // Build detail fields from node properties
-      let fieldsHtml = '';
-      if (d.properties) {
-        Object.entries(d.properties).forEach(([key, val]) => {
-          fieldsHtml += `<div class="graph-detail-field">
-            <span class="graph-detail-field-label">${escHtml(key)}</span>
-            <span class="graph-detail-field-value">${escHtml(String(val))}</span>
-          </div>`;
-        });
-      }
-      gridEl.innerHTML = fieldsHtml;
-
-      // Show connected edges as paths
-      const connected = graphData.edges.filter(e => e.from === d.id || e.to === d.id);
-      if (connected.length > 0) {
-        pathItemsEl.innerHTML = connected.map(e => {
-          const fromNode = graphData.nodes.find(n => n.id === e.from);
-          const toNode = graphData.nodes.find(n => n.id === e.to);
-          return `<div class="graph-path-item">
-            <span>${escHtml(fromNode ? fromNode.label : e.from)}</span>
-            <span class="graph-path-arrow">&rarr;</span>
-            <span style="color: var(--zerok-text-dim);">${escHtml(e.label || e.type)}</span>
-            <span class="graph-path-arrow">&rarr;</span>
-            <span>${escHtml(toNode ? toNode.label : e.to)}</span>
-          </div>`;
-        }).join('');
-        pathListEl.style.display = 'block';
-      } else {
-        pathListEl.style.display = 'none';
+      if (selectedGraphNodes.size === 0) {
+        panel.classList.remove('visible');
+        if (graphNetwork) graphNetwork.unselectAll();
+        return;
       }
 
+      countEl.textContent = selectedGraphNodes.size;
+      let html = '';
+
+      selectedGraphNodes.forEach((node) => {
+        const d = node.nodeData;
+        const color = NODE_COLORS[d.type];
+
+        // Header with type badge and label
+        html += `<div class="graph-detail-card" data-node-id="${escHtml(d.id)}">`;
+        html += `<div class="graph-detail-card-header">
+          <span class="graph-detail-type" style="background: color-mix(in srgb, ${color} 20%, transparent); color: ${color};">${escHtml(d.type.toUpperCase())}</span>
+          <span style="font-weight: 600; font-size: 14px;">${escHtml(d.label)}</span>
+        </div>`;
+
+        // Properties grid
+        if (d.properties) {
+          html += '<div class="graph-detail-grid">';
+          Object.entries(d.properties).forEach(([key, val]) => {
+            html += `<div class="graph-detail-field">
+              <span class="graph-detail-field-label">${escHtml(key)}</span>
+              <span class="graph-detail-field-value">${escHtml(String(val))}</span>
+            </div>`;
+          });
+          html += '</div>';
+        }
+
+        // Connected paths
+        const connected = graphData.edges.filter(e => e.from === d.id || e.to === d.id);
+        if (connected.length > 0) {
+          html += '<div class="graph-path-list" style="display: block;">';
+          html += '<div class="graph-detail-field-label" style="margin-bottom: 8px;">Connected Paths</div>';
+          html += connected.map(e => {
+            const fromNode = graphData.nodes.find(n => n.id === e.from);
+            const toNode = graphData.nodes.find(n => n.id === e.to);
+            return `<div class="graph-path-item">
+              <span>${escHtml(fromNode ? fromNode.label : e.from)}</span>
+              <span class="graph-path-arrow">&rarr;</span>
+              <span style="color: var(--zerok-text-dim);">${escHtml(e.label || e.type)}</span>
+              <span class="graph-path-arrow">&rarr;</span>
+              <span>${escHtml(toNode ? toNode.label : e.to)}</span>
+            </div>`;
+          }).join('');
+          html += '</div>';
+        }
+
+        html += '</div>';
+      });
+
+      body.innerHTML = html;
       panel.classList.add('visible');
     }
 
+    function toggleGraphNode(node) {
+      const nodeId = node.id;
+      if (selectedGraphNodes.has(nodeId)) {
+        selectedGraphNodes.delete(nodeId);
+      } else {
+        selectedGraphNodes.set(nodeId, node);
+      }
+      // Sync vis-network selection
+      if (graphNetwork) graphNetwork.selectNodes(Array.from(selectedGraphNodes.keys()));
+      renderGraphDetailPanel();
+    }
+
     function closeGraphDetail() {
+      selectedGraphNodes.clear();
       document.getElementById('graphDetailPanel').classList.remove('visible');
       if (graphNetwork) graphNetwork.unselectAll();
     }
+
+    // Graph resize handle — drag to resize graph vs detail panel
+    (function initGraphResize() {
+      const handle = document.getElementById('graphResizeHandle');
+      const graphContainer = document.getElementById('attack-graph');
+      let startY = 0, startHeight = 0, dragging = false;
+
+      handle.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        dragging = true;
+        startY = e.clientY;
+        startHeight = graphContainer.getBoundingClientRect().height;
+        handle.classList.add('active');
+        document.body.style.cursor = 'ns-resize';
+        document.body.style.userSelect = 'none';
+      });
+
+      document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        const delta = e.clientY - startY;
+        const newHeight = Math.max(150, startHeight + delta);
+        graphContainer.style.height = newHeight + 'px';
+        if (graphNetwork) graphNetwork.redraw();
+      });
+
+      document.addEventListener('mouseup', function() {
+        if (!dragging) return;
+        dragging = false;
+        handle.classList.remove('active');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        if (graphNetwork) graphNetwork.fit({ animation: false });
+      });
+    })();
 
     // NeoVis.js fallback for Phase B (live Neo4j)
     let neovisInstance = null;
