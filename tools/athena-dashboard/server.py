@@ -1275,6 +1275,105 @@ async def get_events(limit: int = 50, agent: Optional[str] = None):
     return [e.model_dump() for e in results[-limit:]]
 
 
+@app.get("/api/attack-graph")
+async def get_attack_graph():
+    """Return attack graph data for visualization (mock data for Phase A)."""
+    # Mock attack graph representing a realistic pentest kill chain
+    return {
+        "nodes": [
+            # Hosts
+            {"id": "h1", "type": "host", "label": "192.168.1.10", "tooltip": "Web Server (Ubuntu 22.04)",
+             "properties": {"ip": "192.168.1.10", "hostname": "web-prod-01", "os": "Ubuntu 22.04 LTS", "status": "compromised", "role": "Web Server"}},
+            {"id": "h2", "type": "host", "label": "192.168.1.20", "tooltip": "Database Server (CentOS 8)",
+             "properties": {"ip": "192.168.1.20", "hostname": "db-prod-01", "os": "CentOS 8", "status": "compromised", "role": "Database Server"}},
+            {"id": "h3", "type": "host", "label": "192.168.1.30", "tooltip": "Mail Server (Exchange 2019)",
+             "properties": {"ip": "192.168.1.30", "hostname": "mail-01", "os": "Windows Server 2019", "status": "vulnerable", "role": "Mail Server"}},
+            {"id": "h4", "type": "host", "label": "192.168.1.50", "tooltip": "HR Workstation (Win 11)",
+             "properties": {"ip": "192.168.1.50", "hostname": "ws-hr-04", "os": "Windows 11 Pro", "status": "compromised", "role": "Workstation"}},
+            {"id": "h5", "type": "host", "label": "192.168.1.100", "tooltip": "Domain Controller (Win 2022)",
+             "properties": {"ip": "192.168.1.100", "hostname": "dc-01", "os": "Windows Server 2022", "status": "at_risk", "role": "Domain Controller"}},
+            # Services
+            {"id": "s1", "type": "service", "label": "HTTPS:443", "tooltip": "Nginx 1.24 + Jenkins 2.426",
+             "properties": {"port": "443", "protocol": "TCP", "service": "HTTPS", "product": "Nginx 1.24", "version": "1.24.0"}},
+            {"id": "s2", "type": "service", "label": "SSH:22", "tooltip": "OpenSSH 9.3p1",
+             "properties": {"port": "22", "protocol": "TCP", "service": "SSH", "product": "OpenSSH", "version": "9.3p1"}},
+            {"id": "s3", "type": "service", "label": "MySQL:3306", "tooltip": "MySQL 8.0.35",
+             "properties": {"port": "3306", "protocol": "TCP", "service": "MySQL", "product": "MySQL", "version": "8.0.35"}},
+            {"id": "s4", "type": "service", "label": "SMTP:25", "tooltip": "Exchange SMTP",
+             "properties": {"port": "25", "protocol": "TCP", "service": "SMTP", "product": "Microsoft Exchange"}},
+            {"id": "s5", "type": "service", "label": "RDP:3389", "tooltip": "Remote Desktop",
+             "properties": {"port": "3389", "protocol": "TCP", "service": "RDP", "product": "Microsoft Terminal Services"}},
+            {"id": "s6", "type": "service", "label": "LDAP:389", "tooltip": "Active Directory LDAP",
+             "properties": {"port": "389", "protocol": "TCP", "service": "LDAP", "product": "Microsoft AD LDAP"}},
+            {"id": "s7", "type": "service", "label": "HTTP:8080", "tooltip": "Jenkins CI 2.426",
+             "properties": {"port": "8080", "protocol": "TCP", "service": "HTTP", "product": "Jenkins", "version": "2.426"}},
+            # Vulnerabilities
+            {"id": "v1", "type": "vulnerability", "label": "CVE-2024-23897", "tooltip": "Jenkins CLI Arbitrary File Read (CRITICAL)",
+             "properties": {"cve": "CVE-2024-23897", "severity": "CRITICAL", "cvss": "9.8", "title": "Jenkins CLI Arbitrary File Read", "exploited": "Yes"}},
+            {"id": "v2", "type": "vulnerability", "label": "SQL Injection", "tooltip": "Blind SQL Injection in login form (HIGH)",
+             "properties": {"severity": "HIGH", "cvss": "8.6", "title": "Blind SQL Injection - Login Form", "parameter": "username", "exploited": "Yes"}},
+            {"id": "v3", "type": "vulnerability", "label": "CVE-2024-21762", "tooltip": "FortiOS Out-of-Bound Write (CRITICAL)",
+             "properties": {"cve": "CVE-2024-21762", "severity": "CRITICAL", "cvss": "9.6", "title": "FortiOS Out-of-Bound Write RCE", "exploited": "No"}},
+            {"id": "v4", "type": "vulnerability", "label": "Weak Creds", "tooltip": "Default Jenkins admin credentials (HIGH)",
+             "properties": {"severity": "HIGH", "cvss": "7.5", "title": "Default Administrative Credentials", "detail": "admin:admin123", "exploited": "Yes"}},
+            {"id": "v5", "type": "vulnerability", "label": "CVE-2023-44487", "tooltip": "HTTP/2 Rapid Reset (MEDIUM)",
+             "properties": {"cve": "CVE-2023-44487", "severity": "MEDIUM", "cvss": "5.3", "title": "HTTP/2 Rapid Reset DoS", "exploited": "No"}},
+            # Credentials
+            {"id": "c1", "type": "credential", "label": "admin@web", "tooltip": "Jenkins admin (from default creds)",
+             "properties": {"username": "admin", "source": "Default credentials", "access_level": "Admin", "target": "Jenkins CI"}},
+            {"id": "c2", "type": "credential", "label": "sa@db", "tooltip": "MySQL sa (from SQL injection)",
+             "properties": {"username": "sa", "source": "SQL Injection data exfil", "access_level": "DBA", "target": "MySQL 8.0"}},
+            {"id": "c3", "type": "credential", "label": "CORP\\hr_admin", "tooltip": "Domain user (from workstation memory dump)",
+             "properties": {"username": "CORP\\hr_admin", "source": "LSASS memory dump", "access_level": "Domain User", "target": "Active Directory"}},
+            # Findings
+            {"id": "f1", "type": "finding", "label": "Initial Access", "tooltip": "Initial access via Jenkins default creds",
+             "properties": {"title": "Initial Access via Jenkins", "severity": "CRITICAL", "phase": "Initial Access", "technique": "T1078 - Valid Accounts", "status": "Confirmed"}},
+            {"id": "f2", "type": "finding", "label": "Data Exfiltration", "tooltip": "Customer PII extracted via SQL injection",
+             "properties": {"title": "Database Exfiltration via SQLi", "severity": "CRITICAL", "phase": "Collection", "technique": "T1213 - Data from Information Repositories", "status": "Confirmed"}},
+            {"id": "f3", "type": "finding", "label": "Lateral Movement", "tooltip": "Pivoted from web to DB using harvested creds",
+             "properties": {"title": "Lateral Movement to Database", "severity": "HIGH", "phase": "Lateral Movement", "technique": "T1021 - Remote Services", "status": "Confirmed"}},
+            {"id": "f4", "type": "finding", "label": "Privilege Escalation", "tooltip": "Domain user escalation path identified",
+             "properties": {"title": "Domain Privilege Escalation Path", "severity": "HIGH", "phase": "Privilege Escalation", "technique": "T1068 - Exploitation for Privilege Escalation", "status": "Validated"}},
+        ],
+        "edges": [
+            # Services run on hosts
+            {"from": "s1", "to": "h1", "type": "RUNS_ON", "label": "RUNS_ON"},
+            {"from": "s2", "to": "h1", "type": "RUNS_ON", "label": "RUNS_ON"},
+            {"from": "s7", "to": "h1", "type": "RUNS_ON", "label": "RUNS_ON"},
+            {"from": "s3", "to": "h2", "type": "RUNS_ON", "label": "RUNS_ON"},
+            {"from": "s4", "to": "h3", "type": "RUNS_ON", "label": "RUNS_ON"},
+            {"from": "s5", "to": "h4", "type": "RUNS_ON", "label": "RUNS_ON"},
+            {"from": "s6", "to": "h5", "type": "RUNS_ON", "label": "RUNS_ON"},
+            # Vulnerabilities affect services
+            {"from": "v1", "to": "s7", "type": "AFFECTS", "label": "AFFECTS"},
+            {"from": "v4", "to": "s7", "type": "AFFECTS", "label": "AFFECTS"},
+            {"from": "v5", "to": "s1", "type": "AFFECTS", "label": "AFFECTS"},
+            {"from": "v2", "to": "s3", "type": "AFFECTS", "label": "AFFECTS"},
+            {"from": "v3", "to": "s4", "type": "AFFECTS", "label": "AFFECTS"},
+            # Credentials harvested from exploits
+            {"from": "c1", "to": "v4", "type": "HARVESTED_FROM", "label": "HARVESTED"},
+            {"from": "c2", "to": "v2", "type": "HARVESTED_FROM", "label": "HARVESTED"},
+            {"from": "c3", "to": "h4", "type": "HARVESTED_FROM", "label": "DUMPED"},
+            # Attack path / exploitation chain
+            {"from": "v4", "to": "h1", "type": "EXPLOITS", "label": "EXPLOITS"},
+            {"from": "v1", "to": "h1", "type": "EXPLOITS", "label": "EXPLOITS"},
+            {"from": "h1", "to": "h2", "type": "LATERAL_MOVE", "label": "LATERAL"},
+            {"from": "v2", "to": "h2", "type": "EXPLOITS", "label": "EXPLOITS"},
+            {"from": "h2", "to": "h4", "type": "LATERAL_MOVE", "label": "LATERAL"},
+            {"from": "h4", "to": "h5", "type": "LATERAL_MOVE", "label": "LATERAL"},
+            # Findings evidence
+            {"from": "f1", "to": "v4", "type": "EVIDENCED_BY", "label": "EVIDENCE"},
+            {"from": "f2", "to": "v2", "type": "EVIDENCED_BY", "label": "EVIDENCE"},
+            {"from": "f3", "to": "h2", "type": "EVIDENCED_BY", "label": "EVIDENCE"},
+            {"from": "f4", "to": "h5", "type": "EVIDENCED_BY", "label": "EVIDENCE"},
+        ],
+        "attack_paths": [
+            {"name": "Kill Chain Alpha", "steps": ["Jenkins Default Creds", "Web Server Access", "Lateral to DB", "SQL Data Exfil"]},
+            {"name": "Kill Chain Beta", "steps": ["Jenkins CLI RCE", "SSH Key Harvest", "Pivot to Workstation", "LSASS Dump", "DC Access Path"]},
+        ]
+    }
+
+
 @app.get("/api/neo4j-config")
 async def get_neo4j_config():
     """Return Neo4j connection config for browser-side Neovis.js (read-only credentials)."""

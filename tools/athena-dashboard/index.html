@@ -7,6 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Mono:wght@400;700&family=Share+Tech+Mono&family=Orbitron:wght@400;700&family=Audiowide&family=Michroma&family=Oxanium:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://unpkg.com/neovis.js@2.1.0"></script>
+  <script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"></script>
   <style>
     /* ========== THEME: Default (0K) ========== */
     :root, html[data-theme="default"] {
@@ -2264,6 +2265,210 @@
       overflow-x: auto;
       max-height: 300px;
       overflow-y: auto;
+    }
+
+    /* ========== ATTACK GRAPH ========== */
+    .graph-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .graph-toolbar .modal-btn {
+      font-size: 12px;
+      padding: 6px 14px;
+    }
+
+    .graph-legend {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 8px;
+      flex-wrap: wrap;
+    }
+
+    .graph-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--zerok-text-muted);
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .graph-legend-item:hover {
+      color: var(--zerok-text);
+    }
+
+    .graph-legend-item.dimmed {
+      opacity: 0.3;
+    }
+
+    .graph-legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .graph-legend-shape {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+
+    .graph-legend-divider {
+      width: 1px;
+      height: 16px;
+      background: var(--zerok-border);
+      align-self: center;
+    }
+
+    .graph-legend-line {
+      width: 24px;
+      height: 2px;
+      flex-shrink: 0;
+      border-radius: 1px;
+    }
+
+    .graph-legend-line.dashed {
+      height: 0;
+      border-top: 2px dashed;
+    }
+
+    .graph-container {
+      height: calc(100vh - 390px);
+      min-height: 350px;
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .graph-container canvas {
+      outline: none;
+    }
+
+    .graph-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--zerok-text-dim);
+      pointer-events: none;
+    }
+
+    .graph-detail-panel {
+      display: none;
+      margin-top: 16px;
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .graph-detail-panel.visible {
+      display: block;
+    }
+
+    .graph-detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--zerok-border);
+    }
+
+    .graph-detail-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--zerok-text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .graph-detail-type {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .graph-detail-body {
+      padding: 16px;
+    }
+
+    .graph-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .graph-detail-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .graph-detail-field-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .graph-detail-field-value {
+      font-size: 13px;
+      color: var(--zerok-text);
+      font-family: var(--zerok-font-mono);
+    }
+
+    .graph-path-list {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--zerok-border);
+    }
+
+    .graph-path-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      margin-bottom: 6px;
+      background: var(--zerok-bg);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--zerok-text-muted);
+      font-family: var(--zerok-font-mono);
+    }
+
+    .graph-path-arrow {
+      color: var(--zerok-primary);
+      font-weight: 700;
+    }
+
+    .graph-stats-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 11px;
+      color: var(--zerok-text-dim);
+    }
+
+    .graph-stats-row span {
+      background: color-mix(in srgb, var(--zerok-text-dim) 10%, transparent);
+      padding: 2px 8px;
+      border-radius: 4px;
     }
 
     /* ========== REPORTS TABLE ========== */
@@ -4525,16 +4730,107 @@
         <div id="attackGraphView" class="findings-view">
           <div class="findings-header">
             <h2 class="findings-title">Attack Graph</h2>
-            <button class="modal-btn modal-btn-primary" onclick="refreshAttackGraph()">Refresh</button>
+            <div class="graph-toolbar">
+              <select id="graphLayout" onchange="changeGraphLayout(this.value)" style="background: var(--zerok-card); color: var(--zerok-text); border: 1px solid var(--zerok-border); padding: 6px 10px; border-radius: 6px; font-size: 12px; font-family: var(--zerok-font-sans);">
+                <option value="hierarchical">Hierarchical</option>
+                <option value="force" selected>Force-Directed</option>
+                <option value="circular">Circular</option>
+              </select>
+              <button class="modal-btn" onclick="resetGraphView()" style="font-size: 12px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                Reset View
+              </button>
+              <button class="modal-btn modal-btn-primary" onclick="refreshAttackGraph()" style="font-size: 12px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M12 5v14M5 12h14"/></svg>
+                Refresh
+              </button>
+            </div>
           </div>
-          <div id="attack-graph" style="height: 600px; background: var(--zerok-card); border: var(--zerok-card-border); border-radius: 8px; position: relative;">
-            <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--zerok-text-dim);">
+
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Hosts</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: #4CAF50;" id="graph-hosts-count">0</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Services</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: #2196F3;" id="graph-services-count">0</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Vulnerabilities</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-critical);" id="graph-vulns-count">0</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Attack Paths</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-warning);" id="graph-paths-count">0</span></div>
+            </div>
+          </div>
+
+          <div class="graph-legend" id="graphLegend">
+            <div class="graph-legend-item" data-node-type="host" onclick="toggleGraphNodeType('host')">
+              <svg class="graph-legend-shape" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="2" fill="#4CAF50"/></svg>
+              <span>Hosts</span>
+            </div>
+            <div class="graph-legend-item" data-node-type="service" onclick="toggleGraphNodeType('service')">
+              <div class="graph-legend-dot" style="background: #2196F3;"></div>
+              <span>Services</span>
+            </div>
+            <div class="graph-legend-item" data-node-type="vulnerability" onclick="toggleGraphNodeType('vulnerability')">
+              <svg class="graph-legend-shape" viewBox="0 0 12 12"><polygon points="6,0 12,6 6,12 0,6" fill="#f44336"/></svg>
+              <span>Vulnerabilities</span>
+            </div>
+            <div class="graph-legend-item" data-node-type="credential" onclick="toggleGraphNodeType('credential')">
+              <svg class="graph-legend-shape" viewBox="0 0 12 12"><polygon points="6,0 12,12 0,12" fill="#9C27B0"/></svg>
+              <span>Credentials</span>
+            </div>
+            <div class="graph-legend-item" data-node-type="finding" onclick="toggleGraphNodeType('finding')">
+              <svg class="graph-legend-shape" viewBox="0 0 12 12"><polygon points="6,0 7.8,4.2 12,4.6 8.8,7.6 9.7,12 6,9.8 2.3,12 3.2,7.6 0,4.6 4.2,4.2" fill="#FF9800"/></svg>
+              <span>Findings</span>
+            </div>
+            <div class="graph-legend-divider"></div>
+            <div class="graph-legend-item" style="cursor: default;">
+              <div class="graph-legend-line" style="background: #f44336;"></div>
+              <span>Exploits</span>
+            </div>
+            <div class="graph-legend-item" style="cursor: default;">
+              <div class="graph-legend-line" style="background: #FF9800;"></div>
+              <span>Lateral Movement</span>
+            </div>
+            <div class="graph-legend-item" style="cursor: default;">
+              <div class="graph-legend-line dashed" style="border-color: #9C27B0;"></div>
+              <span>Harvested Creds</span>
+            </div>
+            <div class="graph-legend-item" style="cursor: default;">
+              <div class="graph-legend-line" style="background: #555;"></div>
+              <span>Runs On / Affects / Evidence</span>
+            </div>
+          </div>
+
+          <div class="graph-container" id="attack-graph">
+            <div class="graph-placeholder" id="graphPlaceholder">
               <div style="text-align: center;">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.3; margin: 0 auto 12px;">
                   <circle cx="9" cy="9" r="2"/><circle cx="15" cy="9" r="2"/><circle cx="9" cy="15" r="2"/><circle cx="15" cy="15" r="2"/>
                   <path d="M11 9h2M9 11v2M15 11v2M11 15h2"/>
                 </svg>
-                <p id="graphStatus">Loading Neo4j connection...</p>
+                <p id="graphStatus">Loading attack graph...</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="graph-detail-panel" id="graphDetailPanel">
+            <div class="graph-detail-header">
+              <div class="graph-detail-title">
+                <span class="graph-detail-type" id="graphDetailType">HOST</span>
+                <span id="graphDetailName">—</span>
+              </div>
+              <button class="modal-btn" onclick="closeGraphDetail()" style="font-size: 11px; padding: 4px 10px;">Close</button>
+            </div>
+            <div class="graph-detail-body">
+              <div class="graph-detail-grid" id="graphDetailGrid"></div>
+              <div class="graph-path-list" id="graphPathList" style="display: none;">
+                <div class="graph-detail-field-label" style="margin-bottom: 8px;">Connected Paths</div>
+                <div id="graphPathItems"></div>
               </div>
             </div>
           </div>
@@ -6680,109 +6976,352 @@
     }
 
     // ────────────────────────────────────────
-    // ATTACK GRAPH (Neovis.js)
+    // ATTACK GRAPH (vis-network + NeoVis fallback)
     // ────────────────────────────────────────
 
-    let neovisInstance = null;
+    let graphNetwork = null;
+    let graphData = null;
+    let graphNodes = null;
+    let graphEdges = null;
+    let hiddenNodeTypes = new Set();
+
+    const NODE_COLORS = {
+      host: '#4CAF50',
+      service: '#2196F3',
+      vulnerability: '#f44336',
+      credential: '#9C27B0',
+      finding: '#FF9800'
+    };
+
+    const NODE_SHAPES = {
+      host: 'box',
+      service: 'dot',
+      vulnerability: 'diamond',
+      credential: 'triangle',
+      finding: 'star'
+    };
 
     async function initAttackGraph() {
       const statusEl = document.getElementById('graphStatus');
+      const placeholder = document.getElementById('graphPlaceholder');
 
       try {
-        const res = await fetch('/api/neo4j-config');
-        const config = await res.json();
+        // Try Neo4j first (Phase B)
+        const neoRes = await fetch('/api/neo4j-config');
+        const neoConfig = await neoRes.json();
 
-        if (!config.available) {
-          statusEl.textContent = 'Neo4j not available. Graph visualization requires Neo4j connection.';
+        if (neoConfig.available) {
+          statusEl.textContent = 'Connected to Neo4j — loading live graph...';
+          await loadNeoVisGraph(neoConfig);
           return;
         }
+      } catch (e) {
+        // Neo4j not available, fall through to mock
+      }
 
-        statusEl.textContent = 'Rendering attack graph...';
+      // Phase A: Load mock attack graph data
+      statusEl.textContent = 'Loading attack graph...';
 
-        const neovisConfig = {
-          containerId: "attack-graph",
-          neo4j: {
-            serverUrl: config.uri,
-            serverUser: config.user,
-            serverPassword: config.password,
-          },
-          labels: {
-            Host: {
-              label: "ip",
-              value: "ip",
-              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                static: {
-                  color: "#4CAF50",
-                  shape: "box"
-                }
-              }
-            },
-            Service: {
-              label: "port",
-              value: "port",
-              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                static: {
-                  color: "#2196F3",
-                  shape: "dot"
-                }
-              }
-            },
-            Vulnerability: {
-              label: "name",
-              value: "name",
-              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                static: {
-                  color: "#f44336",
-                  shape: "diamond"
-                }
-              }
-            },
-            Finding: {
-              label: "title",
-              value: "title",
-              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                static: {
-                  color: "#FF9800",
-                  shape: "star"
-                }
-              }
-            },
-            Credential: {
-              label: "username",
-              value: "username",
-              [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                static: {
-                  color: "#9C27B0",
-                  shape: "triangle"
-                }
-              }
-            },
-          },
-          relationships: {
-            RUNS_ON: { label: "type" },
-            AFFECTS: { label: "type" },
-            BELONGS_TO: { label: "type" },
-            EVIDENCED_BY: { label: "type" },
-            EXPLOITS: { label: "type" },
-          },
-          initialCypher: `MATCH (n) WHERE n.engagement_id = '${currentEngagementId}' OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 100`
-        };
-
-        neovisInstance = new NeoVis(neovisConfig);
-        neovisInstance.render();
-        statusEl.textContent = '';
-
+      try {
+        const res = await fetch('/api/attack-graph');
+        const data = await res.json();
+        graphData = data;
+        renderVisGraph(data);
+        placeholder.style.display = 'none';
+        updateGraphStats(data);
       } catch (e) {
         console.error('Failed to load attack graph:', e);
         statusEl.textContent = 'Failed to load attack graph: ' + e.message;
       }
     }
 
-    function refreshAttackGraph() {
-      if (neovisInstance) {
-        neovisInstance.reload();
+    function renderVisGraph(data) {
+      const container = document.getElementById('attack-graph');
+
+      // Build vis.js nodes
+      const nodeItems = data.nodes.map(n => ({
+        id: n.id,
+        label: n.label,
+        shape: NODE_SHAPES[n.type] || 'dot',
+        color: {
+          background: NODE_COLORS[n.type] || '#666',
+          border: NODE_COLORS[n.type] || '#666',
+          highlight: {
+            background: NODE_COLORS[n.type] || '#666',
+            border: '#fff'
+          }
+        },
+        font: {
+          color: '#e0e0e0',
+          size: n.type === 'host' ? 13 : 11,
+          face: 'JetBrains Mono, monospace'
+        },
+        size: n.type === 'host' ? 25 : (n.type === 'vulnerability' ? 20 : 15),
+        borderWidth: 2,
+        shadow: { enabled: true, color: 'rgba(0,0,0,0.3)', size: 4, x: 2, y: 2 },
+        title: n.tooltip || n.label,
+        nodeType: n.type,
+        nodeData: n
+      }));
+
+      // Build vis.js edges
+      const edgeItems = data.edges.map(e => ({
+        from: e.from,
+        to: e.to,
+        label: e.label || '',
+        arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+        color: {
+          color: e.type === 'EXPLOITS' ? '#f44336' :
+                 e.type === 'LATERAL_MOVE' ? '#FF9800' :
+                 e.type === 'HARVESTED_FROM' ? '#9C27B0' :
+                 '#555',
+          highlight: '#fff',
+          opacity: 0.7
+        },
+        font: {
+          color: '#888',
+          size: 9,
+          face: 'JetBrains Mono, monospace',
+          strokeWidth: 3,
+          strokeColor: '#1e1e1e'
+        },
+        width: e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE' ? 2.5 : 1.5,
+        dashes: e.type === 'HARVESTED_FROM' ? [5, 5] : false,
+        smooth: { type: 'curvedCW', roundness: 0.15 }
+      }));
+
+      graphNodes = new vis.DataSet(nodeItems);
+      graphEdges = new vis.DataSet(edgeItems);
+
+      const layout = document.getElementById('graphLayout').value;
+
+      const options = {
+        nodes: {
+          borderWidthSelected: 3
+        },
+        edges: {
+          selectionWidth: 2
+        },
+        physics: getPhysicsConfig(layout),
+        layout: getLayoutConfig(layout),
+        interaction: {
+          hover: true,
+          tooltipDelay: 200,
+          zoomView: true,
+          dragView: true,
+          navigationButtons: false,
+          keyboard: { enabled: true }
+        }
+      };
+
+      graphNetwork = new vis.Network(container, { nodes: graphNodes, edges: graphEdges }, options);
+
+      // Node click handler — only update detail on node click, don't close on empty click
+      graphNetwork.on('click', function(params) {
+        if (params.nodes.length > 0) {
+          const nodeId = params.nodes[0];
+          const node = graphNodes.get(nodeId);
+          showGraphDetail(node);
+        }
+      });
+
+      // Stabilization complete
+      graphNetwork.once('stabilizationIterationsDone', function() {
+        graphNetwork.setOptions({ physics: { enabled: false } });
+      });
+    }
+
+    function getPhysicsConfig(layout) {
+      if (layout === 'hierarchical') {
+        return {
+          enabled: true,
+          hierarchicalRepulsion: { nodeDistance: 150, centralGravity: 0.0, springLength: 100 },
+          solver: 'hierarchicalRepulsion',
+          stabilization: { iterations: 150 }
+        };
+      }
+      if (layout === 'circular') {
+        return { enabled: false };
+      }
+      // force-directed
+      return {
+        enabled: true,
+        barnesHut: { gravitationalConstant: -3000, centralGravity: 0.3, springLength: 120, damping: 0.4 },
+        stabilization: { iterations: 200 }
+      };
+    }
+
+    function getLayoutConfig(layout) {
+      if (layout === 'hierarchical') {
+        return {
+          hierarchical: {
+            enabled: true,
+            direction: 'LR',
+            sortMethod: 'directed',
+            levelSeparation: 180,
+            nodeSpacing: 80
+          }
+        };
+      }
+      return { hierarchical: false };
+    }
+
+    function changeGraphLayout(layout) {
+      if (!graphNetwork || !graphData) return;
+
+      if (layout === 'circular') {
+        // Arrange nodes in a circle
+        const nodes = graphData.nodes;
+        const cx = 0, cy = 0, radius = 250;
+        const updates = nodes.map((n, i) => ({
+          id: n.id,
+          x: cx + radius * Math.cos(2 * Math.PI * i / nodes.length),
+          y: cy + radius * Math.sin(2 * Math.PI * i / nodes.length)
+        }));
+        graphNetwork.setOptions({ physics: { enabled: false }, layout: { hierarchical: false } });
+        graphNodes.update(updates);
+        setTimeout(() => graphNetwork.fit({ animation: true }), 100);
       } else {
-        initAttackGraph();
+        graphNetwork.setOptions({
+          physics: getPhysicsConfig(layout),
+          layout: getLayoutConfig(layout)
+        });
+      }
+    }
+
+    function resetGraphView() {
+      if (graphNetwork) {
+        graphNetwork.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+      }
+    }
+
+    function refreshAttackGraph() {
+      hiddenNodeTypes.clear();
+      document.querySelectorAll('.graph-legend-item').forEach(el => el.classList.remove('dimmed'));
+      closeGraphDetail();
+      initAttackGraph();
+    }
+
+    function toggleGraphNodeType(type) {
+      const legendItem = document.querySelector(`.graph-legend-item[data-node-type="${type}"]`);
+      if (!graphNodes) return;
+
+      if (hiddenNodeTypes.has(type)) {
+        hiddenNodeTypes.delete(type);
+        legendItem.classList.remove('dimmed');
+        // Show nodes of this type
+        const updates = graphData.nodes.filter(n => n.type === type).map(n => ({ id: n.id, hidden: false }));
+        graphNodes.update(updates);
+      } else {
+        hiddenNodeTypes.add(type);
+        legendItem.classList.add('dimmed');
+        // Hide nodes of this type
+        const ids = graphData.nodes.filter(n => n.type === type).map(n => n.id);
+        graphNodes.update(ids.map(id => ({ id, hidden: true })));
+      }
+    }
+
+    function updateGraphStats(data) {
+      const counts = { host: 0, service: 0, vulnerability: 0, credential: 0, finding: 0 };
+      data.nodes.forEach(n => { if (counts[n.type] !== undefined) counts[n.type]++; });
+      const paths = data.edges.filter(e => e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE').length;
+
+      document.getElementById('graph-hosts-count').textContent = counts.host;
+      document.getElementById('graph-services-count').textContent = counts.service;
+      document.getElementById('graph-vulns-count').textContent = counts.vulnerability;
+      document.getElementById('graph-paths-count').textContent = paths;
+    }
+
+    function showGraphDetail(node) {
+      const panel = document.getElementById('graphDetailPanel');
+      const typeEl = document.getElementById('graphDetailType');
+      const nameEl = document.getElementById('graphDetailName');
+      const gridEl = document.getElementById('graphDetailGrid');
+      const pathListEl = document.getElementById('graphPathList');
+      const pathItemsEl = document.getElementById('graphPathItems');
+
+      const d = node.nodeData;
+      typeEl.textContent = d.type.toUpperCase();
+      typeEl.style.background = `color-mix(in srgb, ${NODE_COLORS[d.type]} 20%, transparent)`;
+      typeEl.style.color = NODE_COLORS[d.type];
+      nameEl.textContent = d.label;
+
+      // Build detail fields from node properties
+      let fieldsHtml = '';
+      if (d.properties) {
+        Object.entries(d.properties).forEach(([key, val]) => {
+          fieldsHtml += `<div class="graph-detail-field">
+            <span class="graph-detail-field-label">${escHtml(key)}</span>
+            <span class="graph-detail-field-value">${escHtml(String(val))}</span>
+          </div>`;
+        });
+      }
+      gridEl.innerHTML = fieldsHtml;
+
+      // Show connected edges as paths
+      const connected = graphData.edges.filter(e => e.from === d.id || e.to === d.id);
+      if (connected.length > 0) {
+        pathItemsEl.innerHTML = connected.map(e => {
+          const fromNode = graphData.nodes.find(n => n.id === e.from);
+          const toNode = graphData.nodes.find(n => n.id === e.to);
+          return `<div class="graph-path-item">
+            <span>${escHtml(fromNode ? fromNode.label : e.from)}</span>
+            <span class="graph-path-arrow">&rarr;</span>
+            <span style="color: var(--zerok-text-dim);">${escHtml(e.label || e.type)}</span>
+            <span class="graph-path-arrow">&rarr;</span>
+            <span>${escHtml(toNode ? toNode.label : e.to)}</span>
+          </div>`;
+        }).join('');
+        pathListEl.style.display = 'block';
+      } else {
+        pathListEl.style.display = 'none';
+      }
+
+      panel.classList.add('visible');
+    }
+
+    function closeGraphDetail() {
+      document.getElementById('graphDetailPanel').classList.remove('visible');
+      if (graphNetwork) graphNetwork.unselectAll();
+    }
+
+    // NeoVis.js fallback for Phase B (live Neo4j)
+    let neovisInstance = null;
+
+    async function loadNeoVisGraph(config) {
+      const statusEl = document.getElementById('graphStatus');
+      const placeholder = document.getElementById('graphPlaceholder');
+
+      try {
+        const neovisConfig = {
+          containerId: "attack-graph",
+          neo4j: { serverUrl: config.uri, serverUser: config.user, serverPassword: config.password },
+          labels: {
+            Host: { label: "ip", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#4CAF50", shape: "box" } } },
+            Service: { label: "port", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#2196F3", shape: "dot" } } },
+            Vulnerability: { label: "name", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#f44336", shape: "diamond" } } },
+            Finding: { label: "title", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#FF9800", shape: "star" } } },
+            Credential: { label: "username", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#9C27B0", shape: "triangle" } } },
+          },
+          relationships: {
+            RUNS_ON: { label: "type" }, AFFECTS: { label: "type" }, BELONGS_TO: { label: "type" },
+            EVIDENCED_BY: { label: "type" }, EXPLOITS: { label: "type" },
+          },
+          initialCypher: `MATCH (n) WHERE n.engagement_id = '${currentEngagementId}' OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 100`
+        };
+
+        neovisInstance = new NeoVis(neovisConfig);
+        neovisInstance.render();
+        placeholder.style.display = 'none';
+      } catch (e) {
+        console.error('NeoVis failed, falling back to mock:', e);
+        statusEl.textContent = 'Neo4j render failed — loading mock data...';
+        const res = await fetch('/api/attack-graph');
+        const data = await res.json();
+        graphData = data;
+        renderVisGraph(data);
+        placeholder.style.display = 'none';
+        updateGraphStats(data);
       }
     }
   </script>
