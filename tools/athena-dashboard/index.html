@@ -3996,7 +3996,7 @@
           </button>
         </div>
         <div class="sidebar-section-items collapsed" id="toolsItems">
-          <button class="sidebar-section-item">
+          <button class="sidebar-section-item" onclick="window.open('http://172.26.80.76:5000', '_blank')">
             <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="3" y="3" width="12" height="12" rx="2"/>
               <path d="M7 7h4M7 11h4"/>
@@ -4004,7 +4004,7 @@
             <span class="sidebar-section-text">Kali Internal</span>
             <span class="section-badge" style="background: var(--zerok-low);">21</span>
           </button>
-          <button class="sidebar-section-item">
+          <button class="sidebar-section-item" onclick="window.open('http://kali.linux.vkloud.antsle.us:5000', '_blank')">
             <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M2 9a7 7 0 1114 0M9 2v2M3.5 4.5l1 1M14.5 4.5l-1 1"/>
             </svg>
@@ -4032,14 +4032,14 @@
           </button>
         </div>
         <div class="sidebar-section-items collapsed" id="resourcesItems">
-          <button class="sidebar-section-item">
+          <button class="sidebar-section-item" onclick="window.open('http://www.pentest-standard.org/index.php/Main_Page', '_blank')">
             <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="9" cy="9" r="7"/>
               <path d="M9 6v3M9 12h.01"/>
             </svg>
             <span class="sidebar-section-text">PTES Reference</span>
           </button>
-          <button class="sidebar-section-item">
+          <button class="sidebar-section-item" onclick="window.open('https://owasp.org/www-project-top-ten/', '_blank')">
             <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M3 3v12h12"/>
               <path d="M7 10l2-3 2 2 3-4"/>
@@ -4153,7 +4153,7 @@
           <div class="widget">
             <div class="widget-header">
               <span class="widget-title">AI Agent Status</span>
-              <button class="widget-action">See All</button>
+              <button class="widget-action" onclick="switchView('scans')">See All</button>
             </div>
             <div class="widget-body">
               <div class="layer-grid">
@@ -4249,7 +4249,7 @@
           <div class="widget">
             <div class="widget-header">
               <span class="widget-title">Recent Findings</span>
-              <button class="widget-action">See All</button>
+              <button class="widget-action" onclick="switchView('findings')">See All</button>
             </div>
             <div class="widget-body">
               <div class="event-row">
@@ -4654,6 +4654,66 @@
           </div>
         </div>
         </div><!-- /#dashboardView -->
+
+        <!-- Engagements View -->
+        <div id="engagementsView" class="findings-view">
+          <div class="findings-header">
+            <h2 class="findings-title">Engagements</h2>
+            <button class="modal-btn modal-btn-primary" onclick="openCreateEngagementModal()" style="font-size: 12px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M12 5v14M5 12h14"/></svg>
+              + New Engagement
+            </button>
+          </div>
+
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Total</span></div>
+              <div class="stat-value-row"><span class="stat-value" id="eng-total-count">0</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Active</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-low);" id="eng-active-count">0</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Completed</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-info);" id="eng-completed-count">0</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Total Findings</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-warning);" id="eng-findings-count">0</span></div>
+            </div>
+          </div>
+
+          <div class="findings-filters">
+            <button class="severity-filter-chip active" data-eng-status="all" onclick="filterEngagementsView('all')">ALL</button>
+            <button class="severity-filter-chip" data-eng-status="active" onclick="filterEngagementsView('active')" style="--chip-color: var(--zerok-low);">ACTIVE</button>
+            <button class="severity-filter-chip" data-eng-status="completed" onclick="filterEngagementsView('completed')" style="--chip-color: var(--zerok-info);">COMPLETED</button>
+            <button class="severity-filter-chip" data-eng-status="archived" onclick="filterEngagementsView('archived')" style="--chip-color: var(--zerok-text-dim);">ARCHIVED</button>
+          </div>
+
+          <div class="findings-table-container">
+            <table class="findings-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Target</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Phase</th>
+                  <th>Findings</th>
+                  <th>Started</th>
+                </tr>
+              </thead>
+              <tbody id="engagementsTableBody">
+                <tr>
+                  <td colspan="7" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">
+                    Loading engagements...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div><!-- /#engagementsView -->
 
         <!-- Findings View -->
         <div id="findingsView" class="findings-view">
@@ -6564,6 +6624,8 @@
         loadReports();
       } else if (viewName === 'attackGraph') {
         initAttackGraph();
+      } else if (viewName === 'engagements') {
+        loadEngagementsView();
       }
     }
 
@@ -6583,6 +6645,121 @@
         }
       });
     });
+
+    // ────────────────────────────────────────
+    // ENGAGEMENTS VIEW
+    // ────────────────────────────────────────
+
+    let allEngagementsData = [];
+    let expandedEngId = null;
+
+    async function loadEngagementsView() {
+      try {
+        const res = await fetch('/api/engagements');
+        allEngagementsData = await res.json();
+
+        // Update stat cards
+        const active = allEngagementsData.filter(e => e.status === 'active').length;
+        const completed = allEngagementsData.filter(e => e.status === 'completed').length;
+        const totalFindings = allEngagementsData.reduce((sum, e) => sum + (e.findings_count || 0), 0);
+
+        document.getElementById('eng-total-count').textContent = allEngagementsData.length;
+        document.getElementById('eng-active-count').textContent = active;
+        document.getElementById('eng-completed-count').textContent = completed;
+        document.getElementById('eng-findings-count').textContent = totalFindings;
+
+        renderEngagementsTable(allEngagementsData);
+      } catch (e) {
+        console.error('Failed to load engagements:', e);
+        document.getElementById('engagementsTableBody').innerHTML =
+          '<tr><td colspan="7" style="text-align: center; padding: 40px; color: var(--zerok-critical);">Failed to load engagements</td></tr>';
+      }
+    }
+
+    function renderEngagementsTable(engagements) {
+      const tbody = document.getElementById('engagementsTableBody');
+
+      if (engagements.length === 0) {
+        tbody.innerHTML =
+          '<tr><td colspan="7" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">No engagements found</td></tr>';
+        return;
+      }
+
+      const statusColors = { active: 'var(--zerok-low)', completed: 'var(--zerok-info)', archived: 'var(--zerok-text-dim)' };
+
+      tbody.innerHTML = engagements.map(e => `
+        <tr onclick="toggleEngagementDetail('${e.id}')" data-eng-id="${e.id}" style="cursor: pointer;">
+          <td style="font-weight: 500;">${escHtml(e.name)}</td>
+          <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${escHtml(e.target)}</td>
+          <td><span class="report-type-badge" style="background: var(--zerok-primary); color: #000;">EXTERNAL</span></td>
+          <td><span class="finding-severity-badge" style="background: ${statusColors[e.status] || 'var(--zerok-text-dim)'}; color: #000;">${e.status.toUpperCase()}</span></td>
+          <td style="font-size: 12px;">${escHtml(e.phase || '—')}</td>
+          <td>${e.findings_count || 0}</td>
+          <td style="font-size: 12px; color: var(--zerok-text-muted);">${e.start_date || '—'}</td>
+        </tr>
+        <tr class="eng-detail-row" data-eng-id="${e.id}" style="display: none;">
+          <td colspan="7" style="padding: 0;">
+            <div class="finding-details" id="eng-details-${e.id}" style="padding: 16px 24px;">
+              <div class="finding-details-grid">
+                <div class="finding-detail-section">
+                  <div class="finding-detail-label">Scope</div>
+                  <div class="finding-detail-value" style="font-family: var(--zerok-font-mono);">${escHtml(e.target)}</div>
+                </div>
+                <div class="finding-detail-section">
+                  <div class="finding-detail-label">Authorization</div>
+                  <div class="finding-detail-value">${escHtml(e.authorization || 'documented')}</div>
+                </div>
+                <div class="finding-detail-section">
+                  <div class="finding-detail-label">Active Agents</div>
+                  <div class="finding-detail-value">${e.agents_active || 0}</div>
+                </div>
+                <div class="finding-detail-section">
+                  <div class="finding-detail-label">Phase</div>
+                  <div class="finding-detail-value">${escHtml(e.phase || '—')}</div>
+                </div>
+              </div>
+              <div style="margin-top: 12px;">
+                <button class="modal-btn modal-btn-primary" onclick="event.stopPropagation(); selectEngagement('${e.id}'); switchView('dashboard');" style="font-size: 12px;">
+                  Select as Active
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function filterEngagementsView(status) {
+      document.querySelectorAll('[data-eng-status]').forEach(chip => {
+        chip.classList.toggle('active', chip.dataset.engStatus === status);
+      });
+      if (status === 'all') {
+        renderEngagementsTable(allEngagementsData);
+      } else {
+        renderEngagementsTable(allEngagementsData.filter(e => e.status === status));
+      }
+    }
+
+    function toggleEngagementDetail(engId) {
+      const detailsRow = document.querySelector(`.eng-detail-row[data-eng-id="${engId}"]`);
+      const details = document.getElementById(`eng-details-${engId}`);
+
+      if (expandedEngId === engId) {
+        detailsRow.style.display = 'none';
+        if (details) details.classList.remove('expanded');
+        expandedEngId = null;
+      } else {
+        if (expandedEngId) {
+          const prevRow = document.querySelector(`.eng-detail-row[data-eng-id="${expandedEngId}"]`);
+          if (prevRow) prevRow.style.display = 'none';
+          const prevDetails = document.getElementById(`eng-details-${expandedEngId}`);
+          if (prevDetails) prevDetails.classList.remove('expanded');
+        }
+        detailsRow.style.display = 'table-row';
+        if (details) details.classList.add('expanded');
+        expandedEngId = engId;
+      }
+    }
 
     // ────────────────────────────────────────
     // FINDINGS TABLE
@@ -6985,36 +7162,57 @@
       setTimeout(() => toast.remove(), 3000);
     }
 
-    function downloadReport(reportId) {
+    function showToast(message, bg) {
       const toast = document.createElement('div');
-      toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: var(--zerok-low); color: #000; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000;';
-      toast.textContent = 'Downloading report PDF...';
+      toast.style.cssText = `position: fixed; bottom: 24px; right: 24px; background: ${bg}; color: #000; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000;`;
+      toast.textContent = message;
       document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 2000);
+      setTimeout(() => toast.remove(), 2500);
+    }
+
+    function downloadReport(reportId) {
+      showToast('Report download would start...', 'var(--zerok-low)');
     }
 
     function markReportFinal(reportId) {
-      const toast = document.createElement('div');
-      toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: var(--zerok-low); color: #000; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000;';
-      toast.textContent = 'Report marked as Final';
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 2000);
+      // Update status badge in DOM
+      const row = document.querySelector(`tr[data-report-id="${reportId}"]`);
+      if (row) {
+        const badge = row.querySelector('.report-status-badge');
+        if (badge) { badge.className = 'report-status-badge final'; badge.textContent = 'FINAL'; }
+      }
+      // Update in-memory data
+      const report = allReports.find(r => r.id === reportId);
+      if (report) report.status = 'final';
+      // Collapse detail row since buttons change
+      if (expandedReportId === reportId) toggleReportDetail(reportId);
+      showToast('Report marked as Final', 'var(--zerok-low)');
     }
 
     function submitForReview(reportId) {
-      const toast = document.createElement('div');
-      toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: var(--zerok-warning); color: #000; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000;';
-      toast.textContent = 'Report submitted for review';
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 2000);
+      const row = document.querySelector(`tr[data-report-id="${reportId}"]`);
+      if (row) {
+        const badge = row.querySelector('.report-status-badge');
+        if (badge) { badge.className = 'report-status-badge review'; badge.textContent = 'REVIEW'; }
+      }
+      const report = allReports.find(r => r.id === reportId);
+      if (report) report.status = 'review';
+      if (expandedReportId === reportId) toggleReportDetail(reportId);
+      showToast('Report submitted for review', 'var(--zerok-warning)');
     }
 
     function duplicateReport(reportId) {
-      const toast = document.createElement('div');
-      toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: var(--zerok-info); color: #fff; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 10000;';
-      toast.textContent = 'Report duplicated as draft';
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 2000);
+      const report = allReports.find(r => r.id === reportId);
+      if (report) {
+        const dup = Object.assign({}, report, {
+          id: 'rpt-dup-' + Date.now(),
+          title: report.title + ' (Copy)',
+          status: 'draft',
+        });
+        allReports.push(dup);
+        renderReports(allReports);
+      }
+      showToast('Report duplicated as draft', 'var(--zerok-info)');
     }
 
     // ────────────────────────────────────────
