@@ -54,6 +54,7 @@ class EngagementContext:
     engagement_id: str
     scope: dict  # {"targets": [...], "exclusions": [...]}
     target_type: str  # "external" or "internal"
+    backend_override: str = ""  # Force specific backend ("external" or "internal")
     ptes_phase: int = 0
     stopped: bool = False
 
@@ -144,10 +145,11 @@ class AgentRunner:
             metadata={"tool": tool_name, "tool_id": tool_id},
         ))
 
-        # Execute on Kali
+        # Execute on Kali (backend_override takes precedence over auto-selection)
+        effective_backend = self.ctx.backend_override or backend
         result = await self.kali.run_tool(
             tool_name, params,
-            backend=backend,
+            backend=effective_backend,
             target_type=self.ctx.target_type,
         )
 
@@ -454,8 +456,16 @@ class Orchestrator:
         """Create an AgentRunner for an agent."""
         return AgentRunner(agent, self.state, self.kali, ctx)
 
-    async def run_engagement(self, engagement_id: str):
-        """Run a full PTES engagement against real targets."""
+    async def run_engagement(self, engagement_id: str, backend_override: str = ""):
+        """Run a full PTES engagement against real targets.
+
+        Args:
+            engagement_id: Neo4j engagement ID.
+            backend_override: Force a specific Kali backend ("external" or "internal").
+                When set, all tool executions use this backend regardless of
+                tool-registry backend lists or auto-detection. Useful when the
+                target is only reachable from one backend (e.g. Antsle bridge).
+        """
         from server import AgentStatus, AGENT_NAMES
 
         # Load engagement from Neo4j or state
@@ -466,6 +476,7 @@ class Orchestrator:
             engagement_id=engagement_id,
             scope=scope,
             target_type=target_type,
+            backend_override=backend_override,
         )
 
         logger.info("Starting engagement %s (type=%s, targets=%s)",
@@ -610,11 +621,11 @@ class Orchestrator:
         targets = ctx.scope.get("targets", [])
         target_str = " ".join(targets)
 
-        # Step 1: Naabu fast port scan (internal backend preferred)
+        # Step 1: Fast port discovery — Naabu with Nmap fallback
         await ar.think(
             thought="Starting fast port discovery with Naabu.",
             reasoning="Naabu SYN scan is 10-100x faster than Nmap for initial port discovery. "
-                      "Results feed into Httpx and deep Nmap scans.",
+                      "Results feed into Httpx and deep Nmap scans. Falls back to Nmap if Naabu unavailable.",
             action="run_naabu",
         )
         naabu_result = await ar.run_tool(
@@ -622,8 +633,38 @@ class Orchestrator:
             {"target": target_str},
             display=f"Running Naabu SYN scan on {target_str}...",
         )
+
         if naabu_result.success:
             records = parse_naabu_results(naabu_result.stdout, ctx.engagement_id)
+        else:
+            # Naabu failed (not installed or error) — fallback to Nmap port discovery
+            logger.warning("Naabu failed (%s), falling back to Nmap port discovery",
+                          naabu_result.error or "unknown error")
+            await ar.think(
+                thought="Naabu unavailable — falling back to Nmap for port discovery.",
+                reasoning=f"Naabu error: {naabu_result.error or 'unknown'}. "
+                          "Using Nmap with fast scan flags as fallback.",
+                action="run_nmap_fallback",
+            )
+            nmap_fallback = await ar.run_tool(
+                "nmap_scan",
+                {"target": target_str, "scan_type": "-Pn -sS --min-rate=1000",
+                 "ports": "", "additional_args": "--open"},
+                display=f"Nmap fast port discovery on {target_str} (Naabu fallback)...",
+            )
+            records = []
+            if nmap_fallback.success:
+                parsed = parse_nmap_output(nmap_fallback.stdout)
+                for host in parsed["hosts"]:
+                    for p in host.get("ports", []):
+                        if p.get("state") == "open":
+                            records.append({
+                                "ip": host["ip"],
+                                "port": p["port"],
+                                "protocol": p.get("protocol", "tcp"),
+                            })
+
+        if records:
             ctx.discovered_hosts.extend(records)
             ctx.host_count = len(set(r["ip"] for r in records))
             ctx.service_count = len(records)
@@ -651,9 +692,11 @@ class Orchestrator:
             )
             # Build target list with common web ports
             httpx_targets = []
+            web_ports = {80, 443, 8080, 8443, 8000, 8180, 8888, 3000, 5000, 9090}
+            https_ports = {443, 8443}
             for r in ctx.discovered_hosts:
-                if r["port"] in (80, 443, 8080, 8443, 8000, 3000, 5000, 9090):
-                    proto = "https" if r["port"] in (443, 8443) else "http"
+                if r["port"] in web_ports:
+                    proto = "https" if r["port"] in https_ports else "http"
                     httpx_targets.append(f"{proto}://{r['ip']}:{r['port']}")
 
             if httpx_targets:
@@ -729,13 +772,17 @@ class Orchestrator:
         )
 
         # Nuclei with CVE-specific templates for broad coverage
-        targets = [u for u in ctx.discovered_urls if u.startswith("http")]
-        if targets:
+        # Build target list: HTTP URLs + raw host:port for non-web services
+        url_targets = [u for u in ctx.discovered_urls if u.startswith("http")]
+        ip_targets = list(set(r["ip"] for r in ctx.discovered_hosts))
+        all_targets = url_targets + ip_targets  # Nuclei handles both URLs and IPs
+
+        if all_targets:
             nuclei_result = await cv.run_tool(
                 "nuclei_scan",
-                {"targets": targets[:100], "severity": "critical,high",
+                {"targets": all_targets[:100], "severity": "critical,high",
                  "additional_args": "-tags cve"},
-                display="Running Nuclei CVE templates against discovered targets...",
+                display=f"Running Nuclei CVE templates against {len(all_targets)} targets...",
             )
             if nuclei_result.success:
                 vulns = parse_nuclei_results(nuclei_result.stdout, ctx.engagement_id)
@@ -1090,21 +1137,23 @@ class Orchestrator:
     # ── Helpers ──
 
     async def _load_scope(self, engagement_id: str) -> dict:
-        """Load engagement scope from Neo4j or state."""
+        """Load engagement scope (targets + exclusions) from Neo4j or state."""
         from server import neo4j_available, neo4j_driver
         if neo4j_available and neo4j_driver:
             try:
                 with neo4j_driver.session() as session:
                     result = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope",
+                        "MATCH (e:Engagement {id: $eid}) "
+                        "RETURN e.scope AS scope, e.exclusions AS exclusions",
                         eid=engagement_id,
                     )
                     record = result.single()
                     if record and record["scope"]:
                         scope_str = record["scope"]
-                        # Parse scope string: "*.acme.com, 10.0.0.0/24"
                         targets = [t.strip() for t in scope_str.split(",") if t.strip()]
-                        return {"targets": targets, "exclusions": []}
+                        exclusion_str = record.get("exclusions") or ""
+                        exclusions = [e.strip() for e in exclusion_str.split(",") if e.strip()]
+                        return {"targets": targets, "exclusions": exclusions}
             except Exception as e:
                 logger.warning("Neo4j scope load error: %s", e)
 

@@ -1558,18 +1558,45 @@ async def get_neo4j_config():
 # ──────────────────────────────────────────────
 
 @app.post("/api/engagement/{eid}/start")
-async def start_engagement(eid: str):
+async def start_engagement(eid: str, backend: str = ""):
     """Start a real PTES engagement against Kali backends.
 
     Launches the orchestrator which runs all 7 PTES phases with real tool
     execution on the dual Kali backends. HITL approvals block via asyncio.Event.
 
+    Args:
+        eid: Engagement ID (from Neo4j or mock state).
+        backend: Force a specific backend ("external" or "internal").
+            Overrides auto-detection for all tool executions.
+            Use "external" for Antsle bridge targets (e.g. Metasploitable2).
+
     Demo mode (/api/demo/start) remains independent and unchanged.
     """
-    # Verify engagement exists
-    eng = next((e for e in state.engagements if e.id == eid), None)
-    if not eng:
-        return JSONResponse(status_code=404, content={"error": f"Engagement {eid} not found"})
+    # Validate backend if provided
+    if backend and backend not in ("external", "internal"):
+        return JSONResponse(status_code=400, content={
+            "error": f"Invalid backend '{backend}'. Use 'external' or 'internal'."
+        })
+
+    # Verify engagement exists (check Neo4j first, then mock state)
+    eng_found = False
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run(
+                    "MATCH (e:Engagement {id: $eid}) RETURN e.id AS id",
+                    eid=eid,
+                )
+                record = result.single()
+                if record:
+                    eng_found = True
+        except Exception:
+            pass
+
+    if not eng_found:
+        eng = next((e for e in state.engagements if e.id == eid), None)
+        if not eng:
+            return JSONResponse(status_code=404, content={"error": f"Engagement {eid} not found"})
 
     # Cancel any running engagement
     if state.engagement_task and not state.engagement_task.done():
@@ -1579,8 +1606,13 @@ async def start_engagement(eid: str):
 
     state.active_engagement_id = eid
     state.engagement_stopped = False
-    state.engagement_task = asyncio.create_task(orchestrator.run_engagement(eid))
-    return {"ok": True, "engagement_id": eid, "message": f"Engagement {eid} started"}
+    state.engagement_task = asyncio.create_task(
+        orchestrator.run_engagement(eid, backend_override=backend)
+    )
+    msg = f"Engagement {eid} started"
+    if backend:
+        msg += f" (backend forced: {backend})"
+    return {"ok": True, "engagement_id": eid, "message": msg}
 
 
 @app.post("/api/engagement/{eid}/stop")

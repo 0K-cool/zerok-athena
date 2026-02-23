@@ -25,7 +25,7 @@
     "endpoint": "/api/command",
     "command_template": "naabu -host {target} -json",
     "timeout": 120,
-    "backends": ["internal"],
+    "backends": ["external", "internal"],
     "category": "recon",
     "params": {
       "target": {"type": "string", "required": true, "description": "Target IP/CIDR/hostname"},
@@ -163,7 +163,7 @@
     "endpoint": "/api/command",
     "command_template": "whatweb {target} --log-json=-",
     "timeout": 120,
-    "backends": ["internal"],
+    "backends": ["external", "internal"],
     "category": "recon",
     "params": {
       "target": {"type": "string", "required": true, "description": "Target URL"},
@@ -203,7 +203,7 @@
     "endpoint": "/api/command",
     "command_template": "crackmapexec {protocol} {target}",
     "timeout": 300,
-    "backends": ["internal"],
+    "backends": ["external", "internal"],
     "category": "post_exploit",
     "hitl_required": true,
     "params": {
