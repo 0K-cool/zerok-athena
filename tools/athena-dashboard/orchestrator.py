@@ -249,6 +249,23 @@ class AgentRunner:
         t = _re.sub(r'\s*\((Metasploit|Nuclei)\)\s*$', '', t)
         return t.lower()
 
+    @staticmethod
+    def _normalize_target(target: str) -> str:
+        """Extract host IP/hostname from a target for dedup comparison.
+
+        Handles: '10.1.1.25', 'http://10.1.1.25:80/cgi-bin/php',
+                 '10.1.1.25:80', 'https://host:443/path'
+        """
+        import re as _re
+        t = target.strip()
+        m = _re.search(r'://([^:/]+)', t)
+        if m:
+            return m.group(1).lower()
+        # host:port
+        if ':' in t:
+            return t.rsplit(':', 1)[0].lower()
+        return t.lower()
+
     async def report_finding(
         self,
         title: str,
@@ -266,6 +283,7 @@ class AgentRunner:
         from server import Finding, Severity
 
         normalized_title = self._normalize_finding_title(title)
+        normalized_target = self._normalize_target(target)
         is_confirmation = (
             title.startswith("Confirmed:") or
             category in ("Validated Exploit", "Injection")
@@ -274,13 +292,14 @@ class AgentRunner:
         # Check for existing finding to upgrade or dedup
         for existing in self.ctx.findings:
             existing_norm = self._normalize_finding_title(existing.get("title", ""))
+            existing_target_norm = self._normalize_target(existing.get("target", ""))
 
-            # Exact dedup: same normalized title + same target
+            # Exact dedup: same normalized title + same host
             titles_match = existing_norm == normalized_title
-            # CVE dedup: same CVE + same target
+            # CVE dedup: same CVE + same host
             cve_match = cve and existing.get("cve") and cve == existing.get("cve")
 
-            if (titles_match or cve_match) and existing.get("target") == target:
+            if (titles_match or cve_match) and existing_target_norm == normalized_target:
                 if is_confirmation and existing.get("category") != "Validated Exploit":
                     # Upgrade: confirmation supersedes discovery
                     await self._upgrade_finding(
@@ -762,6 +781,7 @@ class Orchestrator:
                     f"Engagement {engagement_id} completed early — no hosts to test. "
                     f"1 finding reported."
                 )
+                await self.state.update_agent_status("OR", AgentStatus.COMPLETED)
                 return
 
             await self._phase_threat_modeling(ctx)
@@ -776,6 +796,8 @@ class Orchestrator:
                 f"{ctx.finding_count} findings, {ctx.host_count} hosts, "
                 f"{ctx.vuln_count} vulnerabilities."
             )
+            # Mark Orchestrator as completed so pulse dot stops
+            await self.state.update_agent_status("OR", AgentStatus.COMPLETED)
 
         except EngagementStopped:
             await self._emit_phase("STOPPED")
@@ -795,6 +817,9 @@ class Orchestrator:
             logger.exception("Engagement %s failed: %s", engagement_id, e)
             await self._emit_system(f"Engagement {engagement_id} error: {e}")
             await self._emit_phase("ERROR")
+            for code in AGENT_NAMES:
+                if self.state.agent_statuses[code] != AgentStatus.IDLE:
+                    await self.state.update_agent_status(code, AgentStatus.IDLE)
 
     # ── Phase 1: Planning ──
 
