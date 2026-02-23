@@ -1,0 +1,24 @@
+NMAP Full Port Scan Results
+===========================
+Target: 10.1.1.25 (antlet25.bblv)
+Scan Date: 2026-02-19
+Scan Time: 01:15 UTC
+Scanner: Nmap 7.98
+
+Scan Parameters:
+- Ports: 1-65535 (all TCP)
+- Service Detection: -sV enabled
+- OS Detection: Attempted
+- Timing: -T5 (fastest)
+- Ping Discovery: -Pn (skip ping)
+
+Results:
+--------
+Host Status: UP (latency: 0.6ms)
+MAC Address: B2:61:6E:73:6C:19
+
+OPEN PORTS: NONE (0)
+CLOSED PORTS: 65535
+FILTERED PORTS: 0
+
+Conclusion: No open TCP services detected on target. All ports are in closed state.

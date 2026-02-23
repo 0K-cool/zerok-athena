@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
                     handlers=[logging.StreamHandler(sys.stderr)])
 logger = logging.getLogger(__name__)
 
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://your-internal-kali:7687")
+NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://your-kali-host:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASS = os.environ.get("NEO4J_PASS", "$NEO4J_PASS")
 
@@ -38,21 +38,11 @@ def run_query(query: str, params: dict = None) -> list[dict]:
         result = session.run(query, params or {})
         return [dict(record) for record in result]
 
-# --- Engagement Management ---
-
 @mcp.tool()
 def create_engagement(name: str, client: str, scope: str,
                       methodology: str = "PTES",
                       engagement_type: str = "external") -> str:
-    """Create a new engagement in the knowledge graph.
-
-    Args:
-        name: Engagement name (e.g. Client_2026-02-19_Web)
-        client: Client name
-        scope: JSON string of scope definition (targets, exclusions)
-        methodology: Testing methodology (default: PTES)
-        engagement_type: external, internal, web, or hybrid
-    """
+    """Create a new engagement in the knowledge graph."""
     eid = f"eng-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     run_query("""
         CREATE (e:Engagement {
@@ -75,20 +65,10 @@ def list_engagements() -> str:
     """)
     return json.dumps(results, default=str)
 
-# --- Host/Service Management ---
-
 @mcp.tool()
 def create_host(ip: str, engagement_id: str, hostname: str = "",
                 os_name: str = "", os_version: str = "") -> str:
-    """Add a discovered host to the knowledge graph.
-
-    Args:
-        ip: IP address of the host
-        engagement_id: Engagement this host belongs to
-        hostname: Hostname if resolved
-        os_name: Operating system name
-        os_version: OS version
-    """
+    """Add a discovered host to the knowledge graph."""
     run_query("""
         MERGE (h:Host {ip: $ip, engagement_id: $eid})
         SET h.hostname = $hostname, h.os = $os, h.os_version = $osv,
@@ -105,17 +85,7 @@ def create_host(ip: str, engagement_id: str, hostname: str = "",
 def create_service(host_ip: str, port: int, protocol: str,
                    engagement_id: str, name: str = "", version: str = "",
                    banner: str = "") -> str:
-    """Add a discovered service to a host.
-
-    Args:
-        host_ip: IP of the host running this service
-        port: Port number
-        protocol: tcp or udp
-        engagement_id: Engagement ID
-        name: Service name (e.g. http, ssh)
-        version: Service version string
-        banner: Service banner text
-    """
+    """Add a discovered service to a host."""
     run_query("""
         MATCH (h:Host {ip: $ip, engagement_id: $eid})
         MERGE (s:Service {port: $port, protocol: $proto, host_ip: $ip, engagement_id: $eid})
@@ -126,20 +96,10 @@ def create_service(host_ip: str, port: int, protocol: str,
           "name": name, "version": version, "banner": banner})
     return json.dumps({"host": host_ip, "port": port, "status": "created"})
 
-# --- OSINT Tools (Added for passive recon and web scanning) ---
-
 @mcp.tool()
 def create_url(url: str, engagement_id: str, status_code: int = 0,
                content_type: str = "", tech_stack: str = "") -> str:
-    """Add a discovered URL to the knowledge graph.
-
-    Args:
-        url: Full URL discovered
-        engagement_id: Engagement ID
-        status_code: HTTP status code
-        content_type: Content-Type header value
-        tech_stack: JSON array of detected technologies
-    """
+    """Add a discovered URL to the knowledge graph."""
     run_query("""
         MERGE (u:URL {url: $url, engagement_id: $eid})
         SET u.status_code = $status, u.content_type = $ct,
@@ -155,14 +115,7 @@ def create_url(url: str, engagement_id: str, status_code: int = 0,
 @mcp.tool()
 def create_subdomain(name: str, engagement_id: str,
                      resolved_ips: str = "", source: str = "") -> str:
-    """Add a discovered subdomain to the knowledge graph.
-
-    Args:
-        name: Subdomain name (e.g. api.example.com)
-        engagement_id: Engagement ID
-        resolved_ips: Comma-separated list of resolved IP addresses
-        source: Discovery source (e.g. subfinder, CT logs)
-    """
+    """Add a discovered subdomain to the knowledge graph."""
     run_query("""
         MERGE (s:Subdomain {name: $name, engagement_id: $eid})
         SET s.resolved_ips = $ips, s.source = $src, s.discovered_at = datetime()
@@ -173,26 +126,12 @@ def create_subdomain(name: str, engagement_id: str,
     """, {"name": name, "eid": engagement_id, "ips": resolved_ips, "src": source})
     return json.dumps({"subdomain": name, "status": "created"})
 
-# --- Vulnerability Management ---
-
 @mcp.tool()
 def create_vulnerability(host_ip: str, port: int, name: str, severity: str,
                          engagement_id: str, cve_id: str = "",
                          cvss_score: float = 0.0, description: str = "",
                          nuclei_template: str = "") -> str:
-    """Record a discovered vulnerability.
-
-    Args:
-        host_ip: Affected host IP
-        port: Affected port
-        name: Vulnerability name
-        severity: CRITICAL, HIGH, MEDIUM, LOW, or INFO
-        engagement_id: Engagement ID
-        cve_id: CVE identifier if known
-        cvss_score: CVSS v3.1 score (0-10)
-        description: Vulnerability description
-        nuclei_template: Nuclei template ID that found this
-    """
+    """Record a discovered vulnerability."""
     vid = f"vuln-{uuid.uuid4().hex[:8]}"
     run_query("""
         MATCH (s:Service {host_ip: $ip, port: $port, engagement_id: $eid})
@@ -208,24 +147,12 @@ def create_vulnerability(host_ip: str, port: int, name: str, severity: str,
           "sev": severity, "tmpl": nuclei_template, "eid": engagement_id})
     return json.dumps({"vulnerability_id": vid, "severity": severity})
 
-# --- Credential Management ---
-
 @mcp.tool()
 def create_credential(username: str, engagement_id: str,
                       hash_type: str = "", hash_value: str = "",
                       plaintext: str = "", source: str = "",
                       domain: str = "") -> str:
-    """Record a discovered credential.
-
-    Args:
-        username: Username
-        engagement_id: Engagement ID
-        hash_type: Hash type (NTLM, NTLMv2, SHA1, bcrypt, etc.)
-        hash_value: Hash value
-        plaintext: Plaintext password (if cracked)
-        source: Where this credential was found
-        domain: AD domain if applicable
-    """
+    """Record a discovered credential."""
     cid = f"cred-{uuid.uuid4().hex[:8]}"
     run_query("""
         CREATE (c:Credential {
@@ -237,25 +164,12 @@ def create_credential(username: str, engagement_id: str,
           "pt": plaintext, "src": source, "dom": domain, "eid": engagement_id})
     return json.dumps({"credential_id": cid, "username": username})
 
-# --- Finding Management ---
-
 @mcp.tool()
 def create_finding(title: str, severity: str, engagement_id: str,
                    description: str = "", cvss: float = 0.0,
                    remediation: str = "", references: str = "",
                    affected_hosts: str = "") -> str:
-    """Create a confirmed finding for the report.
-
-    Args:
-        title: Finding title
-        severity: CRITICAL, HIGH, MEDIUM, LOW, INFO
-        engagement_id: Engagement ID
-        description: Detailed finding description
-        cvss: CVSS v3.1 score
-        remediation: Remediation recommendation
-        references: JSON array of reference URLs
-        affected_hosts: Comma-separated list of affected host IPs
-    """
+    """Create a confirmed finding for the report."""
     fid = f"find-{uuid.uuid4().hex[:8]}"
     run_query("""
         CREATE (f:Finding {
@@ -269,7 +183,6 @@ def create_finding(title: str, severity: str, engagement_id: str,
         RETURN f
     """, {"fid": fid, "title": title, "sev": severity, "desc": description,
           "cvss": cvss, "rem": remediation, "refs": references, "eid": engagement_id})
-    # Link to affected hosts
     if affected_hosts:
         for hip in affected_hosts.split(","):
             run_query("""
@@ -278,17 +191,9 @@ def create_finding(title: str, severity: str, engagement_id: str,
             """, {"fid": fid, "ip": hip.strip(), "eid": engagement_id})
     return json.dumps({"finding_id": fid, "severity": severity})
 
-# --- Query Tools ---
-
 @mcp.tool()
 def query_graph(cypher: str, params: str = "{}") -> str:
-    """Run a read-only Cypher query against the knowledge graph.
-
-    Args:
-        cypher: Cypher query (READ ONLY — no CREATE/DELETE/SET)
-        params: JSON string of query parameters
-    """
-    # Safety: block write operations
+    """Run a read-only Cypher query against the knowledge graph."""
     upper = cypher.upper()
     for keyword in ["CREATE", "DELETE", "SET", "REMOVE", "MERGE", "DROP", "DETACH"]:
         if keyword in upper:
@@ -299,11 +204,7 @@ def query_graph(cypher: str, params: str = "{}") -> str:
 
 @mcp.tool()
 def get_engagement_summary(engagement_id: str) -> str:
-    """Get summary statistics for an engagement.
-
-    Args:
-        engagement_id: Engagement ID
-    """
+    """Get summary statistics for an engagement."""
     stats = {}
     for label, key in [("Host", "hosts"), ("Service", "services"),
                        ("Vulnerability", "vulnerabilities"), ("Finding", "findings"),
@@ -311,7 +212,6 @@ def get_engagement_summary(engagement_id: str) -> str:
         r = run_query(f"MATCH (n:{label} {{engagement_id: $eid}}) RETURN count(n) AS c",
                       {"eid": engagement_id})
         stats[key] = r[0]["c"] if r else 0
-    # Severity breakdown
     sevs = run_query("""
         MATCH (v:Vulnerability {engagement_id: $eid})
         RETURN v.severity AS severity, count(v) AS count
@@ -321,11 +221,7 @@ def get_engagement_summary(engagement_id: str) -> str:
 
 @mcp.tool()
 def get_attack_surface(engagement_id: str) -> str:
-    """Get all hosts and their services for an engagement.
-
-    Args:
-        engagement_id: Engagement ID
-    """
+    """Get all hosts and their services for an engagement."""
     results = run_query("""
         MATCH (h:Host {engagement_id: $eid})-[:HAS_SERVICE]->(s:Service)
         RETURN h.ip AS ip, h.hostname AS hostname, h.os AS os,
