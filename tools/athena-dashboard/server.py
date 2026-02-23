@@ -225,12 +225,12 @@ class DashboardState:
         }
         self.agent_tasks: dict[str, str] = {}
         self.events: list[AgentEvent] = []
-        self.findings: list[Finding] = self._seed_findings()
+        self.findings: list[Finding] = []
         self.approval_requests: dict[str, ApprovalRequest] = {}
-        self.engagements: list[Engagement] = self._seed_engagements()
+        self.engagements: list[Engagement] = []
         self.connected_clients: set[WebSocket] = set()
         self._event_lock = asyncio.Lock()
-        self.active_engagement_id: str = "eng-001"  # Default active engagement
+        self.active_engagement_id: str | None = None  # Set when engagement is created/selected
         # Demo control
         self.demo_pause_event = asyncio.Event()
         self.demo_pause_event.set()  # Not paused initially
@@ -241,98 +241,8 @@ class DashboardState:
         self.engagement_task: asyncio.Task | None = None
         self.engagement_stopped = False
 
-    def _seed_engagements(self) -> list[Engagement]:
-        """Seed with demo engagements matching dashboard stat cards."""
-        return [
-            Engagement(
-                id="eng-001", name="Acme Corp External",
-                target="*.acme.com", status="active",
-                start_date="2026-02-10", agents_active=3,
-                findings_count=23, phase="Vulnerability Analysis"
-            ),
-            Engagement(
-                id="eng-002", name="GlobalBank API",
-                target="api.globalbank.test", status="active",
-                start_date="2026-02-14", agents_active=2,
-                findings_count=15, phase="Intelligence Gathering"
-            ),
-            Engagement(
-                id="eng-003", name="HealthCo Web App",
-                target="portal.healthco.test", status="active",
-                start_date="2026-02-16", agents_active=1,
-                findings_count=9, phase="Threat Modeling"
-            ),
-        ]
-
-    def _seed_findings(self) -> list[Finding]:
-        """Seed with demo findings so the Findings view is not empty on fresh load."""
-        now = time.time()
-        return [
-            Finding(
-                id="f-001", title="SQL Injection — admin login bypass",
-                severity=Severity.CRITICAL, category="Injection",
-                target="acme.com/admin/login", agent="WV",
-                description="Blind SQL injection in login form allows authentication bypass via UNION-based payload.",
-                cvss=9.8, cve="CVE-2024-1234", evidence="sqlmap output",
-                timestamp=now - 3600, engagement="eng-001",
-            ),
-            Finding(
-                id="f-002", title="RCE via unrestricted file upload",
-                severity=Severity.CRITICAL, category="File Upload",
-                target="acme.com/upload", agent="EC",
-                description="Unrestricted file upload endpoint allows uploading PHP web shells, leading to remote code execution.",
-                cvss=9.6, cve=None, evidence="reverse shell session",
-                timestamp=now - 3200, engagement="eng-001",
-            ),
-            Finding(
-                id="f-003", title="Stored XSS in comment field",
-                severity=Severity.HIGH, category="XSS",
-                target="acme.com/blog/comments", agent="WV",
-                description="Stored cross-site scripting via unescaped user input in blog comment field.",
-                cvss=7.5, cve=None, evidence="alert(1) screenshot",
-                timestamp=now - 2800, engagement="eng-001",
-            ),
-            Finding(
-                id="f-004", title="Missing CSRF tokens on forms",
-                severity=Severity.MEDIUM, category="CSRF",
-                target="api.globalbank.test/settings", agent="WV",
-                description="Settings forms lack CSRF protection, enabling cross-site request forgery attacks.",
-                cvss=5.4, cve=None, evidence="Burp request diff",
-                timestamp=now - 2400, engagement="eng-002",
-            ),
-            Finding(
-                id="f-005", title="Server version disclosed in headers",
-                severity=Severity.LOW, category="Information Disclosure",
-                target="api.globalbank.test", agent="AR",
-                description="Server response headers disclose Apache/2.4.52 and PHP/8.1.12 versions.",
-                cvss=3.1, cve=None, evidence="HTTP headers",
-                timestamp=now - 2000, engagement="eng-002",
-            ),
-            Finding(
-                id="f-006", title="IDOR — direct object reference on /api/users/{id}",
-                severity=Severity.HIGH, category="Access Control",
-                target="api.globalbank.test/api/users/", agent="WV",
-                description="Insecure direct object reference allows any authenticated user to access other users' data by iterating IDs.",
-                cvss=7.1, cve=None, evidence="API response diff",
-                timestamp=now - 1600, engagement="eng-002",
-            ),
-            Finding(
-                id="f-007", title="Weak password policy allows common passwords",
-                severity=Severity.MEDIUM, category="Authentication",
-                target="portal.healthco.test/register", agent="AR",
-                description="Password policy accepts passwords like 'Password1!' that appear in common password lists.",
-                cvss=5.0, cve=None, evidence="registration test",
-                timestamp=now - 1200, engagement="eng-003",
-            ),
-            Finding(
-                id="f-008", title="Missing security headers (X-Frame-Options, CSP)",
-                severity=Severity.LOW, category="Configuration",
-                target="portal.healthco.test", agent="AR",
-                description="Response missing X-Frame-Options, Content-Security-Policy, and X-Content-Type-Options headers.",
-                cvss=3.0, cve=None, evidence="Header analysis",
-                timestamp=now - 800, engagement="eng-003",
-            ),
-        ]
+    # Seed methods removed in Phase C — dashboard starts clean.
+    # Demo mode (/api/demo/start) generates its own events independently.
 
     async def broadcast(self, event: dict):
         """Send event to all connected WebSocket clients."""
