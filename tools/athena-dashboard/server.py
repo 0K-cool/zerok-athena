@@ -174,7 +174,7 @@ class Engagement(BaseModel):
 # Neo4j Connection
 # ──────────────────────────────────────────────
 
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://172.26.80.76:7687")
+NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://kali.linux.vkloud.antsle.us:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASS = os.environ.get("NEO4J_PASS", "athena2026")
 
@@ -693,8 +693,36 @@ async def create_finding(payload: FindingPayload):
             status_code=400,
             content={"error": f"Invalid severity: {payload.severity}"}
         )
+    finding_id = str(uuid.uuid4())[:8]
+    timestamp = time.time()
+
+    # Write to Neo4j if available
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run("""
+                    MERGE (f:Finding {id: $id})
+                    SET f.title = $title, f.severity = $severity,
+                        f.category = $category, f.target = $target,
+                        f.agent = $agent, f.description = $description,
+                        f.cvss = $cvss, f.cve = $cve, f.evidence = $evidence,
+                        f.timestamp = $timestamp, f.engagement_id = $engagement,
+                        f.status = 'open'
+                    WITH f
+                    MATCH (e:Engagement {id: $engagement})
+                    MERGE (f)-[:BELONGS_TO]->(e)
+                """, id=finding_id, title=payload.title,
+                     severity=payload.severity, category=payload.category,
+                     target=payload.target, agent=payload.agent,
+                     description=payload.description, cvss=payload.cvss,
+                     cve=payload.cve, evidence=payload.evidence,
+                     timestamp=timestamp, engagement=payload.engagement)
+        except Exception as e:
+            print(f"Neo4j finding write error: {e}")
+
+    # Always write to in-memory state for real-time broadcast
     finding = Finding(
-        id=str(uuid.uuid4())[:8],
+        id=finding_id,
         title=payload.title,
         severity=sev,
         category=payload.category,
@@ -704,11 +732,11 @@ async def create_finding(payload: FindingPayload):
         cvss=payload.cvss,
         cve=payload.cve,
         evidence=payload.evidence,
-        timestamp=time.time(),
+        timestamp=timestamp,
         engagement=payload.engagement,
     )
     await state.add_finding(finding)
-    return {"ok": True, "finding_id": finding.id}
+    return {"ok": True, "finding_id": finding_id}
 
 
 # ──────────────────────────────────────────────
@@ -758,7 +786,7 @@ async def get_engagements(include_archived: bool = False):
                         "status": status,
                         "start_date": record.get("start_date", ""),
                     })
-                return engagements
+                return {"engagements": engagements, "source": "neo4j"}
         except Exception as e:
             print(f"Neo4j query error: {e}")
             # Fall through to mock data
@@ -767,7 +795,7 @@ async def get_engagements(include_archived: bool = False):
     all_eng = [e.model_dump() for e in state.engagements]
     if not include_archived:
         all_eng = [e for e in all_eng if e.get("status") != "archived"]
-    return all_eng
+    return {"engagements": all_eng, "source": "mock"}
 
 
 class CreateEngagementPayload(BaseModel):
@@ -1005,13 +1033,57 @@ async def get_engagement_summary(eid: str):
 
 @app.get("/api/findings")
 async def get_findings(severity: Optional[str] = None, engagement: Optional[str] = None):
-    """Get findings with optional filters."""
+    """Get findings from Neo4j or fallback to mock data."""
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                conditions = []
+                params = {}
+                if severity:
+                    conditions.append("f.severity = $severity")
+                    params["severity"] = severity
+                if engagement:
+                    conditions.append("f.engagement_id = $engagement")
+                    params["engagement"] = engagement
+                where = " WHERE " + " AND ".join(conditions) if conditions else ""
+                query = f"""
+                    MATCH (f:Finding){where}
+                    RETURN f.id AS id, f.title AS title, f.severity AS severity,
+                           f.category AS category, f.target AS target, f.agent AS agent,
+                           f.description AS description, f.cvss AS cvss, f.cve AS cve,
+                           f.evidence AS evidence, f.timestamp AS timestamp,
+                           f.engagement_id AS engagement
+                    ORDER BY f.cvss DESC
+                """
+                result = session.run(query, **params)
+                findings = []
+                for record in result:
+                    findings.append({
+                        "id": record["id"],
+                        "title": record["title"],
+                        "severity": record["severity"],
+                        "category": record.get("category", ""),
+                        "target": record.get("target", ""),
+                        "agent": record.get("agent", ""),
+                        "description": record.get("description", ""),
+                        "cvss": record.get("cvss"),
+                        "cve": record.get("cve"),
+                        "evidence": record.get("evidence"),
+                        "timestamp": record.get("timestamp", 0),
+                        "engagement": record.get("engagement", ""),
+                    })
+                return {"findings": findings, "source": "neo4j"}
+        except Exception as e:
+            print(f"Neo4j findings query error: {e}")
+            # Fall through to mock
+
+    # Fallback: filter in-memory findings
     results = state.findings
     if severity:
         results = [f for f in results if f.severity.value == severity]
     if engagement:
         results = [f for f in results if f.engagement == engagement]
-    return [f.model_dump() for f in results]
+    return {"findings": [f.model_dump() for f in results], "source": "mock"}
 
 
 @app.get("/api/engagements/{eid}/findings")
@@ -1029,7 +1101,7 @@ async def get_engagement_findings(eid: str):
                            f.cvss AS cvss, f.status AS status, f.category AS category,
                            f.description AS description, affected_hosts,
                            count(DISTINCT ep) AS evidence_count
-                    ORDER BY f.cvss DESC NULLS LAST, f.severity DESC
+                    ORDER BY f.cvss DESC
                 """, eid=eid)
                 findings = []
                 for record in result:
@@ -1347,9 +1419,58 @@ async def get_events(limit: int = 50, agent: Optional[str] = None):
 
 @app.get("/api/attack-graph")
 async def get_attack_graph():
-    """Return attack graph data for visualization (mock data for Phase A)."""
-    # Mock attack graph representing a realistic pentest kill chain
-    return {
+    """Return attack graph data from Neo4j or mock data."""
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                # Query nodes
+                nodes = []
+                for label, ntype in [("Host", "host"), ("Service", "service"),
+                                      ("Vulnerability", "vulnerability"),
+                                      ("Credential", "credential"), ("Finding", "finding")]:
+                    result = session.run(
+                        f"MATCH (n:{label}) RETURN n, labels(n) AS labels LIMIT 100"
+                    )
+                    for record in result:
+                        node = dict(record["n"])
+                        node_id = node.get("id", node.get("ip", node.get("name", str(id(node)))))
+                        node_label = node.get("ip", node.get("title", node.get("name", node.get("id", ""))))
+                        nodes.append({
+                            "id": node_id,
+                            "type": ntype,
+                            "label": str(node_label),
+                            "tooltip": node.get("title", node.get("description", str(node_label))),
+                            "properties": {k: str(v) if v is not None else None for k, v in node.items()},
+                        })
+
+                # Query edges
+                edges = []
+                result = session.run("""
+                    MATCH (a)-[r]->(b)
+                    WHERE type(r) IN ['RUNS_ON', 'AFFECTS', 'EXPLOITS', 'LATERAL_MOVE',
+                                       'HARVESTED_FROM', 'EVIDENCED_BY', 'BELONGS_TO']
+                    RETURN
+                        coalesce(a.id, a.ip, a.name) AS from_id,
+                        coalesce(b.id, b.ip, b.name) AS to_id,
+                        type(r) AS rel_type
+                    LIMIT 500
+                """)
+                for record in result:
+                    edges.append({
+                        "from": str(record["from_id"]),
+                        "to": str(record["to_id"]),
+                        "type": record["rel_type"],
+                        "label": record["rel_type"],
+                    })
+
+                if nodes:  # Only return Neo4j data if there's actual content
+                    return {"nodes": nodes, "edges": edges, "attack_paths": [], "source": "neo4j"}
+        except Exception as e:
+            print(f"Neo4j attack graph query error: {e}")
+            # Fall through to mock
+
+    # Fallback: mock attack graph representing a realistic pentest kill chain
+    mock_graph = {
         "nodes": [
             # Hosts
             {"id": "h1", "type": "host", "label": "192.168.1.10", "tooltip": "Web Server (Ubuntu 22.04)",
@@ -1440,7 +1561,20 @@ async def get_attack_graph():
         "attack_paths": [
             {"name": "Kill Chain Alpha", "steps": ["Jenkins Default Creds", "Web Server Access", "Lateral to DB", "SQL Data Exfil"]},
             {"name": "Kill Chain Beta", "steps": ["Jenkins CLI RCE", "SSH Key Harvest", "Pivot to Workstation", "LSASS Dump", "DC Access Path"]},
-        ]
+        ],
+        "source": "mock",
+    }
+    return mock_graph
+
+
+@app.get("/api/status")
+async def get_status():
+    """Return backend connection status for frontend status indicator."""
+    return {
+        "neo4j": neo4j_available,
+        "uri": NEO4J_URI if neo4j_available else None,
+        "mode": "connected" if neo4j_available else "mock",
+        "neo4j_driver_installed": NEO4J_AVAILABLE,
     }
 
 

@@ -545,6 +545,39 @@
       gap: 8px;
     }
 
+    .neo4j-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: default;
+      transition: all 0.3s ease;
+    }
+    .neo4j-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .neo4j-badge.neo4j-connected {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+    }
+    .neo4j-badge.neo4j-connected .neo4j-dot { background: #22c55e; }
+    .neo4j-badge.neo4j-mock {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+    }
+    .neo4j-badge.neo4j-mock .neo4j-dot { background: #f59e0b; }
+    .neo4j-badge.neo4j-checking {
+      background: rgba(148, 163, 184, 0.15);
+      color: #94a3b8;
+    }
+    .neo4j-badge.neo4j-checking .neo4j-dot { background: #94a3b8; }
+
     .icon-btn {
       width: 30px;
       height: 30px;
@@ -4073,6 +4106,10 @@
           <p class="content-subtitle">PTES Methodology • 13 AI Agents • Dual-Backend Architecture</p>
         </div>
         <div class="header-actions">
+          <span id="neo4j-status-badge" class="neo4j-badge neo4j-checking" title="Checking backend...">
+            <span class="neo4j-dot"></span>
+            <span class="neo4j-label">Checking...</span>
+          </span>
           <button class="icon-btn">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="8" cy="8" r="5"/>
@@ -6270,7 +6307,8 @@
     async function loadEngagements() {
       try {
         const res = await fetch('/api/engagements');
-        const engagements = await res.json();
+        const engData = await res.json();
+        const engagements = engData.engagements || engData;
 
         // Populate dropdown
         const select = document.getElementById('engagementSelect');
@@ -6656,7 +6694,8 @@
     async function loadEngagementsView() {
       try {
         const res = await fetch('/api/engagements');
-        allEngagementsData = await res.json();
+        const engData = await res.json();
+        allEngagementsData = engData.engagements || engData;
 
         // Update stat cards
         const active = allEngagementsData.filter(e => e.status === 'active').length;
@@ -7639,6 +7678,30 @@
         updateGraphStats(data);
       }
     }
+
+    // Neo4j status badge
+    async function checkNeo4jStatus() {
+      const badge = document.getElementById('neo4j-status-badge');
+      if (!badge) return;
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        const dot = badge.querySelector('.neo4j-dot');
+        const label = badge.querySelector('.neo4j-label');
+        badge.className = 'neo4j-badge ' + (data.neo4j ? 'neo4j-connected' : 'neo4j-mock');
+        label.textContent = data.neo4j ? 'Neo4j' : 'Mock';
+        badge.title = data.neo4j
+          ? 'Connected to ' + data.uri
+          : 'Using in-memory mock data (Neo4j unavailable)';
+      } catch (e) {
+        badge.className = 'neo4j-badge neo4j-mock';
+        badge.querySelector('.neo4j-label').textContent = 'Offline';
+        badge.title = 'Backend unreachable';
+      }
+    }
+    // Check on load and every 30s
+    document.addEventListener('DOMContentLoaded', checkNeo4jStatus);
+    setInterval(checkNeo4jStatus, 30000);
   </script>
 
   <!-- Create Engagement Modal -->
