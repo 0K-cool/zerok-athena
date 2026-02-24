@@ -57,6 +57,7 @@ from parsers import (
     parse_js_analysis,
     parse_netexec_output,
     parse_gau_output,
+    parse_github_exploit_search,
     parse_gobuster_output,
     parse_httpx_results,
     parse_msf_search_output,
@@ -64,6 +65,8 @@ from parsers import (
     parse_nikto_output,
     parse_nmap_output,
     parse_nuclei_results,
+    parse_nvd_response,
+    parse_packetstorm_results,
     parse_searchsploit_json,
     parse_sqlmap_output,
     parse_subfinder_output,
@@ -1492,10 +1495,133 @@ class Orchestrator:
                 except (json.JSONDecodeError, Exception) as e:
                     logger.warning("SearchSploit parse error for %s: %s", query, e)
 
+        # ── Internet-based exploit search (NVD + GitHub + PacketStorm) ──
+        # Query ALL discovered service+version combos, not just those with
+        # existing vulns. Many exploits only exist on GitHub or NVD.
+        internet_queries: list[str] = []
+        # Use version_queries from SearchSploit step if available, plus any
+        # services we haven't already checked
+        if version_queries:
+            internet_queries = list(version_queries)  # Already built from Neo4j
+        # Also check ctx.discovered_hosts for service info from Nmap
+        for host in ctx.discovered_hosts:
+            svc = host.get("service", "")
+            ver = host.get("version", "")
+            if svc and ver:
+                q = f"{svc} {ver}".strip()
+                if q and q not in internet_queries:
+                    internet_queries.append(q)
+            elif svc and svc not in ("unknown", "tcpwrapped", ""):
+                # Even without version, check the service name
+                if svc not in internet_queries:
+                    internet_queries.append(svc)
+
+        if internet_queries:
+            await cv.think(
+                thought=f"Searching Internet exploit databases for {len(internet_queries)} services.",
+                reasoning="Not all exploits are in local databases. NVD, GitHub PoC repos, "
+                          "and PacketStorm contain exploits that SearchSploit/Metasploit miss. "
+                          "An experienced pentester always checks multiple sources.",
+                action="internet_exploit_search",
+            )
+
+            nvd_cves_found = 0
+            github_pocs_found = 0
+            packetstorm_found = 0
+
+            for query in internet_queries[:10]:  # Cap at 10 to stay in time budget
+                # Run NVD + GitHub + PacketStorm concurrently per query
+                nvd_task = cv.run_tool(
+                    "nvd_cve_search",
+                    {"keyword": query},
+                    display=f"NVD API: {query}...",
+                )
+                github_task = cv.run_tool(
+                    "github_exploit_search",
+                    {"keyword": query},
+                    display=f"GitHub PoC: {query}...",
+                )
+                ps_task = cv.run_tool(
+                    "packetstorm_search",
+                    {"keyword": query},
+                    display=f"PacketStorm: {query}...",
+                )
+                nvd_res, gh_res, ps_res = await asyncio.gather(
+                    nvd_task, github_task, ps_task, return_exceptions=True,
+                )
+
+                # Parse NVD results
+                if not isinstance(nvd_res, Exception) and nvd_res.success:
+                    nvd_vulns = parse_nvd_response(nvd_res.stdout, keyword=query)
+                    for nv in nvd_vulns:
+                        # Deduplicate against already-discovered CVEs
+                        if nv["cve_id"] not in ctx.cves:
+                            ctx.discovered_vulns.append({
+                                "name": nv["name"],
+                                "severity": nv["severity"],
+                                "host": query,
+                                "matched_at": query,
+                                "template_id": "",
+                                "cve_id": nv["cve_id"],
+                                "cvss_score": nv["cvss_score"],
+                                "description": f"[NVD] {nv['description']}",
+                            })
+                            ctx.vuln_count += 1
+                            ctx.cves.append(nv["cve_id"])
+                            nvd_cves_found += 1
+
+                # Parse GitHub results
+                if not isinstance(gh_res, Exception) and gh_res.success:
+                    gh_repos = parse_github_exploit_search(gh_res.stdout, keyword=query)
+                    for repo in gh_repos:
+                        # Only report repos with stars (filters noise)
+                        if repo["stars"] >= 1:
+                            await cv.report_finding(
+                                title=f"PoC: {repo['name']}",
+                                severity="info",
+                                category="Public Exploit (GitHub)",
+                                target=query,
+                                description=f"{repo['description']}\n\nStars: {repo['stars']}\nURL: {repo['url']}",
+                                evidence=repo["url"],
+                            )
+                            github_pocs_found += 1
+                            # If PoC has CVE IDs, add them
+                            for cid in repo.get("cve_ids", []):
+                                if cid not in ctx.cves:
+                                    ctx.cves.append(cid)
+
+                # Parse PacketStorm results
+                if not isinstance(ps_res, Exception) and ps_res.success and ps_res.stdout.strip():
+                    ps_exploits = parse_packetstorm_results(ps_res.stdout, keyword=query)
+                    for pse in ps_exploits[:3]:  # Cap at 3 per query
+                        await cv.report_finding(
+                            title=f"PacketStorm: {pse['name']}",
+                            severity="info",
+                            category="Public Exploit (PacketStorm)",
+                            target=query,
+                            description=f"Exploit found on PacketStorm Security\nURL: {pse['url']}",
+                            evidence=pse["url"],
+                        )
+                        packetstorm_found += 1
+
+            if nvd_cves_found or github_pocs_found or packetstorm_found:
+                await cv.write_vulns_neo4j([
+                    v for v in ctx.discovered_vulns if v.get("description", "").startswith("[NVD]")
+                ][-nvd_cves_found:] if nvd_cves_found else [])
+                await cv._emit_stats()
+
+            await cv.think(
+                thought=f"Internet search complete: {nvd_cves_found} NVD CVEs, "
+                        f"{github_pocs_found} GitHub PoCs, {packetstorm_found} PacketStorm exploits.",
+                reasoning="Cross-referencing local and Internet sources provides comprehensive "
+                          "exploit coverage. GitHub PoCs often contain working exploit code.",
+            )
+
         ctx.cves = list(set(ctx.cves))  # Deduplicate
         await cv.complete(
             f"CVE research complete: {len(ctx.discovered_vulns)} vulnerabilities, "
-            f"{len(ctx.cves)} CVEs identified."
+            f"{len(ctx.cves)} CVEs identified "
+            f"(sources: Nuclei, SearchSploit, NVD, GitHub, PacketStorm)."
         )
 
         # AP: Attack Path Analyzer — queries Neo4j graph

@@ -942,3 +942,109 @@ def parse_js_analysis(source: str) -> dict:
         result["auth_mechanisms"].append("OAuth")
 
     return result
+
+
+# ── Internet Exploit Search Parsers ──
+
+def parse_nvd_response(raw_output: str, keyword: str = "") -> list[dict]:
+    """Parse NVD API v2.0 JSON response into vulnerability records.
+
+    Returns list of dicts with: cve_id, description, severity, cvss_score,
+    published, references.
+    """
+    results = []
+    try:
+        data = json.loads(raw_output)
+        vulns = data.get("vulnerabilities", [])
+        for item in vulns[:10]:
+            cve = item.get("cve", {})
+            cve_id = cve.get("id", "")
+            # Get English description
+            desc = ""
+            for d in cve.get("descriptions", []):
+                if d.get("lang") == "en":
+                    desc = d.get("value", "")
+                    break
+            # Get CVSS score (try v3.1, v3.0, v2.0 in order)
+            cvss_score = 0.0
+            severity = "MEDIUM"
+            metrics = cve.get("metrics", {})
+            for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+                metric_list = metrics.get(key, [])
+                if metric_list:
+                    cvss_data = metric_list[0].get("cvssData", {})
+                    cvss_score = cvss_data.get("baseScore", 0.0)
+                    severity = cvss_data.get("baseSeverity", "MEDIUM").upper()
+                    break
+            # Collect references
+            refs = [
+                r.get("url", "") for r in cve.get("references", [])[:5]
+            ]
+            if cve_id:
+                results.append({
+                    "cve_id": cve_id,
+                    "name": f"{cve_id}: {desc[:120]}",
+                    "description": desc[:500],
+                    "severity": severity if severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW") else "MEDIUM",
+                    "cvss_score": cvss_score,
+                    "source": "nvd",
+                    "references": refs,
+                    "matched_at": keyword,
+                })
+    except (json.JSONDecodeError, Exception):
+        pass
+    return results
+
+
+def parse_github_exploit_search(raw_output: str, keyword: str = "") -> list[dict]:
+    """Parse GitHub repository search API response for exploit PoCs.
+
+    Returns list of dicts with: name, url, description, stars, updated.
+    """
+    results = []
+    try:
+        data = json.loads(raw_output)
+        items = data.get("items", [])
+        for repo in items[:10]:
+            name = repo.get("full_name", "")
+            url = repo.get("html_url", "")
+            desc = repo.get("description", "") or ""
+            stars = repo.get("stargazers_count", 0)
+            updated = repo.get("updated_at", "")
+            # Extract CVE IDs from repo name or description
+            cve_ids = re.findall(r"CVE-\d{4}-\d+", f"{name} {desc}", re.IGNORECASE)
+            results.append({
+                "name": name,
+                "url": url,
+                "description": desc[:300],
+                "stars": stars,
+                "updated": updated,
+                "cve_ids": list(set(cve_ids)),
+                "source": "github",
+                "matched_at": keyword,
+            })
+    except (json.JSONDecodeError, Exception):
+        pass
+    return results
+
+
+def parse_packetstorm_results(raw_output: str, keyword: str = "") -> list[dict]:
+    """Parse PacketStorm search results (grep output of file paths).
+
+    Returns list of dicts with: name, url, source.
+    """
+    results = []
+    for line in raw_output.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Lines are like: 123456/exploit-name.html
+        url = f"https://packetstormsecurity.com/files/{line}"
+        name = line.split("/")[-1].replace(".html", "").replace("-", " ") if "/" in line else line
+        results.append({
+            "name": name,
+            "url": url,
+            "source": "packetstorm",
+            "matched_at": keyword,
+        })
+    return results
