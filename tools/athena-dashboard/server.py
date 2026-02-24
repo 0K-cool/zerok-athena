@@ -1677,8 +1677,10 @@ async def delete_engagement_graph(eid: str):
     # Clear scans for this engagement
     state.scans = [s for s in state.scans if s.get("engagement_id") != eid]
 
-    # Also clear runtime state (agents, events, credentials) for this engagement
-    state.events = [e for e in state.events if (getattr(e, 'metadata', None) or {}).get('engagement_id') != eid]
+    # Clear runtime state (agents, events, credentials) for this engagement
+    # Events don't carry engagement_id in metadata, so clear all events
+    # (they're ephemeral timeline data, not persistent records)
+    state.events.clear()
     state._credentials.pop(eid, None)
     # Reset agent statuses to idle
     for code in state.agent_statuses:
