@@ -6366,7 +6366,7 @@
     // ── Phase Badge ──
     // Track completed phases for scan coverage
     const _completedPhases = new Set();
-    const _allPhases = ['PRE-ENGAGEMENT', 'INTELLIGENCE GATHERING', 'THREAT MODELING', 'VULNERABILITY ANALYSIS', 'EXPLOITATION', 'POST-EXPLOITATION', 'REPORTING'];
+    const _allPhases = ['PLANNING', 'INTELLIGENCE GATHERING', 'THREAT MODELING', 'VULNERABILITY ANALYSIS', 'WEB APP TESTING', 'EXPLOITATION', 'POST-EXPLOITATION', 'LATERAL MOVEMENT', 'REPORTING'];
 
     function handlePhaseUpdate(msg) {
       const row = document.getElementById('phaseBadgeRow');
@@ -6588,11 +6588,15 @@
           progressEl.className = 'tool-progress-fill ' + (isCancelled ? 'cancelled' : 'done');
         }
 
-        // Remove cursor
+        // Remove cursor and show placeholder if no output
         const outputEl = tool.el.querySelector('[data-output="' + toolId + '"]');
         if (outputEl) {
           const cursor = outputEl.querySelector('.streaming-cursor');
           if (cursor) cursor.remove();
+          // Show placeholder if output block is empty
+          if (!outputEl.textContent.trim()) {
+            outputEl.innerHTML = '<span style="color: var(--zerok-text-dim); font-style: italic;">No output available</span>';
+          }
         }
 
         // Remove running state from card
@@ -7501,7 +7505,9 @@
         const data = await res.json();
         showToast('success', 'Graph Deleted', data.deleted + ' nodes removed from ' + eid);
         clearAttackGraph();
+        clearDrawer();
         await loadFindings();
+        if (typeof loadScans === 'function') loadScans();
         // Refresh dashboard widgets
         resetDashboardFindingWidgets();
         await loadDashboardFromAPI();
@@ -8178,6 +8184,14 @@
         if (kpiFindings) kpiFindings.textContent = summary.findings || 0;
         if (kpiServices) kpiServices.textContent = summary.services || 0;
 
+        // Sync nav badge with API findings count
+        const findingsBadge = document.getElementById('nav-badge-findings');
+        if (findingsBadge) {
+          const fc = summary.findings || 0;
+          if (fc > 0) { findingsBadge.textContent = fc; findingsBadge.style.display = ''; }
+          else { findingsBadge.style.display = 'none'; }
+        }
+
         // Update Confirmed Exploits KPI
         if (kpiCriticals) {
           kpiCriticals.textContent = summary.exploits !== undefined ? summary.exploits : (summary.severity ? summary.severity.critical || 0 : 0);
@@ -8733,6 +8747,17 @@
         document.getElementById('findings-total-count').textContent = allFindings.length;
 
         renderFindings(allFindings);
+
+        // Sync nav badge with actual findings count from API
+        const findingsBadge = document.getElementById('nav-badge-findings');
+        if (findingsBadge) {
+          if (allFindings.length > 0) {
+            findingsBadge.textContent = allFindings.length;
+            findingsBadge.style.display = '';
+          } else {
+            findingsBadge.style.display = 'none';
+          }
+        }
 
         // Enable/disable delete button based on findings count
         const clearBtn = document.getElementById('clearFindingsBtn');

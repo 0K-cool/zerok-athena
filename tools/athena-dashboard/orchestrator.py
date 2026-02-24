@@ -22,6 +22,22 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
+from urllib.parse import urlparse
+
+
+def extract_hosts(targets: list[str]) -> list[str]:
+    """Extract unique hostnames/IPs from a list of targets (URLs or bare hosts)."""
+    hosts = set()
+    for t in targets:
+        if "://" in t:
+            parsed = urlparse(t)
+            host = parsed.hostname
+            if host:
+                hosts.add(host)
+        else:
+            # Bare IP or hostname — strip any trailing path
+            hosts.add(t.split("/")[0].split(":")[0])
+    return list(hosts)
 
 from kali_client import KaliClient, ToolResult
 from parsers import (
@@ -1065,6 +1081,14 @@ class Orchestrator:
             action="dispatch_agents",
         )
 
+        # Pre-seed discovered_urls with any scope targets that are already HTTP URLs
+        # This ensures downstream phases (Gobuster, Nikto, JS, web app testing)
+        # have targets even if Naabu/Nmap port scanning misses non-standard ports.
+        for t in ctx.scope.get("targets", []):
+            if t.startswith("http://") or t.startswith("https://"):
+                if t not in ctx.discovered_urls:
+                    ctx.discovered_urls.append(t)
+
         # Run PO, AR, and JS in parallel
         po_task = asyncio.create_task(self._recon_passive(ctx))
         ar_task = asyncio.create_task(self._recon_active(ctx))
@@ -1076,32 +1100,60 @@ class Orchestrator:
         po = self._runner("PO", ctx)
 
         targets = ctx.scope.get("targets", [])
-        # Extract domain targets for passive recon
-        domains = [t for t in targets if not t[0].isdigit() and not t.startswith("*")]
-        wildcards = [t.lstrip("*.") for t in targets if t.startswith("*.")]
-        all_domains = domains + wildcards
 
-        if not all_domains:
-            await po.complete("No domain targets for passive OSINT — skipping.")
+        # Parse targets: extract hostnames for GAU, domains for subfinder
+        gau_targets = []  # GAU works with domains AND URLs
+        subfinder_targets = []  # Subfinder only works with domains (not IPs)
+
+        for t in targets:
+            if t.startswith("*."):
+                # Wildcard domain
+                domain = t.lstrip("*.")
+                gau_targets.append(domain)
+                subfinder_targets.append(domain)
+            elif "://" in t:
+                # Full URL — extract hostname for GAU
+                parsed = urlparse(t)
+                host = parsed.hostname
+                if host:
+                    gau_targets.append(host)
+                    # Only add to subfinder if it's a domain (not IP)
+                    if not host.replace(".", "").isdigit():
+                        subfinder_targets.append(host)
+            elif not t[0].isdigit():
+                # Bare domain
+                gau_targets.append(t)
+                subfinder_targets.append(t)
+            else:
+                # Bare IP — GAU can try, subfinder can't
+                gau_targets.append(t)
+
+        # Deduplicate
+        gau_targets = list(dict.fromkeys(gau_targets))
+        subfinder_targets = list(dict.fromkeys(subfinder_targets))
+
+        if not gau_targets:
+            await po.complete("No targets for passive OSINT — skipping.")
             return
 
-        for domain in all_domains[:5]:  # Cap at 5 domains
+        for target in gau_targets[:5]:  # Cap at 5
             # GAU URL discovery
             await po.think(
-                thought=f"Running GAU against {domain} for historical URL discovery.",
+                thought=f"Running GAU against {target} for historical URL discovery.",
                 reasoning="GAU pulls from Wayback Machine, Common Crawl, and AlienVault OTX "
                           "without touching the target directly.",
             )
             result = await po.run_tool(
                 "gau_discover",
-                {"target": domain},
-                display=f"Running GAU against {domain}...",
+                {"target": target},
+                display=f"Running GAU against {target}...",
             )
             if result.success:
                 urls = parse_gau_output(result.stdout)
                 ctx.discovered_urls.extend(urls)
 
-            # Subfinder subdomain enum
+        # Subfinder only for domain targets (not IPs)
+        for domain in subfinder_targets[:5]:
             await po.think(
                 thought=f"Running Subfinder against {domain}.",
                 reasoning="Subdomain enumeration reveals additional attack surface.",
@@ -1124,7 +1176,8 @@ class Orchestrator:
         """AR: Active Recon — Naabu → Httpx → Nmap (deep) → Gobuster."""
         ar = self._runner("AR", ctx)
         targets = ctx.scope.get("targets", [])
-        target_str = " ".join(targets)
+        hosts = extract_hosts(targets)
+        target_str = " ".join(hosts)
 
         # Step 1: Fast port discovery — Naabu with Nmap fallback
         await ar.think(
@@ -1202,7 +1255,7 @@ class Orchestrator:
             )
             # Build target list with common web ports
             httpx_targets = []
-            web_ports = {80, 443, 8080, 8443, 8000, 8180, 8888, 3000, 5000, 9090}
+            web_ports = {80, 443, 8080, 8443, 8000, 8180, 8888, 3000, 3030, 5000, 9090}
             https_ports = {443, 8443}
             for r in ctx.discovered_hosts:
                 if r["port"] in web_ports:
@@ -1258,8 +1311,44 @@ class Orchestrator:
                 )
                 if gobuster_result.success:
                     paths = parse_gobuster_output(gobuster_result.stdout)
+                    # Sensitive directory patterns that warrant findings
+                    _sensitive_dirs = {
+                        "admin", "administrator", "phpmyadmin", "wp-admin",
+                        "backup", "backups", "bak", "old", "temp", "tmp",
+                        "config", "conf", "include", "includes", "private",
+                        "secret", "hidden", "debug", "test", "dev",
+                        ".git", ".svn", ".env", ".htaccess", ".htpasswd",
+                        "upload", "uploads", "cgi-bin", "server-status",
+                        "phpinfo", "info", "shell", "console", "db",
+                        "database", "sql", "dump", "log", "logs",
+                    }
                     for p in paths:
-                        ctx.discovered_urls.append(f"{target_url}{p['path']}")
+                        full_url = f"{target_url.rstrip('/')}{p['path']}"
+                        ctx.discovered_urls.append(full_url)
+                        # Check if this is a sensitive directory
+                        path_lower = p["path"].strip("/").lower()
+                        if path_lower in _sensitive_dirs or any(
+                            s in path_lower for s in (
+                                ".git", ".env", ".htaccess", "phpmyadmin",
+                                "phpinfo", "backup", "server-status",
+                            )
+                        ):
+                            sev = "high" if path_lower in (
+                                ".git", ".env", ".htpasswd", "phpmyadmin",
+                                "server-status", "phpinfo", "backup",
+                                "database", "sql", "dump",
+                            ) else "medium"
+                            await ar.report_finding(
+                                title=f"Sensitive directory discovered: {p['path']}",
+                                severity=sev,
+                                category="Information Disclosure",
+                                target=full_url,
+                                description=(
+                                    f"Directory brute-forcing revealed {p['path']} "
+                                    f"(HTTP {p.get('status', '?')}). This may expose "
+                                    f"sensitive files, configuration, or admin interfaces."
+                                ),
+                            )
 
         await ar.complete(
             f"Active recon complete: {ctx.host_count} hosts, "
@@ -1281,18 +1370,17 @@ class Orchestrator:
             action="query_cves",
         )
 
-        # Nuclei with CVE-specific templates for broad coverage
-        # Build target list: HTTP URLs + raw host:port for non-web services
-        url_targets = [u for u in ctx.discovered_urls if u.startswith("http")]
+        # Nuclei CVE templates on network targets ONLY (bare IPs/ports).
+        # Web URLs (http/https) are handled by WV agent in _vuln_web_scan()
+        # to avoid duplicate Nuclei runs on the same targets.
         ip_targets = list(set(r["ip"] for r in ctx.discovered_hosts))
-        all_targets = url_targets + ip_targets  # Nuclei handles both URLs and IPs
 
-        if all_targets:
+        if ip_targets:
             nuclei_result = await cv.run_tool(
                 "nuclei_scan",
-                {"targets": all_targets[:100], "severity": "critical,high",
-                 "additional_args": "-tags cve"},
-                display=f"Running Nuclei CVE templates against {len(all_targets)} targets...",
+                {"targets": ip_targets[:100], "severity": "critical,high",
+                 "additional_args": "-tags cve -tags network"},
+                display=f"Running Nuclei CVE templates against {len(ip_targets)} network targets...",
             )
             if nuclei_result.success:
                 vulns = parse_nuclei_results(nuclei_result.stdout, ctx.engagement_id)
@@ -1407,14 +1495,35 @@ class Orchestrator:
             if nikto_result.success:
                 nikto_findings = parse_nikto_output(nikto_result.stdout)
                 for nf in nikto_findings:
-                    if "critical" in nf["finding"].lower() or "vulnerability" in nf["finding"].lower():
-                        await wv.report_finding(
-                            title=nf["finding"][:100],
-                            severity="medium",
-                            category="Web Server",
-                            target=target_url,
-                            description=nf["finding"],
-                        )
+                    finding_text = nf["finding"].lower()
+                    # Map Nikto findings to severity levels
+                    if any(k in finding_text for k in (
+                        "sql injection", "remote code", "command injection",
+                        "file inclusion", "backdoor", "shell",
+                    )):
+                        sev = "critical"
+                    elif any(k in finding_text for k in (
+                        "directory index", "default password", "admin",
+                        "phpinfo", "server-status", ".htaccess", ".git/",
+                        "backup", "database", "config",
+                    )):
+                        sev = "high"
+                    elif any(k in finding_text for k in (
+                        "x-frame-options", "x-content-type",
+                        "strict-transport", "allowed http method",
+                        "etag", "server banner", "options method",
+                        "cookie", "cors", "csp",
+                    )):
+                        sev = "medium"
+                    else:
+                        sev = "low"
+                    await wv.report_finding(
+                        title=nf["finding"][:100],
+                        severity=sev,
+                        category="Web Server",
+                        target=target_url,
+                        description=nf["finding"],
+                    )
 
         await wv.complete(
             f"Web vulnerability scanning complete: {ctx.vuln_count} total vulnerabilities."
@@ -2010,7 +2119,7 @@ class Orchestrator:
 
         web_targets = [u for u in ctx.discovered_urls if u.startswith("http")]
         # Also try building URLs from discovered hosts with web ports
-        web_ports = {80, 443, 8080, 8443, 8000, 8180, 8888, 3000, 5000, 9090}
+        web_ports = {80, 443, 8080, 8443, 8000, 8180, 8888, 3000, 3030, 5000, 9090}
         https_ports = {443, 8443}
         for r in ctx.discovered_hosts:
             if r.get("port") in web_ports:
@@ -2018,6 +2127,15 @@ class Orchestrator:
                 url = f"{proto}://{r['ip']}:{r['port']}"
                 if url not in web_targets:
                     web_targets.append(url)
+
+        # Fallback: use scope URLs directly if AR hasn't found anything yet
+        # (scope URLs were pre-seeded into discovered_urls by _phase_recon,
+        # but check raw scope too in case timing means they're not yet visible)
+        if not web_targets:
+            for t in ctx.scope.get("targets", []):
+                if t.startswith("http://") or t.startswith("https://"):
+                    if t not in web_targets:
+                        web_targets.append(t)
 
         if not web_targets:
             await js.complete("No web targets for JavaScript analysis.")
@@ -2047,7 +2165,16 @@ class Orchestrator:
                 r'<script[^>]+src=["\']([^"\']+\.js[^"\']*)["\']', html,
             )
 
+            # Skip known vendor/library bundles that are huge and contain no app code
+            _vendor_skip = {'vendor.js', 'polyfills.js', 'chunk-vendors.js',
+                            'vendors~main.js', 'vendor.bundle.js'}
+
             for script_src in script_urls[:10]:
+                # Skip vendor bundles — they're library code, not app code
+                basename = script_src.split('/')[-1].split('?')[0]
+                if basename in _vendor_skip:
+                    continue
+
                 # Resolve relative URLs
                 if script_src.startswith("//"):
                     script_src = "https:" + script_src
@@ -2060,7 +2187,7 @@ class Orchestrator:
 
                 js_result = await js.run_tool(
                     "curl_raw",
-                    {"url": script_src, "options": "-L"},
+                    {"url": script_src, "options": "-L --max-filesize 1048576"},
                     display=f"Fetching JS: {script_src}...",
                 )
                 if not js_result.success or not js_result.stdout:
@@ -2131,7 +2258,8 @@ class Orchestrator:
         """PD: Discover hidden parameters on discovered endpoints."""
         pd = self._runner("PD", ctx)
 
-        # Build target list from discovered endpoints and web URLs
+        # Build target list from discovered API endpoints (from JS analysis)
+        # Arjun needs specific API paths, NOT root URLs like http://host:port/
         targets = []
         for ep in ctx.discovered_endpoints:
             base = ep.get("base_url", "")
@@ -2142,10 +2270,15 @@ class Orchestrator:
                 full = base.rstrip("/") + url
                 if full not in targets:
                     targets.append(full)
-        # Add discovered web URLs
+        # Add discovered web URLs that have a meaningful path (not just root)
+        # Root URLs (/, /gym/, etc.) cause Arjun to timeout or error
+        from urllib.parse import urlparse as _urlparse
         for url in ctx.discovered_urls:
             if url.startswith("http") and url not in targets:
-                targets.append(url)
+                path = _urlparse(url).path.rstrip("/")
+                # Only add URLs with a path depth > 1 segment (e.g. /api/Users, not just /)
+                if path and path.count("/") >= 2:
+                    targets.append(url)
 
         if not targets:
             await pd.complete("No endpoints for parameter discovery.")
@@ -2200,17 +2333,19 @@ class Orchestrator:
                     fuzz_targets.append({"url": full_url, "params": ep["params"]})
 
         if not fuzz_targets:
-            # Fall back to content discovery with Feroxbuster
+            # No parameterized endpoints from PD — run Feroxbuster + direct XSS probing
             web_targets = [u for u in ctx.discovered_urls if u.startswith("http")]
             if not web_targets:
                 await wa.complete("No targets for web app fuzzing.")
                 return
 
             await wa.think(
-                thought="No parameterized endpoints — running content discovery.",
-                reasoning="Deep recursive content discovery may reveal additional "
-                          "endpoints and hidden resources.",
+                thought="No parameterized endpoints — running content discovery + direct XSS probing.",
+                reasoning="Feroxbuster discovers hidden paths. Dalfox can also scan URLs "
+                          "directly for reflected XSS using its own parameter discovery.",
             )
+
+            # Feroxbuster content discovery
             for target_url in web_targets[:3]:
                 result = await wa.run_tool(
                     "feroxbuster_scan",
@@ -2219,10 +2354,83 @@ class Orchestrator:
                 )
                 if result.success:
                     parsed = parse_feroxbuster(result.stdout)
+                    _ferox_sensitive = {
+                        "admin", "backup", "config", "include", ".git",
+                        ".env", ".htaccess", "phpmyadmin", "phpinfo",
+                        "upload", "cgi-bin", "server-status", "database",
+                        "console", "debug", "test",
+                    }
                     for entry in parsed:
                         if entry.get("status") in (200, 301, 302, 403):
                             ctx.discovered_urls.append(entry["url"])
-            await wa.complete("Content discovery complete via Feroxbuster.")
+                            # Report sensitive paths as findings
+                            epath = entry.get("url", "").rstrip("/").split("/")[-1].lower()
+                            if epath in _ferox_sensitive or any(
+                                s in epath for s in (".git", ".env", "phpmyadmin", "phpinfo", "backup")
+                            ):
+                                await wa.report_finding(
+                                    title=f"Sensitive path: {entry['url']}",
+                                    severity="medium",
+                                    category="Information Disclosure",
+                                    target=entry["url"],
+                                    description=(
+                                        f"Content discovery found {entry['url']} "
+                                        f"(HTTP {entry.get('status', '?')}). "
+                                        f"May expose sensitive data or admin functionality."
+                                    ),
+                                )
+
+            # Direct Dalfox XSS scan on web targets (dalfox has built-in param mining)
+            xss_count = 0
+            for target_url in web_targets[:3]:
+                result = await wa.run_tool(
+                    "dalfox_xss",
+                    {"url": target_url},
+                    display=f"Dalfox XSS scan: {target_url}...",
+                )
+                if result.success:
+                    xss_findings = parse_dalfox(result.stdout)
+                    for xss in xss_findings:
+                        xss_count += 1
+                        await wa.report_finding(
+                            title=f"XSS: {xss.get('type', 'Reflected')} on {target_url}",
+                            severity=xss.get("severity", "high").lower(),
+                            category="Cross-Site Scripting",
+                            target=target_url,
+                            description=f"Payload: {xss.get('payload', 'N/A')}",
+                            evidence=xss.get("poc", ""),
+                        )
+
+            # SQLMap on discovered endpoints that look injectable
+            injectable_urls = [
+                u for u in ctx.discovered_urls
+                if "?" in u or any(
+                    k in u.lower() for k in ("search", "query", "id=", "page=", "sort=")
+                )
+            ]
+            for target_url in injectable_urls[:3]:
+                result = await wa.run_tool(
+                    "sqlmap_scan",
+                    {"url": target_url, "options": "--batch --level=1 --risk=1 --random-agent"},
+                    display=f"SQLMap scan: {target_url}...",
+                )
+                if result.success and result.stdout:
+                    output = result.stdout.lower()
+                    if "is vulnerable" in output or "injectable" in output:
+                        await wa.report_finding(
+                            title=f"SQL Injection: {target_url}",
+                            severity="critical",
+                            category="SQL Injection",
+                            target=target_url,
+                            description="SQLMap confirmed SQL injection vulnerability.",
+                            cvss=9.8,
+                            evidence=result.stdout[:2000],
+                        )
+
+            await wa.complete(
+                f"Web app fuzzing complete: {xss_count} XSS, "
+                f"{len(injectable_urls)} targets tested for SQLi."
+            )
             return
 
         await wa.think(
@@ -2290,7 +2498,8 @@ class Orchestrator:
             action="test_auth",
         )
 
-        # Test 1: SQL injection in login endpoints
+        # ── Build login/register/admin endpoint lists ──
+        # Use discovered endpoints from JS analysis
         login_endpoints = [
             ep for ep in ctx.discovered_endpoints
             if any(
@@ -2298,12 +2507,200 @@ class Orchestrator:
                 for k in ("login", "auth", "signin", "session")
             )
         ]
+        register_endpoints = [
+            ep for ep in ctx.discovered_endpoints
+            if any(
+                k in ep.get("url", "").lower()
+                for k in ("register", "signup", "users")
+            )
+        ]
+        admin_eps = [
+            ep for ep in ctx.discovered_endpoints
+            if ep.get("admin") or "admin" in ep.get("url", "").lower()
+        ]
 
-        for ep in login_endpoints[:3]:
+        # ── HTML Form Discovery ──
+        # A real pentester inspects the HTML for <form> tags to find actual
+        # login/search/contact endpoints rather than guessing REST API paths.
+        if not login_endpoints and not register_endpoints:
+            await at.think(
+                thought="Discovering HTML forms on web targets.",
+                reasoning="PHP and traditional web apps expose login/search forms via "
+                          "HTML <form> tags. Extracting action URLs reveals the real "
+                          "endpoints to test, not just guessed REST API paths.",
+            )
+            import re as _re_at
+            for target_url in web_targets[:3]:
+                target_base = target_url.rstrip("/")
+                # Fetch the page HTML
+                html_result = await at.run_tool(
+                    "curl_raw",
+                    {"url": target_url, "options": "-s -L"},
+                    display=f"Fetching HTML forms from {target_url}...",
+                )
+                if not html_result.success:
+                    continue
+                html_body = html_result.stdout or ""
+                # Extract form actions and categorize
+                forms = _re_at.findall(
+                    r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>',
+                    html_body, _re_at.DOTALL | _re_at.IGNORECASE,
+                )
+                for action, form_body in forms:
+                    if not action or action.startswith("javascript:") or action == "#":
+                        continue
+                    # Build full URL from relative action
+                    if action.startswith("http"):
+                        form_url = action
+                    elif action.startswith("/"):
+                        from urllib.parse import urlparse as _up
+                        p = _up(target_base)
+                        form_url = f"{p.scheme}://{p.netloc}{action}"
+                    else:
+                        form_url = target_base + "/" + action
+
+                    # Extract input field names
+                    inputs = _re_at.findall(
+                        r'<input[^>]*name=["\']([^"\']+)["\']', form_body, _re_at.IGNORECASE,
+                    )
+                    form_lower = form_body.lower()
+                    ep_entry = {
+                        "url": form_url, "base_url": target_base,
+                        "method": "POST", "source_agent": "AT",
+                        "params": inputs, "form_discovered": True,
+                    }
+                    # Categorize by content
+                    if any(k in form_lower for k in ("password", "passwd", "login", "signin")):
+                        login_endpoints.append(ep_entry)
+                        ctx.discovered_endpoints.append(ep_entry)
+                    elif any(k in form_lower for k in ("register", "signup", "create")):
+                        register_endpoints.append(ep_entry)
+                        ctx.discovered_endpoints.append(ep_entry)
+                    elif any(k in form_lower for k in ("search", "query", "q=")):
+                        # Search forms — good XSS/injection targets
+                        ctx.discovered_endpoints.append(ep_entry)
+
+                # Also check common PHP-specific paths
+                for php_path in ["/login.php", "/admin/login.php", "/register.php",
+                                 "/index.php?page=login", "/user/login.php"]:
+                    php_url = target_base + php_path
+                    php_probe = await at.run_tool(
+                        "curl_raw",
+                        {"url": php_url, "options": "-s -o /dev/null -w '%{http_code}:%{size_download}'"},
+                        display=f"Probing PHP path {php_url}...",
+                    )
+                    if php_probe.success and php_probe.stdout:
+                        parts = php_probe.stdout.strip().strip("'").split(":")
+                        code = parts[0] if parts else ""
+                        size = parts[1] if len(parts) > 1 else "0"
+                        if code in ("200", "302") and size != "0":
+                            login_endpoints.append({
+                                "url": php_url, "base_url": target_base,
+                                "method": "POST", "source_agent": "AT",
+                                "params": [], "form_discovered": False,
+                            })
+
+        # ── Fallback: probe common REST endpoints with soft-404 detection ──
+        if not login_endpoints and not register_endpoints:
+            await at.think(
+                thought="No forms found — probing common REST auth paths with soft-404 detection.",
+                reasoning="Web servers often return 200 for all paths (catch-all/SPA). "
+                          "Comparing response size against a known-bad path filters false positives.",
+            )
+            common_auth_paths = [
+                "/rest/user/login", "/api/login", "/login", "/api/auth/login",
+                "/api/Users/login", "/signin", "/api/signin",
+            ]
+            common_register_paths = [
+                "/api/Users", "/rest/user/register", "/api/register",
+                "/register", "/signup", "/api/signup",
+            ]
+            common_admin_paths = [
+                "/admin", "/api/admin", "/administration", "/#/administration",
+                "/dashboard", "/api/SecurityQuestions", "/api/Challenges",
+            ]
+
+            for target_url in web_targets[:3]:
+                target_base = target_url.rstrip("/")
+
+                # Get baseline response size for a known-bad URL (soft-404 detection)
+                baseline = await at.run_tool(
+                    "curl_raw",
+                    {"url": target_base + "/athena-nonexistent-path-xyzzy",
+                     "options": "-s -o /dev/null -w '%{http_code}:%{size_download}'"},
+                    display=f"Getting baseline response for soft-404 detection...",
+                )
+                baseline_size = "0"
+                if baseline.success and baseline.stdout:
+                    parts = baseline.stdout.strip().strip("'").split(":")
+                    baseline_size = parts[1] if len(parts) > 1 else "0"
+
+                def _is_real_endpoint(probe_stdout: str) -> bool:
+                    """Check if probe response is a real endpoint (not soft-404)."""
+                    if not probe_stdout:
+                        return False
+                    parts = probe_stdout.strip().strip("'").split(":")
+                    code = parts[0] if parts else ""
+                    size = parts[1] if len(parts) > 1 else "0"
+                    if code in ("404", "000", ""):
+                        return False
+                    # If same size as baseline, it's a soft-404
+                    if size == baseline_size and baseline_size != "0":
+                        return False
+                    return True
+
+                # Probe login paths
+                for path in common_auth_paths:
+                    probe_url = target_base + path
+                    probe = await at.run_tool(
+                        "curl_raw",
+                        {"url": probe_url, "options": "-s -o /dev/null -w '%{http_code}:%{size_download}'"},
+                        display=f"Probing {probe_url}...",
+                    )
+                    if probe.success and _is_real_endpoint(probe.stdout):
+                        login_endpoints.append({
+                            "url": path, "base_url": target_base,
+                            "method": "POST", "source_agent": "AT", "params": [],
+                        })
+                        ctx.discovered_endpoints.append(login_endpoints[-1])
+
+                # Probe register paths
+                for path in common_register_paths:
+                    probe_url = target_base + path
+                    probe = await at.run_tool(
+                        "curl_raw",
+                        {"url": probe_url, "options": "-s -o /dev/null -w '%{http_code}:%{size_download}'"},
+                        display=f"Probing {probe_url}...",
+                    )
+                    if probe.success and _is_real_endpoint(probe.stdout):
+                        register_endpoints.append({
+                            "url": path, "base_url": target_base,
+                            "method": "POST", "source_agent": "AT", "params": [],
+                        })
+                        ctx.discovered_endpoints.append(register_endpoints[-1])
+
+                # Probe admin paths
+                for path in common_admin_paths:
+                    probe_url = target_base + path
+                    probe = await at.run_tool(
+                        "curl_raw",
+                        {"url": probe_url, "options": "-s -o /dev/null -w '%{http_code}:%{size_download}'"},
+                        display=f"Probing {probe_url}...",
+                    )
+                    if probe.success and _is_real_endpoint(probe.stdout):
+                        admin_eps.append({
+                            "url": path, "base_url": target_base,
+                            "source_agent": "AT", "params": [], "admin": True,
+                        })
+                        ctx.discovered_endpoints.append(admin_eps[-1])
+
+        # ── Test 1: SQL injection in login endpoints ──
+        for ep in login_endpoints[:5]:
             url = ep.get("url", "")
             if not url.startswith("http"):
-                url = base_url + url
+                url = (ep.get("base_url", "") or base_url).rstrip("/") + url
 
+            # JSON body SQLi (for REST API apps like Juice Shop)
             result = await at.run_tool(
                 "curl_raw",
                 {
@@ -2335,24 +2732,68 @@ class Orchestrator:
                         self._record_chain_step(
                             ctx, "AT", "SQLi auth bypass", "critical",
                         )
-                        # Store auth context
                         token = body.get("token") or body.get("access_token", "")
                         if token:
                             ctx.auth_context.setdefault("tokens", []).append(token)
 
-        # Test 2: User registration
-        register_endpoints = [
-            ep for ep in ctx.discovered_endpoints
-            if any(
-                k in ep.get("url", "").lower()
-                for k in ("register", "signup", "users")
-            )
-        ]
+            # Form-encoded SQLi — use actual field names if discovered from HTML
+            form_params = ep.get("params", [])
+            if form_params and ep.get("form_discovered"):
+                # Use real form field names (e.g., username, email, p, password)
+                user_field = next(
+                    (f for f in form_params
+                     if any(k in f.lower() for k in ("user", "email", "login", "name"))),
+                    form_params[0],
+                )
+                pass_field = next(
+                    (f for f in form_params
+                     if any(k in f.lower() for k in ("pass", "pwd", "p", "secret"))),
+                    form_params[1] if len(form_params) > 1 else "password",
+                )
+                form_data = f"{user_field}=admin%27+OR+1%3D1--&{pass_field}=test"
+                # Add any extra fields (submit buttons, hidden fields)
+                for f in form_params:
+                    if f not in (user_field, pass_field):
+                        form_data += f"&{f}=Submit"
+            else:
+                form_data = "username=admin%27+OR+1%3D1--&password=test&login=Login"
 
+            result2 = await at.run_tool(
+                "curl_raw",
+                {
+                    "url": url,
+                    "options": (
+                        "-X POST -H 'Content-Type: application/x-www-form-urlencoded' "
+                        f"-d '{form_data}'"
+                    ),
+                },
+                display=f"Testing form SQLi on login: {url}...",
+            )
+            if result2.success:
+                parsed2 = parse_curl(result2.stdout)
+                status = parsed2.get("status_code", 0)
+                body_text = parsed2.get("body", "")
+                # Check for redirect (302) or dashboard/welcome content
+                if status in (200, 302) and any(
+                    k in body_text.lower()
+                    for k in ("welcome", "dashboard", "logout", "profile", "session", "location:")
+                ):
+                    await at.report_finding(
+                        title="SQL Injection Authentication Bypass (Form)",
+                        severity="critical",
+                        category="Authentication",
+                        target=url,
+                        description="Login form accepts SQL injection in credentials.",
+                        cvss=9.8,
+                        evidence=result2.stdout[:2000],
+                    )
+                    self._record_chain_step(ctx, "AT", "SQLi form auth bypass", "critical")
+
+        # ── Test 2: User registration ──
         for ep in register_endpoints[:2]:
             url = ep.get("url", "")
             if not url.startswith("http"):
-                url = base_url + url
+                url = (ep.get("base_url", "") or base_url).rstrip("/") + url
 
             result = await at.run_tool(
                 "curl_raw",
@@ -2375,33 +2816,31 @@ class Orchestrator:
                         "source": "AT registration",
                     })
 
-        # Test 3: Unauthenticated admin access
-        admin_endpoints = [
-            ep for ep in ctx.discovered_endpoints
-            if ep.get("admin") or "admin" in ep.get("url", "").lower()
-        ]
-
-        for ep in admin_endpoints[:3]:
+        # ── Test 3: Unauthenticated admin access ──
+        for ep in admin_eps[:3]:
             url = ep.get("url", "")
             if not url.startswith("http"):
-                url = base_url + url
+                url = (ep.get("base_url", "") or base_url).rstrip("/") + url
 
             result = await at.run_tool(
                 "curl_raw",
                 {"url": url, "options": "-L"},
-                display=f"Testing unauthenticated admin access: {url}...",
+                display=f"Testing unauth admin access: {url}...",
             )
             if result.success:
                 parsed = parse_curl(result.stdout)
                 if parsed.get("status_code") == 200:
-                    await at.report_finding(
-                        title=f"Unauthenticated Admin Access: {url}",
-                        severity="critical",
-                        category="Authorization",
-                        target=url,
-                        description="Admin endpoint accessible without authentication.",
-                        evidence=result.stdout[:2000],
-                    )
+                    body_text = parsed.get("body", "")
+                    # Check it's actually admin content, not a redirect to login
+                    if not any(k in body_text.lower() for k in ("login", "sign in", "unauthorized")):
+                        await at.report_finding(
+                            title=f"Unauthenticated Admin Access: {url}",
+                            severity="critical",
+                            category="Authorization",
+                            target=url,
+                            description="Admin endpoint accessible without authentication.",
+                            evidence=result.stdout[:2000],
+                        )
 
         await at.complete(
             f"Auth testing complete. "
@@ -2541,10 +2980,7 @@ class Orchestrator:
         # Collect credentials from all sources
         creds = ctx.auth_context.get("credentials", [])
         tokens = ctx.auth_context.get("tokens", [])
-        engagement_creds = [
-            c for c in self.state.credentials
-            if c.get("engagement_id") == ctx.engagement_id
-        ]
+        engagement_creds = self.state._credentials.get(ctx.engagement_id, [])
 
         if not creds and not tokens and not engagement_creds:
             # No credentials to test — skip silently

@@ -1672,6 +1672,9 @@ async def delete_engagement_graph(eid: str):
     # Clear in-memory findings for this engagement
     state.findings = [f for f in state.findings if f.engagement != eid]
 
+    # Clear scans for this engagement
+    state.scans = [s for s in state.scans if s.get("engagement_id") != eid]
+
     # Also clear runtime state (agents, events, credentials) for this engagement
     state.events = [e for e in state.events if (getattr(e, 'metadata', None) or {}).get('engagement_id') != eid]
     state._credentials.pop(eid, None)
