@@ -161,6 +161,7 @@ For each agent, the prompt MUST include:
 - **Target scope** (what they're authorized to test)
 - **Dashboard URL** (`http://localhost:8080`)
 - **Backend preference** (`external` or `internal` or `both`)
+- **Scan registration reminder:** "Register every tool execution as a scan via POST /api/scans and update via PATCH /api/scans/{id} when complete."
 
 **Spawn recon agent immediately** (no dependencies):
 ```

@@ -145,6 +145,46 @@ Examples of good thinking:
 - "vsftpd 2.3.4 on port 21 — this version has a famous backdoor (CVE-2011-2523). Metasploit has `exploit/unix/ftp/vsftpd_234_backdoor`. P0."
 - "OpenSSH 8.2 — no critical CVEs for this version. Moving to next service."
 
+### Register Scans (updates Scans page)
+```bash
+# When starting a scan — register it so it appears on the Scans page
+SCAN_RESPONSE=$(curl -s -X POST http://localhost:8080/api/scans \
+  -H 'Content-Type: application/json' \
+  -d '{"tool":"nuclei_scan","tool_display":"Nuclei Vulnerability Scan","target":"10.1.1.20","agent":"WV","engagement_id":"YOUR_EID","status":"running"}')
+
+# When scan completes — update with results
+curl -s -X PATCH http://localhost:8080/api/scans/SCAN_ID \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"completed","duration_s":120,"findings_count":7,"output_preview":"2 critical, 1 high, 4 medium findings"}'
+```
+**Register EVERY tool execution as a scan.** This populates the Scans page.
+
+### Emit Tool Output Events (shows real output in AI Drawer)
+**IMPORTANT:** For EVERY tool you run, emit `tool_start` BEFORE and `tool_complete` AFTER with actual output. Creates expandable output cards in the AI Assistant drawer.
+
+```bash
+# BEFORE running — create expandable card
+curl -s -X POST http://localhost:8080/api/events \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"tool_start","agent":"CV","tool_id":"nuclei-1","tool_name":"nuclei_scan","target":"10.1.1.20","content":"Running Nuclei scan with CVE templates"}'
+
+# AFTER — fill card with output
+curl -s -X POST http://localhost:8080/api/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "type":"tool_complete",
+    "agent":"CV",
+    "tool_id":"nuclei-1",
+    "tool_name":"nuclei_scan",
+    "target":"10.1.1.20",
+    "content":"Nuclei found 3 critical CVEs",
+    "duration_s":120,
+    "output":"[PASTE FULL NUCLEI OUTPUT]"
+  }'
+```
+
+**tool_id rules:** Unique per invocation (e.g., `nuclei-1`, `nikto-web-1`, `searchsploit-apache-1`).
+
 ### Report Findings to Dashboard
 For each confirmed vulnerability, POST to the findings API:
 ```bash

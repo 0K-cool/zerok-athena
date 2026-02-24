@@ -131,18 +131,50 @@ Examples of good thinking events:
 - "WhatWeb detected Apache 2.4.49 on port 80. This version is vulnerable to CVE-2021-41773 (path traversal). Flagging for vuln agent."
 - "Subfinder returned 12 subdomains for target.com. 3 resolve to IPs within scope. Expanding scan to include them."
 
-### Emit Tool Events
+### Register Scans (updates Scans page)
 ```bash
-# When starting a tool
-curl -s -X POST http://localhost:8080/api/events \
+# When starting a scan — register it so it appears on the Scans page
+SCAN_RESPONSE=$(curl -s -X POST http://localhost:8080/api/scans \
   -H 'Content-Type: application/json' \
-  -d '{"type":"tool_start","agent":"AR","content":"Starting nmap -sV scan on 10.1.1.20","metadata":{"tool":"nmap_scan","target":"10.1.1.20"}}'
+  -d '{"tool":"nmap_scan","tool_display":"Nmap Service Scan","target":"10.1.1.20","agent":"AR","engagement_id":"YOUR_EID","status":"running","command":"nmap -sV 10.1.1.20"}')
+# Extract scan ID: echo $SCAN_RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])"
 
-# When tool completes
+# When scan completes — update it with results
+curl -s -X PATCH http://localhost:8080/api/scans/SCAN_ID \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"completed","duration_s":45,"findings_count":5,"output_preview":"5 services found: Apache/2.4.49, OpenSSH/8.2..."}'
+```
+**Register EVERY tool execution as a scan.** This is how the Scans page tracks progress.
+
+### Emit Tool Output Events (shows real output in AI Drawer)
+**IMPORTANT:** For EVERY tool you run, emit `tool_start` BEFORE and `tool_complete` AFTER with actual tool output. This creates expandable output cards in the AI Assistant drawer so the operator can see exactly what tools are running and what they return.
+
+```bash
+# BEFORE running the tool — create the expandable card
 curl -s -X POST http://localhost:8080/api/events \
   -H 'Content-Type: application/json' \
-  -d '{"type":"tool_complete","agent":"AR","content":"Nmap found 5 services: Apache/2.4.49, OpenSSH/8.2, MySQL/5.7.36, vsftpd/3.0.3, ProFTPD/1.3.5","metadata":{"tool":"nmap_scan","target":"10.1.1.20"}}'
+  -d '{"type":"tool_start","agent":"AR","tool_id":"nmap-sV-1","tool_name":"nmap_scan","target":"10.1.1.20","content":"Starting Nmap version scan: nmap -sV 10.1.1.20"}'
 ```
+
+Then run the actual tool. Capture the full output.
+
+```bash
+# AFTER the tool completes — fill the card with real output
+curl -s -X POST http://localhost:8080/api/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "type":"tool_complete",
+    "agent":"AR",
+    "tool_id":"nmap-sV-1",
+    "tool_name":"nmap_scan",
+    "target":"10.1.1.20",
+    "content":"Nmap found 5 services",
+    "duration_s":45,
+    "output":"[PASTE THE FULL NMAP OUTPUT HERE]"
+  }'
+```
+
+**Rules for tool_id:** Use a unique ID per tool invocation (e.g., `nmap-sV-1`, `gobuster-dir-1`, `httpx-1`). The `tool_start` and `tool_complete` events are matched by `tool_id`.
 
 ### Mark Completion
 When done, mark all three agent codes as completed:

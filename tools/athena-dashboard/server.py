@@ -473,8 +473,9 @@ async def websocket_endpoint(ws: WebSocket):
             }
             for e in state.events[-50:]
         ],
-        "engagement_active": state.engagement_task is not None and not state.engagement_task.done(),
+        "engagement_active": (state.engagement_task is not None and not state.engagement_task.done()) or (_ai_process is not None and _ai_process.poll() is None),
         "engagement_paused": not state.engagement_pause_event.is_set() if (state.engagement_task and not state.engagement_task.done()) else False,
+        "active_engagement_id": state.active_engagement_id,
         "timestamp": time.time(),
     }))
 
@@ -556,6 +557,14 @@ class EventPayload(BaseModel):
     agent: str
     content: str
     metadata: Optional[dict] = None
+    # Tool event fields — auto-packaged into metadata for frontend compatibility
+    tool_id: Optional[str] = None
+    tool_name: Optional[str] = None
+    target: Optional[str] = None
+    output: Optional[str] = None
+    duration_s: Optional[float] = None
+    findings_count: Optional[int] = None
+    chunk: Optional[str] = None
 
 
 @app.post("/api/events")
@@ -563,23 +572,68 @@ async def post_event(payload: EventPayload):
     """
     Agents post events here. Used by ATHENA agents via curl/httpx.
 
-    Example:
+    For tool events, agents can send tool fields at top level — they are
+    auto-packaged into metadata so the frontend renders expandable tool cards.
+
+    Examples:
+        # Thinking event
         curl -X POST http://localhost:8080/api/events \\
           -H 'Content-Type: application/json' \\
-          -d '{"type":"agent_thinking","agent":"AR","content":"Analyzing Naabu scan results..."}'
+          -d '{"type":"agent_thinking","agent":"AR","content":"Analyzing scan results..."}'
+
+        # Tool start (creates expandable card in AI drawer)
+        curl -X POST http://localhost:8080/api/events \\
+          -H 'Content-Type: application/json' \\
+          -d '{"type":"tool_start","agent":"AR","tool_id":"nmap-1","tool_name":"nmap_scan","target":"10.1.1.13","content":"Starting Nmap scan"}'
+
+        # Tool complete (fills output in card)
+        curl -X POST http://localhost:8080/api/events \\
+          -H 'Content-Type: application/json' \\
+          -d '{"type":"tool_complete","agent":"AR","tool_id":"nmap-1","tool_name":"nmap_scan","content":"Scan done","output":"PORT STATE SERVICE\\n22/tcp open ssh\\n80/tcp open http","duration_s":12}'
     """
+
+    # Auto-package top-level tool fields into metadata for frontend rendering
+    meta = dict(payload.metadata or {})
+    if payload.type in ("tool_start", "tool_complete"):
+        if payload.tool_id:
+            meta["tool_id"] = payload.tool_id
+        if payload.tool_name:
+            meta["tool"] = payload.tool_name
+        if payload.target:
+            meta["target"] = payload.target
+        if payload.output:
+            meta["output"] = payload.output
+        if payload.duration_s is not None:
+            meta["duration_s"] = payload.duration_s
+        if payload.findings_count is not None:
+            meta["findings_count"] = payload.findings_count
+
     event = AgentEvent(
         id=str(uuid.uuid4())[:8],
         type=payload.type,
         agent=payload.agent,
         content=payload.content,
         timestamp=time.time(),
-        metadata=payload.metadata,
+        metadata=meta if meta else None,
     )
+
+    # For tool_output_chunk, broadcast with top-level fields (frontend expects this)
+    if payload.type == "tool_output_chunk" and payload.tool_id and payload.chunk:
+        await state.broadcast({
+            "type": "tool_output_chunk",
+            "tool_id": payload.tool_id,
+            "chunk": payload.chunk,
+            "agent": payload.agent,
+            "timestamp": time.time(),
+        })
+        return {"ok": True, "event_id": event.id}
+
     await state.add_event(event)
 
     # Auto-update agent status based on event type
     if payload.type == "agent_thinking":
+        await state.update_agent_status(payload.agent, AgentStatus.RUNNING, payload.content)
+    elif payload.type == "tool_start":
         await state.update_agent_status(payload.agent, AgentStatus.RUNNING, payload.content)
     elif payload.type == "agent_complete":
         await state.update_agent_status(payload.agent, AgentStatus.COMPLETED)
@@ -606,6 +660,27 @@ async def update_agent_status(payload: AgentStatusPayload):
             content={"error": f"Invalid status: {payload.status}. Valid: {[s.value for s in AgentStatus]}"}
         )
     await state.update_agent_status(payload.agent, status, payload.task or "")
+    return {"ok": True}
+
+
+@app.post("/api/stats")
+async def post_stats(request: dict):
+    """Push stat updates from AI agents (hosts, services, vulns, findings counts).
+
+    Broadcasts stat_update so dashboard KPIs update in real-time.
+    Example:
+        curl -X POST http://localhost:8080/api/stats \\
+          -H 'Content-Type: application/json' \\
+          -d '{"hosts":1,"services":23,"vulns":6,"findings":6}'
+    """
+    await state.broadcast({
+        "type": "stat_update",
+        "hosts": request.get("hosts", 0),
+        "services": request.get("services", 0),
+        "vulns": request.get("vulns", 0),
+        "findings": request.get("findings", 0),
+        "timestamp": time.time(),
+    })
     return {"ok": True}
 
 
@@ -749,6 +824,27 @@ async def create_finding(payload: FindingPayload):
         engagement=payload.engagement,
     )
     await state.add_finding(finding)
+
+    # Broadcast stat_update so KPI cards update in real-time
+    eid = payload.engagement or state.active_engagement_id
+    if eid:
+        eng_findings = [f for f in state.findings if f.engagement == eid]
+        # Count unique hosts from findings targets
+        hosts = set()
+        for f in eng_findings:
+            if f.target:
+                host = f.target.split(":")[0].split("/")[0]
+                if host:
+                    hosts.add(host)
+        await state.broadcast({
+            "type": "stat_update",
+            "hosts": len(hosts),
+            "findings": len(eng_findings),
+            "services": 0,  # Will be updated by scan agents
+            "vulns": len([f for f in eng_findings if f.severity.value in ("critical", "high")]),
+            "timestamp": time.time(),
+        })
+
     return {"ok": True, "finding_id": finding_id}
 
 
@@ -792,8 +888,13 @@ async def get_engagements(include_archived: bool = False):
                     status = record.get("status", "active")
                     if not include_archived and status == "archived":
                         continue
+                    # Determine phase: if this is the active AI engagement, show "AI Mode"
+                    eid = record["id"]
+                    phase = "Active" if status == "active" else "—"
+                    if eid == state.active_engagement_id:
+                        phase = "AI Mode"
                     engagements.append({
-                        "id": record["id"],
+                        "id": eid,
                         "name": record["name"],
                         "client": record.get("client", "Unknown"),
                         "scope": record.get("scope", ""),
@@ -801,7 +902,11 @@ async def get_engagements(include_archived: bool = False):
                         "type": record.get("type", "external"),
                         "status": status,
                         "start_date": record.get("start_date", ""),
-                        "findings_count": record.get("findings_count", 0),
+                        "findings_count": max(
+                            record.get("findings_count", 0),
+                            len([f for f in state.findings if f.engagement == eid]),
+                        ),
+                        "phase": phase,
                     })
                 return {"engagements": engagements, "source": "neo4j"}
         except Exception as e:
@@ -1020,40 +1125,75 @@ async def get_engagement_summary(eid: str):
                 """, eid=eid)
                 record = result.single()
                 if record:
-                    return {
-                        "hosts": record["hosts"],
-                        "services": record["services"],
-                        "vulnerabilities": record["vulns"],
-                        "findings": record["findings"],
-                        "exploits": record["exploits"],
-                        "severity": {
-                            "critical": record["sev_critical"],
-                            "high": record["sev_high"],
-                            "medium": record["sev_medium"],
-                            "low": record["sev_low"],
+                    neo4j_hosts = record["hosts"]
+                    neo4j_services = record["services"]
+                    neo4j_findings = record["findings"]
+                    # If Neo4j has real Host/Service data, use it; otherwise supplement from in-memory state
+                    if neo4j_hosts > 0 or neo4j_findings > 0:
+                        # Supplement: if Neo4j has findings but no Host nodes, derive from in-memory findings
+                        mem_findings = [f for f in state.findings if f.engagement == eid]
+                        mem_hosts = set()
+                        for f in mem_findings:
+                            if f.target:
+                                h = f.target.split(":")[0].split("/")[0]
+                                if h:
+                                    mem_hosts.add(h)
+                        mem_ports = sum(s.get("findings_count", 0) for s in state.scans
+                                        if s.get("engagement_id") == eid and s.get("tool") in ("nmap_scan", "naabu_scan"))
+                        # Use max of Neo4j and in-memory severity counts (handles missing BELONGS_TO)
+                        mem_sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+                        mem_exploits = 0
+                        for f in mem_findings:
+                            s = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
+                            if s in mem_sev:
+                                mem_sev[s] += 1
+                            if f.evidence or (f.category and f.category.lower() in ('validated exploit', 'exploitation', 'injection')):
+                                mem_exploits += 1
+                        return {
+                            "hosts": max(neo4j_hosts, len(mem_hosts)),
+                            "services": max(neo4j_services, mem_ports),
+                            "vulnerabilities": record["vulns"],
+                            "findings": max(neo4j_findings, len(mem_findings)),
+                            "exploits": max(record["exploits"], mem_exploits),
+                            "severity": {
+                                "critical": max(record["sev_critical"], mem_sev["critical"]),
+                                "high": max(record["sev_high"], mem_sev["high"]),
+                                "medium": max(record["sev_medium"], mem_sev["medium"]),
+                                "low": max(record["sev_low"], mem_sev["low"]),
+                            }
                         }
-                    }
         except Exception as e:
             print(f"Neo4j summary query error: {e}")
             # Fall through to mock
 
-    # Fallback: return mock summary
-    eng = next((e for e in state.engagements if e.id == eid), None)
-    if not eng:
-        return JSONResponse(status_code=404, content={"error": "Engagement not found"})
+    # Fallback: compute summary from in-memory state (works for AI mode without Neo4j Host/Service nodes)
+    eng_findings = [f for f in state.findings if f.engagement == eid]
+    # Count unique hosts from finding targets
+    hosts = set()
+    for f in eng_findings:
+        if f.target:
+            host = f.target.split(":")[0].split("/")[0]
+            if host:
+                hosts.add(host)
+    # Count open ports from scan data
+    eng_scans = [s for s in state.scans if s.get("engagement_id") == eid]
+    total_ports = sum(s.get("findings_count", 0) for s in eng_scans if s.get("tool") in ("nmap_scan", "naabu_scan"))
+    sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    exploits = 0
+    for f in eng_findings:
+        s = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
+        if s in sev_counts:
+            sev_counts[s] += 1
+        if f.evidence or (f.category and f.category.lower() in ('validated exploit', 'exploitation', 'injection')):
+            exploits += 1
 
     return {
-        "hosts": 156,
-        "services": 89,
-        "vulnerabilities": 8,
-        "findings": eng.findings_count,
-        "exploits": 0,
-        "severity": {
-            "critical": 2,
-            "high": 1,
-            "medium": 4,
-            "low": 0,
-        }
+        "hosts": len(hosts),
+        "services": total_ports,
+        "vulnerabilities": len([f for f in eng_findings if sev_counts.get(f.severity.value if hasattr(f.severity, 'value') else '', 0) >= 0]),
+        "findings": len(eng_findings),
+        "exploits": exploits,
+        "severity": sev_counts,
     }
 
 
@@ -1125,12 +1265,23 @@ async def get_engagement_findings(eid: str):
                     OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
                     RETURN f.id AS id, f.title AS title, f.severity AS severity,
                            f.cvss AS cvss, f.status AS status, f.category AS category,
-                           f.description AS description, affected_hosts,
+                           f.description AS description, f.target AS target,
+                           f.evidence AS evidence, affected_hosts,
                            count(DISTINCT ep) AS evidence_count
                     ORDER BY f.cvss DESC
                 """, eid=eid)
                 findings = []
                 for record in result:
+                    # Derive affected_hosts from target if no AFFECTS relationships
+                    hosts = record["affected_hosts"]
+                    if not hosts and record.get("target"):
+                        # Extract host IP from target like "10.1.1.13:21"
+                        host_part = record["target"].split(":")[0] if ":" in record["target"] else record["target"]
+                        hosts = [host_part]
+                    # Derive evidence_count from evidence text if no EVIDENCED_BY relationships
+                    ev_count = record["evidence_count"]
+                    if ev_count == 0 and record.get("evidence"):
+                        ev_count = 1
                     findings.append({
                         "id": record["id"],
                         "title": record["title"],
@@ -1139,10 +1290,12 @@ async def get_engagement_findings(eid: str):
                         "status": record.get("status", "open"),
                         "category": record.get("category", ""),
                         "description": record.get("description", ""),
-                        "affected_hosts": record["affected_hosts"],
-                        "evidence_count": record["evidence_count"],
+                        "affected_hosts": hosts,
+                        "evidence_count": ev_count,
                     })
-                return findings
+                # If Neo4j returned data, use it; otherwise fall through to in-memory
+                if findings:
+                    return findings
         except Exception as e:
             print(f"Neo4j findings query error: {e}")
             # Fall through to mock
@@ -1184,6 +1337,18 @@ async def get_vuln_severity(eid: str):
                     total += cnt
         except Exception as e:
             print(f"Neo4j vuln-severity error: {e}")
+
+    # Fallback: compute from in-memory findings when Neo4j returned nothing
+    if total == 0:
+        mem_findings = [f for f in state.findings if f.engagement == eid]
+        for f in mem_findings:
+            sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
+            if sev in counts:
+                counts[sev] += 1
+            else:
+                counts["info"] += 1
+            total += 1
+
     return {"severity": counts, "total": total}
 
 
@@ -1223,15 +1388,19 @@ async def get_exploit_stats(eid: str):
         except Exception as e:
             print(f"Neo4j exploit-stats error: {e}")
 
-    # Fallback: compute from in-memory state
+    # Supplement from in-memory state (handles both: Neo4j returned 0 discovered, OR
+    # Neo4j categories didn't match OWASP codes but evidence exists)
+    mem_findings = [f for f in state.findings if f.engagement == eid]
     if discovered == 0:
-        mem_findings = [f for f in state.findings if f.engagement == eid]
         discovered = len(mem_findings)
+    if confirmed == 0 and mem_findings:
         exploit_cats = {'validated exploit', 'exploitation', 'injection',
                         'authentication bypass', 'lateral movement'}
         for f in mem_findings:
             cat = (f.category or '').lower()
-            if any(ec in cat for ec in exploit_cats):
+            # Count as confirmed exploit if: category matches OR has evidence
+            is_exploit = any(ec in cat for ec in exploit_cats) or bool(f.evidence)
+            if is_exploit:
                 confirmed += 1
                 sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
                 if sev in by_severity:
@@ -1245,7 +1414,7 @@ async def get_exploit_stats(eid: str):
                     'authentication bypass', 'lateral movement'}
     timestamps = sorted([f.timestamp for f in mem_findings])
     exploit_findings = [f for f in mem_findings
-                        if any(ec in (f.category or '').lower() for ec in exploit_cats)]
+                        if any(ec in (f.category or '').lower() for ec in exploit_cats) or bool(f.evidence)]
     if timestamps and exploit_findings:
         start_ts = timestamps[0]
         for ef in exploit_findings:
@@ -1551,6 +1720,80 @@ async def get_scans(engagement: Optional[str] = None):
     return scans
 
 
+@app.post("/api/scans")
+async def create_scan(request: dict):
+    """Register a scan from an external AI agent (Phase E: AI Mode).
+
+    Expected fields:
+        tool (str): Tool name (e.g. "nmap_scan")
+        target (str): Scan target
+        agent (str): Agent code (e.g. "AR")
+        engagement_id (str): Engagement ID
+        status (str, optional): "running" (default), "completed", "error"
+        tool_display (str, optional): Human-readable tool name
+        duration_s (int, optional): Duration in seconds
+        output_preview (str, optional): Truncated output
+        findings_count (int, optional): Number of findings from this scan
+        command (str, optional): Command string for display
+    """
+    scan_id = f"scan-{uuid.uuid4().hex[:8]}"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    scan_record = {
+        "id": scan_id,
+        "tool": request.get("tool", "unknown"),
+        "tool_display": request.get("tool_display", request.get("tool", "Unknown Tool")),
+        "target": request.get("target", ""),
+        "agent": request.get("agent", ""),
+        "status": request.get("status", "running"),
+        "duration_s": request.get("duration_s", 0),
+        "findings_count": request.get("findings_count", 0),
+        "started_at": request.get("started_at", now_iso),
+        "completed_at": request.get("completed_at"),
+        "engagement_id": request.get("engagement_id", state.active_engagement_id or ""),
+        "output_preview": request.get("output_preview", ""),
+        "command": request.get("command", request.get("tool_display", "")),
+    }
+    state.scans.append(scan_record)
+
+    # Broadcast so Scans page updates in real-time
+    await state.broadcast({
+        "type": "scan_update",
+        "scan": scan_record,
+        "timestamp": time.time(),
+    })
+
+    return {"id": scan_id, "status": scan_record["status"]}
+
+
+@app.patch("/api/scans/{scan_id}")
+async def update_scan(scan_id: str, request: dict):
+    """Update an existing scan record (e.g. mark completed with results).
+
+    Updatable fields: status, duration_s, findings_count, output_preview, completed_at
+    """
+    scan = next((s for s in state.scans if s["id"] == scan_id), None)
+    if not scan:
+        return JSONResponse(status_code=404, content={"error": "Scan not found"})
+
+    for field in ("status", "duration_s", "findings_count", "output_preview", "completed_at"):
+        if field in request:
+            scan[field] = request[field]
+
+    # Auto-set completed_at if status changed to completed/error
+    if request.get("status") in ("completed", "error") and not scan.get("completed_at"):
+        scan["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Broadcast update
+    event_type = "scan_complete" if scan["status"] in ("completed", "error") else "scan_update"
+    await state.broadcast({
+        "type": event_type,
+        "scan": scan,
+        "timestamp": time.time(),
+    })
+
+    return {"id": scan_id, "status": scan["status"]}
+
+
 @app.delete("/api/scans")
 async def delete_scans(engagement: Optional[str] = None):
     """Delete scan records, optionally filtered by engagement."""
@@ -1588,20 +1831,101 @@ async def get_events(limit: int = 50, agent: Optional[str] = None):
     return [e.model_dump() for e in results[-limit:]]
 
 
+def _synthesize_graph_from_findings(existing_nodes: list, existing_edges: list) -> tuple:
+    """Synthesize a basic attack graph from in-memory findings when Neo4j lacks Host/Service nodes.
+
+    Creates: Host nodes, Service nodes (from finding targets), and edges connecting them.
+    Preserves any existing Finding nodes from Neo4j.
+    """
+    nodes = list(existing_nodes)
+    edges = list(existing_edges)
+    existing_ids = {n["id"] for n in nodes}
+
+    eid = state.active_engagement_id
+    eng_findings = [f for f in state.findings if f.engagement == eid] if eid else state.findings
+
+    # Extract unique hosts and services from findings
+    hosts = {}  # ip -> set of (port, service_name)
+    for f in eng_findings:
+        if not f.target:
+            continue
+        parts = f.target.split(":")
+        ip = parts[0].split("/")[0]
+        port = parts[1] if len(parts) > 1 else None
+        if ip not in hosts:
+            hosts[ip] = set()
+        if port:
+            hosts[ip].add((port, f.title[:30]))
+
+    # Create Host nodes
+    for ip in hosts:
+        if ip not in existing_ids:
+            nodes.append({
+                "id": ip, "type": "host", "label": ip,
+                "tooltip": f"Host {ip}", "properties": {"ip": ip},
+            })
+            existing_ids.add(ip)
+
+    # Create Service nodes and edges
+    for ip, services in hosts.items():
+        for port, svc_name in services:
+            svc_id = f"{ip}:{port}"
+            if svc_id not in existing_ids:
+                nodes.append({
+                    "id": svc_id, "type": "service", "label": f":{port}",
+                    "tooltip": f"Service on port {port}",
+                    "properties": {"port": port, "host_ip": ip},
+                })
+                existing_ids.add(svc_id)
+                edges.append({"from": svc_id, "to": ip, "type": "RUNS_ON", "label": "RUNS_ON"})
+
+    # Create Finding nodes (from in-memory) and edges to hosts
+    for f in eng_findings:
+        fid = f"finding-{f.id}"
+        if fid not in existing_ids:
+            sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
+            nodes.append({
+                "id": fid, "type": "finding", "label": f.title[:40],
+                "tooltip": f.description or f.title,
+                "properties": {"severity": sev, "cvss": str(f.cvss or ""), "cve": f.cve or ""},
+            })
+            existing_ids.add(fid)
+        # Edge: Finding AFFECTS Host
+        if f.target:
+            ip = f.target.split(":")[0].split("/")[0]
+            if ip in existing_ids:
+                edges.append({"from": fid, "to": ip, "type": "AFFECTS", "label": "AFFECTS"})
+            # Edge: Finding AFFECTS Service (if port specified)
+            parts = f.target.split(":")
+            if len(parts) > 1:
+                svc_id = f"{parts[0]}:{parts[1]}"
+                if svc_id in existing_ids:
+                    edges.append({"from": fid, "to": svc_id, "type": "AFFECTS", "label": "AFFECTS"})
+
+    return nodes, edges
+
+
 @app.get("/api/attack-graph")
-async def get_attack_graph():
+async def get_attack_graph(engagement: Optional[str] = None):
     """Return attack graph data from Neo4j or mock data."""
+    eid = engagement or state.active_engagement_id
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
-                # Query nodes
+                # Query nodes — scope to engagement if available
                 nodes = []
                 for label, ntype in [("Host", "host"), ("Service", "service"),
                                       ("Vulnerability", "vulnerability"),
                                       ("Credential", "credential"), ("Finding", "finding")]:
-                    result = session.run(
-                        f"MATCH (n:{label}) RETURN n, labels(n) AS labels LIMIT 100"
-                    )
+                    if eid:
+                        result = session.run(
+                            f"MATCH (n:{label}) WHERE n.engagement_id = $eid RETURN n, labels(n) AS labels LIMIT 100",
+                            eid=eid,
+                        )
+                    else:
+                        result = session.run(
+                            f"MATCH (n:{label}) RETURN n, labels(n) AS labels LIMIT 100"
+                        )
                     for record in result:
                         node = dict(record["n"])
                         node_id = node.get("id", node.get("ip", node.get("name", str(id(node)))))
@@ -1649,9 +1973,21 @@ async def get_attack_graph():
                         "label": record["rel_type"],
                     })
 
+                # If we have findings but no Host/Service nodes (AI mode), synthesize graph from in-memory
+                host_count = sum(1 for n in nodes if n["type"] == "host")
+                finding_count = sum(1 for n in nodes if n["type"] == "finding")
+                if finding_count > 0 and host_count == 0:
+                    nodes, edges = _synthesize_graph_from_findings(nodes, edges)
                 return {"nodes": nodes, "edges": edges, "attack_paths": [], "source": "neo4j"}
         except Exception as e:
             print(f"Neo4j attack graph query error: {e}")
+
+    # Fallback: synthesize graph from in-memory findings
+    eid = state.active_engagement_id
+    if eid and state.findings:
+        nodes, edges = _synthesize_graph_from_findings([], [])
+        if nodes:
+            return {"nodes": nodes, "edges": edges, "attack_paths": [], "source": "memory"}
 
     # No data yet — return empty graph
     return {"nodes": [], "edges": [], "attack_paths": [], "source": "empty"}
@@ -1936,6 +2272,15 @@ async def start_engagement_ai(eid: str, backend: str = "external", target: str =
         content="AI Mode activated. 5 Claude Code agents will execute PTES phases 1-7. HITL approval required for exploitation.",
         timestamp=time.time(),
     ))
+
+    # Broadcast engagement_active so dashboard shows running badge and selects engagement
+    await state.broadcast({
+        "type": "engagement_started",
+        "engagement_id": eid,
+        "mode": "ai",
+        "engagement_active": True,
+        "timestamp": time.time(),
+    })
 
     # Build the Claude prompt
     athena_dir = str(Path(__file__).resolve().parent.parent.parent)
