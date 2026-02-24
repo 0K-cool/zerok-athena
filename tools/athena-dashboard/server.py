@@ -1952,9 +1952,9 @@ async def get_attack_graph(engagement: Optional[str] = None):
                             "properties": {k: str(v) if v is not None else None for k, v in node.items()},
                         })
 
-                # Query edges
+                # Query edges — scoped to engagement if available
                 edges = []
-                result = session.run("""
+                edge_query = """
                     MATCH (a)-[r]->(b)
                     WHERE type(r) IN [
                         'RUNS_ON', 'AFFECTS', 'EXPLOITS', 'LATERAL_MOVE',
@@ -1963,6 +1963,13 @@ async def get_attack_graph(engagement: Optional[str] = None):
                         'VERIFIED_BY', 'YIELDED', 'LEADS_TO', 'STARTS_AT', 'HAS_URL',
                         'FOUND_ON'
                     ]
+                """
+                if eid:
+                    edge_query += """
+                    AND (a.engagement_id = $eid OR b.engagement_id = $eid
+                         OR a.engagement_id IS NULL OR b.engagement_id IS NULL)
+                    """
+                edge_query += """
                     RETURN
                         coalesce(a.id, a.ip, a.name) AS from_id,
                         coalesce(b.id, b.ip, b.name) AS to_id,
@@ -1972,7 +1979,8 @@ async def get_attack_graph(engagement: Optional[str] = None):
                         labels(b) AS to_labels,
                         b.port AS to_port
                     LIMIT 500
-                """)
+                """
+                result = session.run(edge_query, eid=eid) if eid else session.run(edge_query)
                 for record in result:
                     from_id = str(record["from_id"])
                     to_id = str(record["to_id"])

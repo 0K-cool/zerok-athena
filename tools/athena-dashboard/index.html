@@ -5474,6 +5474,10 @@
               <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-critical);" id="graph-vulns-count">0</span></div>
             </div>
             <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Findings</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: #9C27B0;" id="graph-findings-count">0</span></div>
+            </div>
+            <div class="stat-card">
               <div class="stat-header"><span class="stat-label">Attack Paths</span></div>
               <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-warning);" id="graph-paths-count">0</span></div>
             </div>
@@ -7802,7 +7806,7 @@
         placeholder.style.display = '';
       }
       // Reset graph stat cards
-      ['graph-hosts-count','graph-services-count','graph-vulns-count','graph-paths-count'].forEach(id => {
+      ['graph-hosts-count','graph-services-count','graph-vulns-count','graph-findings-count','graph-paths-count'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = '0';
       });
@@ -10042,11 +10046,12 @@
     function updateGraphStats(data) {
       const counts = { host: 0, service: 0, vulnerability: 0, credential: 0, finding: 0 };
       data.nodes.forEach(n => { if (counts[n.type] !== undefined) counts[n.type]++; });
-      const paths = data.edges.filter(e => e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE').length;
+      const paths = data.edges.filter(e => e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE' || e.type === 'CONFIRMED_BY' || e.type === 'EXPLOITED_BY').length;
 
       document.getElementById('graph-hosts-count').textContent = counts.host;
       document.getElementById('graph-services-count').textContent = counts.service;
       document.getElementById('graph-vulns-count').textContent = counts.vulnerability;
+      document.getElementById('graph-findings-count').textContent = counts.finding;
       document.getElementById('graph-paths-count').textContent = paths;
 
       // Update Attack Graph nav badge with total node count
