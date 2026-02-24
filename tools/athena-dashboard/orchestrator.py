@@ -1307,6 +1307,18 @@ class Orchestrator:
                         await ar.write_hosts_neo4j([host])
 
         # Step 4: Gobuster on web targets
+        # Filter out URLs whose ports aren't actually open (pre-seeded scope URLs may have closed ports)
+        open_ports: set[tuple[str, int]] = {(r["ip"], r["port"]) for r in ctx.discovered_hosts}
+        # Default ports: 80 for http, 443 for https
+        def _url_port_open(url: str) -> bool:
+            try:
+                p = urlparse(url)
+                host = p.hostname or ""
+                port = p.port or (443 if p.scheme == "https" else 80)
+                return (host, port) in open_ports
+            except Exception:
+                return False
+        ctx.discovered_urls = [u for u in ctx.discovered_urls if _url_port_open(u)]
         web_targets = [u for u in ctx.discovered_urls if u.startswith("http")][:10]
         if web_targets:
             await ar.think(
