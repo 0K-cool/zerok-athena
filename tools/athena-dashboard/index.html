@@ -1874,6 +1874,25 @@
       background: rgba(239, 68, 68, 0.1);
     }
 
+    .btn-action-sm {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border: 1px solid var(--zerok-border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--zerok-text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-action-sm:hover {
+      border-color: var(--zerok-warning);
+      color: var(--zerok-warning);
+      background: rgba(251, 191, 36, 0.1);
+    }
+
     .modal-btn-warning {
       background: var(--zerok-warning);
       color: #1a1a1a;
@@ -4227,7 +4246,7 @@
             <path d="M4 3h10a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1zM7 7h4M7 11h4"/>
           </svg>
           <span class="nav-label">Engagements</span>
-          <span class="nav-badge" id="nav-badge-engagements">1</span>
+          <span class="nav-badge" id="nav-badge-engagements" style="display:none">0</span>
         </button>
         <button class="nav-item">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -5080,6 +5099,10 @@
               <div class="stat-value-row"><span class="stat-value" id="eng-total-count">0</span></div>
             </div>
             <div class="stat-card">
+              <div class="stat-header"><span class="stat-label">Pending</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-medium);" id="eng-pending-count">0</span></div>
+            </div>
+            <div class="stat-card">
               <div class="stat-header"><span class="stat-label">Active</span></div>
               <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-low);" id="eng-active-count">0</span></div>
             </div>
@@ -5095,6 +5118,7 @@
 
           <div class="findings-filters">
             <button class="severity-filter-chip active" data-eng-status="all" onclick="filterEngagementsView('all')">ALL</button>
+            <button class="severity-filter-chip" data-eng-status="pending" onclick="filterEngagementsView('pending')" style="--chip-color: var(--zerok-medium);">PENDING</button>
             <button class="severity-filter-chip" data-eng-status="active" onclick="filterEngagementsView('active')" style="--chip-color: var(--zerok-low);">ACTIVE</button>
             <button class="severity-filter-chip" data-eng-status="completed" onclick="filterEngagementsView('completed')" style="--chip-color: var(--zerok-info);">COMPLETED</button>
             <button class="severity-filter-chip" data-eng-status="archived" onclick="filterEngagementsView('archived')" style="--chip-color: var(--zerok-text-dim);">ARCHIVED</button>
@@ -5111,11 +5135,12 @@
                   <th>Phase</th>
                   <th>Findings</th>
                   <th>Started</th>
+                  <th style="text-align: right;">Actions</th>
                 </tr>
               </thead>
               <tbody id="engagementsTableBody">
                 <tr>
-                  <td colspan="7" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">
+                  <td colspan="8" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">
                     Loading engagements...
                   </td>
                 </tr>
@@ -7378,37 +7403,14 @@
         if (runningTools[tid].timerInterval) clearInterval(runningTools[tid].timerInterval);
         delete runningTools[tid];
       });
-      // Reset engagement stats
+      // Reset drawer-only engagement stats (inside the AI drawer panel)
       ['stat-hosts','stat-services','stat-vulns','stat-findings'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = '0';
       });
-      // Reset controls to idle state
-      setCtrlState('idle');
-
-      // Reset main dashboard KPI cards
-      ['kpi-hosts','kpi-services','kpi-criticals','kpi-findings'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = '0';
-      });
-      // Reset nav badges
-      document.querySelectorAll('.nav-badge').forEach(b => { b.textContent = '0'; b.style.display = 'none'; });
-      // Reset notification count
-      const notifBadge = document.getElementById('notifBadge');
-      if (notifBadge) { notifBadge.textContent = '0'; notifBadge.style.display = 'none'; }
-      // Reset severity counts
-      if (typeof _severityCounts !== 'undefined') {
-        Object.keys(_severityCounts).forEach(k => _severityCounts[k] = 0);
-        if (typeof updateSeverityChart === 'function') updateSeverityChart();
-        if (typeof updateVulnStatusDonut === 'function') updateVulnStatusDonut();
-      }
-      // Reset completed phases tracking
-      if (typeof _completedPhases !== 'undefined') _completedPhases.clear();
-      // Clear recent findings table
-      const recentBody = document.getElementById('recent-findings-body');
-      if (recentBody) recentBody.innerHTML = '';
-      // Clear the attack graph
-      clearAttackGraph();
+      // Note: Dashboard KPIs, nav badges, severity counts, findings, and attack graph
+      // are NOT reset here — clearDrawer() only clears the AI timeline UI.
+      // Use resetDashboardFindingWidgets() or delete data via API to reset those.
     }
 
     function toggleGraphButtons(hasData) {
@@ -7505,7 +7507,7 @@
         activeItem.classList.remove('active', 'paused', 'completed');
         if (state === 'running') activeItem.classList.add('active');
         else if (state === 'paused') activeItem.classList.add('paused');
-        else activeItem.classList.add('active'); // idle but engagement exists = green dot
+        else activeItem.classList.add('completed'); // idle = grey dot (not running)
       }
     }
 
@@ -7704,7 +7706,8 @@
             const engRes = await fetch('/api/engagements');
             const engData = await engRes.json();
             const engs = engData.engagements || engData;
-            const active = engs.filter(e => e.status === 'active').length;
+            // "Active" on dashboard = engagements with a pentest running (has phase, not completed)
+            const active = engs.filter(e => e.status === 'active' && e.phase && e.phase !== '—').length;
             kpiEng.textContent = active;
           } catch (e) { /* ignore */ }
         }
@@ -8057,10 +8060,16 @@
         ).join('');
 
         // Populate sidebar list
+        // Map engagement status to dot visual class:
+        // - "active" engagement (exists, not completed) = "completed" (grey dot) unless pentest running
+        // - "completed" engagement = "completed" (grey dot)
+        // - "archived" engagement = "archived" (dim dot)
+        // The dot only turns green ("active" class) via setCtrlState('running') during a live pentest
+        const dotClassMap = { active: 'completed', completed: 'completed', archived: 'archived' };
         const list = document.getElementById('engagementsList');
         list.innerHTML = engagements.map(e => `
           <div class="engagement-list-item ${e.id === currentEngagementId ? 'active' : ''}" onclick="selectEngagement('${e.id}')">
-            <div class="engagement-status-dot ${e.status || 'active'}"></div>
+            <div class="engagement-status-dot ${dotClassMap[e.status] || 'completed'}"></div>
             <span class="engagement-name">${escHtml(e.name)}</span>
             ${e.authorization ? `<span class="auth-badge ${e.authorization}">${e.authorization === 'documented' ? 'Doc' : 'Manual'}</span>` : ''}
             <span class="engagement-actions" onclick="event.stopPropagation()">
@@ -8073,6 +8082,13 @@
             </span>
           </div>
         `).join('');
+
+        // Update nav badge with total engagement count
+        const engBadgeNav = document.getElementById('nav-badge-engagements');
+        if (engBadgeNav) {
+          engBadgeNav.textContent = engagements.length;
+          engBadgeNav.style.display = engagements.length > 0 ? '' : 'none';
+        }
 
         // Load summary for current engagement
         if (currentEngagementId) {
@@ -8134,9 +8150,10 @@
         }
       });
 
+      // Reset dashboard widgets then reload for selected engagement
+      resetDashboardFindingWidgets();
+      loadDashboardFromAPI();
       loadEngagementSummary(eid);
-      // Reload timeline and findings for this engagement
-      // (timeline filtering would be implemented if we add engagement_id to events)
     }
 
     function switchEngagement() {
@@ -8348,8 +8365,11 @@
         if (result.ok) {
           if (currentEngagementId === eid) {
             currentEngagementId = null;
+            resetDashboardFindingWidgets();
           }
           loadEngagements();
+          loadDashboardFromAPI();
+          loadEngagementsView();
           showToast('success', 'Archived', 'Engagement archived');
         }
       } catch (e) {
@@ -8375,6 +8395,8 @@
             resetDashboardFindingWidgets();
           }
           loadEngagements();
+          loadDashboardFromAPI();
+          loadEngagementsView();
           showToast('success', 'Deleted', 'Engagement deleted');
         }
       } catch (e) {
@@ -8457,16 +8479,20 @@
 
     async function loadEngagementsView() {
       try {
-        const res = await fetch('/api/engagements');
+        const res = await fetch('/api/engagements?include_archived=true');
         const engData = await res.json();
         allEngagementsData = engData.engagements || engData;
 
         // Update stat cards
-        const active = allEngagementsData.filter(e => e.status === 'active').length;
+        // "pending" = status active but never started (no phase)
+        // "active" = status active and has been started (has a phase)
+        const pending = allEngagementsData.filter(e => e.status === 'active' && (!e.phase || e.phase === '—')).length;
+        const active = allEngagementsData.filter(e => e.status === 'active' && e.phase && e.phase !== '—').length;
         const completed = allEngagementsData.filter(e => e.status === 'completed').length;
         const totalFindings = allEngagementsData.reduce((sum, e) => sum + (e.findings_count || 0), 0);
 
         document.getElementById('eng-total-count').textContent = allEngagementsData.length;
+        document.getElementById('eng-pending-count').textContent = pending;
         document.getElementById('eng-active-count').textContent = active;
         document.getElementById('eng-completed-count').textContent = completed;
         document.getElementById('eng-findings-count').textContent = totalFindings;
@@ -8475,7 +8501,7 @@
       } catch (e) {
         console.error('Failed to load engagements:', e);
         document.getElementById('engagementsTableBody').innerHTML =
-          '<tr><td colspan="7" style="text-align: center; padding: 40px; color: var(--zerok-critical);">Failed to load engagements</td></tr>';
+          '<tr><td colspan="8" style="text-align: center; padding: 40px; color: var(--zerok-critical);">Failed to load engagements</td></tr>';
       }
     }
 
@@ -8484,24 +8510,41 @@
 
       if (engagements.length === 0) {
         tbody.innerHTML =
-          '<tr><td colspan="7" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">No engagements found</td></tr>';
+          '<tr><td colspan="8" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">No engagements found</td></tr>';
         return;
       }
 
-      const statusColors = { active: 'var(--zerok-low)', completed: 'var(--zerok-info)', archived: 'var(--zerok-text-dim)' };
+      const statusColors = { active: 'var(--zerok-low)', pending: 'var(--zerok-medium)', completed: 'var(--zerok-info)', archived: 'var(--zerok-text-dim)' };
 
-      tbody.innerHTML = engagements.map(e => `
+      tbody.innerHTML = engagements.map(e => {
+        // Derive display status: "active" with no phase = "pending"
+        const isPending = e.status === 'active' && (!e.phase || e.phase === '—');
+        const displayStatus = isPending ? 'pending' : e.status;
+        const displayLabel = isPending ? 'PENDING' : e.status.toUpperCase();
+        return `
         <tr onclick="toggleEngagementDetail('${e.id}')" data-eng-id="${e.id}" style="cursor: pointer;">
           <td style="font-weight: 500;">${escHtml(e.name)}</td>
           <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${escHtml(e.target)}</td>
           <td><span class="report-type-badge" style="background: var(--zerok-primary); color: #000;">EXTERNAL</span></td>
-          <td><span class="finding-severity-badge" style="background: ${statusColors[e.status] || 'var(--zerok-text-dim)'}; color: #000;">${e.status.toUpperCase()}</span></td>
+          <td><span class="finding-severity-badge" style="background: ${statusColors[displayStatus] || 'var(--zerok-text-dim)'}; color: #000;">${displayLabel}</span></td>
           <td style="font-size: 12px;">${escHtml(e.phase || '—')}</td>
           <td>${e.findings_count || 0}</td>
           <td style="font-size: 12px; color: var(--zerok-text-muted);">${e.start_date || '—'}</td>
+          <td style="text-align: right;" onclick="event.stopPropagation();">
+            <div style="display: inline-flex; gap: 4px;">
+              <button class="btn-action-sm" onclick="archiveEngagement('${e.id}', '${escHtml(e.name)}')" title="Archive engagement">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M3 4v9a1 1 0 001 1h8a1 1 0 001-1V4M6 7h4"/></svg>
+                Archive
+              </button>
+              <button class="btn-danger-sm" onclick="deleteEngagement('${e.id}', '${escHtml(e.name)}')" title="Delete engagement permanently">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h10M5 5V4a1 1 0 011-1h4a1 1 0 011 1v1M6 7v5M10 7v5M5 5l.5 8.5a1 1 0 001 .5h3a1 1 0 001-.5L11 5"/></svg>
+                Delete
+              </button>
+            </div>
+          </td>
         </tr>
         <tr class="eng-detail-row" data-eng-id="${e.id}" style="display: none;">
-          <td colspan="7" style="padding: 0;">
+          <td colspan="8" style="padding: 0;">
             <div class="finding-details" id="eng-details-${e.id}" style="padding: 16px 24px;">
               <div class="finding-details-grid">
                 <div class="finding-detail-section">
@@ -8529,7 +8572,7 @@
             </div>
           </td>
         </tr>
-      `).join('');
+      `; }).join('');
     }
 
     function filterEngagementsView(status) {
@@ -8538,6 +8581,10 @@
       });
       if (status === 'all') {
         renderEngagementsTable(allEngagementsData);
+      } else if (status === 'pending') {
+        renderEngagementsTable(allEngagementsData.filter(e => e.status === 'active' && (!e.phase || e.phase === '—')));
+      } else if (status === 'active') {
+        renderEngagementsTable(allEngagementsData.filter(e => e.status === 'active' && e.phase && e.phase !== '—'));
       } else {
         renderEngagementsTable(allEngagementsData.filter(e => e.status === status));
       }
