@@ -654,6 +654,97 @@
       align-items: center;
       justify-content: center;
     }
+    .icon-btn .badge[data-count="0"] { display: none; }
+
+    /* Notification Panel */
+    .notif-panel {
+      display: none;
+      position: absolute;
+      top: 42px;
+      right: 40px;
+      width: 340px;
+      max-height: 400px;
+      background: var(--zerok-card);
+      border: 1px solid var(--zerok-border);
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      z-index: 1000;
+      overflow: hidden;
+    }
+    .notif-panel.open { display: flex; flex-direction: column; }
+    .notif-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--zerok-border);
+    }
+    .notif-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--zerok-text);
+      font-family: var(--zerok-font-mono);
+    }
+    .notif-clear {
+      background: none;
+      border: none;
+      color: var(--zerok-text-muted);
+      font-size: 11px;
+      cursor: pointer;
+      font-family: var(--zerok-font-mono);
+    }
+    .notif-clear:hover { color: var(--zerok-text); }
+    .notif-list {
+      overflow-y: auto;
+      max-height: 340px;
+      padding: 4px 0;
+    }
+    .notif-list::-webkit-scrollbar { width: 4px; }
+    .notif-list::-webkit-scrollbar-thumb { background: var(--zerok-border); border-radius: 2px; }
+    .notif-empty {
+      padding: 24px 14px;
+      text-align: center;
+      color: var(--zerok-text-dim);
+      font-size: 12px;
+    }
+    .notif-item {
+      display: flex;
+      gap: 10px;
+      padding: 8px 14px;
+      border-bottom: 1px solid color-mix(in srgb, var(--zerok-border) 50%, transparent);
+      cursor: default;
+      transition: background 0.1s;
+    }
+    .notif-item:hover { background: var(--zerok-card-hover); }
+    .notif-item:last-child { border-bottom: none; }
+    .notif-item-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .notif-item-icon.critical { background: color-mix(in srgb, var(--zerok-critical) 25%, transparent); color: var(--zerok-critical); }
+    .notif-item-icon.high { background: color-mix(in srgb, var(--zerok-warning) 25%, transparent); color: var(--zerok-warning); }
+    .notif-item-icon.info { background: color-mix(in srgb, var(--zerok-info) 25%, transparent); color: var(--zerok-info); }
+    .notif-item-icon.success { background: color-mix(in srgb, var(--zerok-success) 25%, transparent); color: var(--zerok-success); }
+    .notif-item-body { flex: 1; min-width: 0; }
+    .notif-item-text {
+      font-size: 12px;
+      color: var(--zerok-text);
+      line-height: 1.4;
+    }
+    .notif-item-time {
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+      margin-top: 2px;
+      font-family: var(--zerok-font-mono);
+    }
 
     /* Content */
     .content {
@@ -893,7 +984,7 @@
       background: var(--zerok-card);
       border: var(--zerok-card-border);
       border-radius: 0;
-      overflow: hidden;
+      overflow: visible;
       display: flex;
       flex-direction: column;
     }
@@ -1263,7 +1354,7 @@
     /* Bar chart mock */
     .bar-chart-wrapper {
       display: flex;
-      height: 120px;
+      height: 140px;
       gap: 0;
     }
 
@@ -1272,7 +1363,7 @@
       flex-direction: column;
       justify-content: space-between;
       align-items: flex-end;
-      padding: 0 6px 18px 0;
+      padding: 18px 6px 18px 0;
       width: 28px;
       flex-shrink: 0;
     }
@@ -1290,7 +1381,7 @@
       align-items: flex-end;
       justify-content: space-evenly;
       gap: 0;
-      padding-top: 4px;
+      padding-top: 18px;
     }
 
     .bar-chart-grid {
@@ -3036,6 +3127,12 @@
       animation: none;
     }
 
+    .ai-drawer-title .pulse-dot.completed {
+      background: var(--zerok-low);
+      animation: none;
+      box-shadow: 0 0 4px var(--zerok-low);
+    }
+
     @keyframes pulse-glow {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.4; }
@@ -3132,27 +3229,22 @@
       animation: event-slide-in 0.3s ease-out;
     }
 
-    /* Compact status events — condensed display for replayed history */
+    /* Compact status events — same visual weight as tool cards for consistency */
     .timeline-event.compact {
-      padding: 4px 8px;
-      gap: 6px;
-      font-size: 11px;
+      padding: 10px 12px;
+      gap: 8px;
     }
     .timeline-event.compact .timeline-icon {
-      width: 18px;
-      height: 18px;
-      font-size: 10px;
+      width: 28px;
+      height: 28px;
+      font-size: 14px;
     }
     .timeline-event.compact .timeline-header {
-      gap: 4px;
+      gap: 6px;
     }
     .timeline-event.compact .timeline-text {
-      font-size: 11px;
-      line-height: 1.3;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 320px;
+      font-size: 12px;
+      line-height: 1.4;
     }
 
     @keyframes event-slide-in {
@@ -3173,38 +3265,45 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 12px;
+      font-size: 14px;
+      font-weight: 700;
       margin-top: 2px;
     }
 
     .timeline-icon.thinking {
-      background: color-mix(in srgb, var(--zerok-info) 15%, transparent);
+      background: color-mix(in srgb, var(--zerok-info) 25%, transparent);
       color: var(--zerok-info);
+      border: 1px solid color-mix(in srgb, var(--zerok-info) 30%, transparent);
     }
 
     .timeline-icon.tool {
-      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+      background: color-mix(in srgb, var(--zerok-primary) 25%, transparent);
       color: var(--zerok-primary);
+      border: 1px solid color-mix(in srgb, var(--zerok-primary) 30%, transparent);
     }
 
     .timeline-icon.finding {
-      background: color-mix(in srgb, var(--zerok-critical) 15%, transparent);
+      background: color-mix(in srgb, var(--zerok-critical) 25%, transparent);
       color: var(--zerok-critical);
+      border: 1px solid color-mix(in srgb, var(--zerok-critical) 30%, transparent);
     }
 
     .timeline-icon.approval {
-      background: color-mix(in srgb, var(--zerok-medium) 15%, transparent);
+      background: color-mix(in srgb, var(--zerok-medium) 25%, transparent);
       color: var(--zerok-medium);
+      border: 1px solid color-mix(in srgb, var(--zerok-medium) 30%, transparent);
     }
 
     .timeline-icon.complete {
-      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+      background: color-mix(in srgb, var(--zerok-low) 25%, transparent);
       color: var(--zerok-low);
+      border: 1px solid color-mix(in srgb, var(--zerok-low) 30%, transparent);
     }
 
     .timeline-icon.system {
-      background: color-mix(in srgb, var(--zerok-text-dim) 15%, transparent);
-      color: var(--zerok-text-dim);
+      background: color-mix(in srgb, var(--zerok-primary) 25%, transparent);
+      color: var(--zerok-primary);
+      border: 1px solid color-mix(in srgb, var(--zerok-primary) 30%, transparent);
     }
 
     .timeline-content {
@@ -3220,28 +3319,28 @@
     }
 
     .timeline-agent {
-      font-size: 11px;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 700;
       color: var(--zerok-text);
       font-family: var(--zerok-font-mono);
     }
 
     .timeline-type {
-      font-size: 10px;
+      font-size: 11px;
       color: var(--zerok-text-dim);
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
     .timeline-time {
-      font-size: 10px;
+      font-size: 11px;
       color: var(--zerok-text-dim);
       margin-left: auto;
       font-family: var(--zerok-font-mono);
     }
 
     .timeline-text {
-      font-size: 12px;
+      font-size: 12.5px;
       color: var(--zerok-text-muted);
       line-height: 1.5;
       word-break: break-word;
@@ -4442,7 +4541,7 @@
       <div class="content-header">
         <div class="content-title-section">
           <h1 class="content-title">Penetration Testing Dashboard</h1>
-          <p class="content-subtitle" id="subtitle-mode">PTES Methodology • 19 Automated Agents • Dual-Backend Architecture</p>
+          <p class="content-subtitle" id="subtitle-mode">PTES Methodology • <span id="agent-mode-label">19 Automated Agents</span> • Dual-Backend Architecture</p>
         </div>
         <div class="header-actions">
           <span id="engagement-running-badge" class="engagement-running-badge" title="Engagement in progress">
@@ -4453,19 +4552,29 @@
             <span class="neo4j-dot"></span>
             <span class="neo4j-label">Checking...</span>
           </span>
-          <button class="icon-btn">
+          <button class="icon-btn" id="searchBtn" title="Search">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="8" cy="8" r="5"/>
               <path d="M12 12l4 4"/>
             </svg>
           </button>
-          <button class="icon-btn">
+          <button class="icon-btn" id="notifBtn" title="Notifications" onclick="toggleNotificationPanel()">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M9 2a5 5 0 015 5v2.5l1.5 1.5H2.5L4 9.5V7a5 5 0 015-5zM7.5 14a1.5 1.5 0 003 0"/>
             </svg>
-            <span class="badge">3</span>
+            <span class="badge" id="headerNotifBadge" data-count="0">0</span>
           </button>
-          <button class="icon-btn">
+          <!-- Notification Panel -->
+          <div class="notif-panel" id="notifPanel">
+            <div class="notif-header">
+              <span class="notif-title">Notifications</span>
+              <button class="notif-clear" onclick="clearNotifications()">Clear All</button>
+            </div>
+            <div class="notif-list" id="notifList">
+              <div class="notif-empty">No notifications yet</div>
+            </div>
+          </div>
+          <button class="icon-btn" id="profileBtn" title="Profile">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="9" cy="5" r="3"/>
               <path d="M3 16c0-3 3-5 6-5s6 2 6 5"/>
@@ -4644,25 +4753,36 @@
               <span class="widget-title">Exploit Rate</span>
             </div>
             <div class="widget-body" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 120px; padding: 4px 0;">
-              <div style="position: relative; width: 150px; height: 80px;" id="exploit-gauge-ring">
-                <svg viewBox="0 0 200 115" width="150" height="80">
+              <div style="position: relative; width: 160px; height: 90px;" id="exploit-gauge-ring">
+                <svg viewBox="0 0 200 120" width="160" height="90" style="overflow: visible;">
                   <defs>
                     <linearGradient id="exploitGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stop-color="#dc2626"/>
+                      <stop offset="0%" stop-color="#22c55e"/>
+                      <stop offset="33%" stop-color="#eab308"/>
+                      <stop offset="66%" stop-color="#f97316"/>
                       <stop offset="100%" stop-color="#ef4444"/>
                     </linearGradient>
+                    <filter id="gaugeBallGlow">
+                      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+                      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
                   </defs>
-                  <path d="M 24,95 A 76,76 0 0,1 176,95" fill="none" stroke="var(--zerok-border)" stroke-width="12" stroke-linecap="round"/>
-                  <path d="M 24,95 A 76,76 0 0,1 176,95" fill="none" stroke="url(#exploitGaugeGradient)" stroke-width="12" stroke-linecap="round"
-                    stroke-dasharray="238.76" stroke-dashoffset="238.76" id="exploit-gauge-arc"/>
-                  <text x="24" y="113" fill="var(--zerok-text-dim)" font-size="11" font-family="Inter, sans-serif" text-anchor="middle">0</text>
-                  <text x="176" y="113" fill="var(--zerok-text-dim)" font-size="11" font-family="Inter, sans-serif" text-anchor="middle">100</text>
+                  <!-- Track -->
+                  <path d="M 24,95 A 76,76 0 0,1 176,95" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="14" stroke-linecap="round"/>
+                  <!-- Filled arc -->
+                  <path d="M 24,95 A 76,76 0 0,1 176,95" fill="none" stroke="url(#exploitGaugeGradient)" stroke-width="14" stroke-linecap="round"
+                    stroke-dasharray="238.76" stroke-dashoffset="238.76" id="exploit-gauge-arc" style="transition: stroke-dashoffset 0.6s ease;"/>
+                  <!-- Ball indicator at arc tip -->
+                  <circle cx="24" cy="95" r="8" fill="white" filter="url(#gaugeBallGlow)" id="exploit-gauge-ball" opacity="0" style="transition: cx 0.6s ease, cy 0.6s ease;"/>
+                  <!-- Labels -->
+                  <text x="22" y="115" fill="white" font-size="11" font-weight="600" font-family="var(--zerok-font-mono), monospace" text-anchor="middle">0</text>
+                  <text x="178" y="115" fill="white" font-size="11" font-weight="600" font-family="var(--zerok-font-mono), monospace" text-anchor="middle">100</text>
                 </svg>
-                <div style="position: absolute; top: 48%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
-                  <span style="font-size: 24px; font-weight: 700; color: #ef4444;" id="gauge-center-pct">0%</span>
+                <div style="position: absolute; top: 46%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                  <span style="font-size: 26px; font-weight: 700; color: white;" id="gauge-center-pct">0%</span>
                 </div>
               </div>
-              <span style="font-size: 10px; color: var(--zerok-text-dim); margin-top: -2px;" id="gauge-center-sub">0 of 0 confirmed</span>
+              <span style="font-size: 10px; color: var(--zerok-text-muted); margin-top: 0px; font-family: var(--zerok-font-mono);" id="gauge-center-sub">0 of 0 confirmed</span>
             </div>
           </div>
         </div>
@@ -4691,7 +4811,7 @@
               <span class="widget-title">Recent Findings</span>
               <button class="widget-action" onclick="switchView('findings')">See All</button>
             </div>
-            <div class="widget-body" id="recent-findings-body" style="max-height: 180px; overflow-y: auto;">
+            <div class="widget-body" id="recent-findings-body" style="overflow: hidden;">
               <div style="text-align: center; padding: 24px 0; color: var(--zerok-text-dim); font-size: 12px; opacity: 0.6;">
                 No findings yet. Start an engagement to discover vulnerabilities.
               </div>
@@ -6009,10 +6129,11 @@
                 }
               }
             },
-            layout: { padding: { top: 16, right: 16 } },
+            clip: false,
+            layout: { padding: { top: 20, right: 24, bottom: 4, left: 4 } },
             scales: {
               x: { title: { display: true, text: 'CVSS', font: { size: 10 }, color: '#666' },
-                   min: 0, max: 10.5, grid: { color: '#2a2a2a' }, ticks: { font: { size: 9 }, callback: v => v <= 10 ? v : '' } },
+                   min: 0, max: 10, grid: { color: '#2a2a2a' }, ticks: { font: { size: 9 } } },
               y: { title: { display: true, text: 'Hosts', font: { size: 10 }, color: '#666' },
                    min: 0, suggestedMax: 3, grid: { color: '#2a2a2a' }, ticks: { font: { size: 9 }, stepSize: 1 } }
             }
@@ -6131,6 +6252,73 @@
       }
     }
 
+    // ── Notification Panel ──
+    const notifications = [];
+    function toggleNotificationPanel() {
+      const panel = document.getElementById('notifPanel');
+      panel.classList.toggle('open');
+      // Close on outside click
+      if (panel.classList.contains('open')) {
+        setTimeout(() => {
+          document.addEventListener('click', closeNotifOnOutside, { once: true });
+        }, 50);
+      }
+    }
+    function closeNotifOnOutside(e) {
+      const panel = document.getElementById('notifPanel');
+      const btn = document.getElementById('notifBtn');
+      if (panel && !panel.contains(e.target) && !btn.contains(e.target)) {
+        panel.classList.remove('open');
+      }
+    }
+    function addNotification(text, iconCls, time) {
+      const iconMap = { critical: '!', high: '!', info: '?', success: '+' };
+      notifications.unshift({ text, iconCls: iconCls || 'info', icon: iconMap[iconCls] || '*', time: time || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) });
+      if (notifications.length > 30) notifications.pop();
+      renderNotifications();
+      // Update header bell badge
+      const hBadge = document.getElementById('headerNotifBadge');
+      if (hBadge) {
+        const count = notifications.length;
+        hBadge.textContent = count > 9 ? '9+' : count;
+        hBadge.setAttribute('data-count', count);
+      }
+    }
+    function clearNotifications() {
+      notifications.length = 0;
+      renderNotifications();
+      const hBadge = document.getElementById('headerNotifBadge');
+      if (hBadge) { hBadge.textContent = '0'; hBadge.setAttribute('data-count', '0'); }
+    }
+    function renderNotifications() {
+      const list = document.getElementById('notifList');
+      if (!list) return;
+      if (notifications.length === 0) {
+        list.innerHTML = '<div class="notif-empty">No notifications yet</div>';
+        return;
+      }
+      list.innerHTML = notifications.map(n =>
+        '<div class="notif-item">' +
+          '<div class="notif-item-icon ' + n.iconCls + '">' + n.icon + '</div>' +
+          '<div class="notif-item-body">' +
+            '<div class="notif-item-text">' + escHtml(n.text) + '</div>' +
+            '<div class="notif-item-time">' + n.time + '</div>' +
+          '</div>' +
+        '</div>'
+      ).join('');
+    }
+
+    // ── Mode Label Update ──
+    function updateModeLabel(mode) {
+      const label = document.getElementById('agent-mode-label');
+      if (!label) return;
+      if (mode === 'ai') {
+        label.textContent = '5 AI Agents (Claude)';
+      } else {
+        label.textContent = '19 Automated Agents';
+      }
+    }
+
     // ── WebSocket Connection ──
     function connectWebSocket() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -6222,12 +6410,26 @@
         return;
       }
 
+      if (type === 'engagement_started') {
+        // AI mode or automation started — auto-select engagement and show running badge
+        if (msg.engagement_id) {
+          selectEngagement(msg.engagement_id);
+        }
+        setCtrlState('running');
+        // Update KPI: Active Engagements
+        const kpiActive = document.getElementById('kpi-engagements');
+        if (kpiActive) kpiActive.textContent = '1';
+        return;
+      }
+
       if (type === 'system') {
         renderSystemMessage(msg);
         // Detect AI Mode activation from system event
         if (msg.content && msg.content.includes('AI Mode activated')) {
           const subtitle = document.getElementById('subtitle-mode');
           if (subtitle) subtitle.textContent = 'PTES Methodology \u2022 5 AI Agents (Claude) \u2022 Dual-Backend Architecture';
+          // Also trigger running state
+          setCtrlState('running');
         }
         return;
       }
@@ -6394,6 +6596,13 @@
       // Sync engagement control state from server
       if (msg.engagement_active) {
         setCtrlState(msg.engagement_paused ? 'paused' : 'running');
+        // Auto-select the active engagement if provided
+        if (msg.active_engagement_id && msg.active_engagement_id !== currentEngagementId) {
+          selectEngagement(msg.active_engagement_id);
+        }
+        // Update Active Engagements KPI
+        const kpiEng = document.getElementById('kpi-engagements');
+        if (kpiEng) kpiEng.textContent = '1';
       }
       // Skip recent_events replay — timeline starts empty until Run Demo
       // Events are delivered live via WebSocket during demo execution
@@ -6430,6 +6639,10 @@
         refreshFindingsFromApi();
         // Refresh all KPI widgets (exploit gauge, MTTE, services, credentials, bubble chart)
         loadDashboardFromAPI();
+        // Stop pulse-dot animation — engagement done
+        const pulse = document.getElementById('aiPulseDot');
+        if (pulse) { pulse.classList.remove('active', 'connected', 'disconnected'); pulse.classList.add('completed'); }
+        addNotification('Engagement completed successfully', 'success');
       }
     }
 
@@ -6447,15 +6660,31 @@
 
     function updateExploitGauge(rate, confirmed, total) {
       const arcEl = document.getElementById('exploit-gauge-arc');
+      const ballEl = document.getElementById('exploit-gauge-ball');
       const pctEl = document.getElementById('gauge-center-pct');
       const subEl = document.getElementById('gauge-center-sub');
+      const pct = Math.min(100, Math.max(0, rate || 0));
       if (arcEl) {
         // Half-circle arc length = π * 76 ≈ 238.76
         const arcLen = 238.76;
-        const offset = arcLen - (arcLen * (rate || 0) / 100);
+        const offset = arcLen - (arcLen * pct / 100);
         arcEl.setAttribute('stroke-dashoffset', offset);
       }
-      if (pctEl) pctEl.textContent = Math.round(rate || 0) + '%';
+      // Move ball to arc tip position
+      if (ballEl) {
+        if (pct > 0) {
+          // Arc center = (100, 95), radius = 76. Angle: π at 0%, 0 at 100%
+          const angle = Math.PI * (1 - pct / 100);
+          const bx = 100 + 76 * Math.cos(angle);
+          const by = 95 - 76 * Math.sin(angle);
+          ballEl.setAttribute('cx', bx);
+          ballEl.setAttribute('cy', by);
+          ballEl.setAttribute('opacity', '1');
+        } else {
+          ballEl.setAttribute('opacity', '0');
+        }
+      }
+      if (pctEl) pctEl.textContent = Math.round(pct) + '%';
       if (subEl) subEl.textContent = (confirmed || 0) + ' of ' + (total || 0) + ' confirmed';
     }
 
@@ -6625,15 +6854,29 @@
           progressEl.className = 'tool-progress-fill ' + (isCancelled ? 'cancelled' : 'done');
         }
 
-        // Remove cursor and show placeholder if no output
+        // Remove cursor and populate output
         const outputEl = tool.el.querySelector('[data-output="' + toolId + '"]');
         if (outputEl) {
           const cursor = outputEl.querySelector('.streaming-cursor');
           if (cursor) cursor.remove();
-          // Show placeholder if output block is empty
+
+          // If metadata has full output (AI agents send output all at once, not streaming)
+          if (msg.metadata && msg.metadata.output && !outputEl.textContent.trim()) {
+            outputEl.textContent = msg.metadata.output;
+          }
+
+          // Show placeholder if still no output
           if (!outputEl.textContent.trim()) {
             outputEl.innerHTML = '<span style="color: var(--zerok-text-dim); font-style: italic;">No output available</span>';
           }
+        }
+
+        // Update duration from metadata if server provided it
+        if (msg.metadata && msg.metadata.duration_s) {
+          const timerEl2 = tool.el.querySelector('[data-timer="' + toolId + '"]');
+          if (timerEl2) timerEl2.textContent = msg.metadata.duration_s + 's';
+          const statusEl2 = tool.el.querySelector('[data-status-badge="' + toolId + '"]');
+          if (statusEl2) statusEl2.textContent = 'Done (' + msg.metadata.duration_s + 's)';
         }
 
         // Remove running state from card
@@ -6641,9 +6884,50 @@
 
         delete runningTools[toolId];
       } else {
-        // Fallback: tool_complete without a tracked tool_start
-        addTimelineEvent(msg);
+        // Fallback: tool_complete without a tracked tool_start — create completed card
+        renderCompletedToolCard(msg);
       }
+    }
+
+    function renderCompletedToolCard(msg) {
+      const timeline = document.getElementById('aiTimeline');
+      const empty = document.getElementById('aiEmpty');
+      if (empty) empty.style.display = 'none';
+
+      const agentName = msg.agentName || AGENT_NAMES[msg.agent] || msg.agent || '';
+      const time_ = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+      const toolName = (msg.metadata && msg.metadata.tool) || 'tool';
+      const toolId = msg.metadata && msg.metadata.tool_id || ('tool-' + Date.now());
+      const duration = (msg.metadata && msg.metadata.duration_s) || '—';
+      const output = (msg.metadata && msg.metadata.output) || msg.content || '';
+
+      const card = document.createElement('div');
+      card.className = 'timeline-card';
+      card.setAttribute('data-agent', msg.agent || '');
+      card.setAttribute('data-tool-id', toolId);
+      if (activeChipFilter && msg.agent !== activeChipFilter) {
+        card.classList.add('filtered-out');
+      }
+
+      card.innerHTML =
+        '<div class="timeline-card-header" onclick="toggleCard(this)">' +
+          '<div class="timeline-card-icon complete">&#10003;</div>' +
+          '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
+          '<span class="tool-name-badge">' + escHtml(toolName) + '</span>' +
+          '<div class="timeline-card-meta">' +
+            '<span class="tool-status-badge done">Done (' + duration + 's)</span>' +
+            '<span class="tool-timer done">' + duration + 's</span>' +
+            '<span class="timeline-card-chevron">&#9654;</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="timeline-card-body"><div class="timeline-card-body-inner">' +
+          '<div class="thinking-section-label" style="color: var(--zerok-primary); margin-bottom: 6px;">OUTPUT</div>' +
+          '<div class="tool-output-block">' + escHtml(output) + '</div>' +
+          '<div class="tool-progress-bar"><div class="tool-progress-fill done"></div></div>' +
+        '</div></div>';
+
+      timeline.appendChild(card);
+      smartScroll(timeline);
     }
 
     // ── Toggle Card Expand/Collapse ──
@@ -7037,6 +7321,9 @@
     function handleNewFinding(msg) {
       const sev = (msg.severity || 'info').toLowerCase();
       if (_severityCounts[sev] !== undefined) _severityCounts[sev]++;
+      // Push notification for new findings
+      const sevMap = { critical: 'critical', high: 'high', medium: 'info', low: 'success', info: 'info' };
+      addNotification((msg.title || 'New finding') + ' [' + sev.toUpperCase() + ']', sevMap[sev] || 'info');
 
       // Update severity bar chart
       updateSeverityChart();
@@ -7053,7 +7340,7 @@
         if (placeholder) placeholder.remove();
         const entry = createFindingEntry(msg);
         recentBody.insertBefore(entry, recentBody.firstChild);
-        while (recentBody.children.length > 10) recentBody.removeChild(recentBody.lastChild);
+        while (recentBody.children.length > 5) recentBody.removeChild(recentBody.lastChild);
       }
 
       // Update OWASP matrix if category matches
@@ -7129,7 +7416,7 @@
         const valSpan = item.querySelector('.bar-value');
         const bar = item.querySelector('.bar');
         if (valSpan) valSpan.textContent = count;
-        if (bar) bar.style.height = (count > 0 ? Math.max(4, (count / maxVal) * 120) : 0) + 'px';
+        if (bar) bar.style.height = (count > 0 ? Math.max(4, (count / maxVal) * 90) : 0) + 'px';
       });
     }
 
@@ -7281,6 +7568,7 @@
     // ── HITL Approval Modal ──
     function showApprovalModal(data) {
       pendingApproval = data;
+      addNotification('HITL Approval: ' + (data.action || 'Action required'), 'high');
       document.getElementById('hitlTitle').textContent = 'Approval Required';
       document.getElementById('hitlAgent').textContent = (data.agentName || AGENT_NAMES[data.agent] || data.agent) + ' (' + data.agent + ')';
       document.getElementById('hitlAction').textContent = data.action || '—';
@@ -7669,12 +7957,22 @@
           if (this.value === 'ai') {
             engBtn.classList.add('ai-mode');
             engBtn.textContent = 'Engage AI';
+            updateModeLabel('ai');
           } else {
             engBtn.classList.remove('ai-mode');
             engBtn.textContent = 'Engage';
+            updateModeLabel('automation');
           }
         });
       }
+      // Close notification panel on outside click
+      document.addEventListener('click', function(e) {
+        const panel = document.getElementById('notifPanel');
+        const btn = document.getElementById('notifBtn');
+        if (panel && panel.classList.contains('open') && !panel.contains(e.target) && !btn.contains(e.target)) {
+          panel.classList.remove('open');
+        }
+      });
     });
 
     function resetDashboardFindingWidgets() {
@@ -7858,7 +8156,7 @@
         });
         if (findings.length) updateSeverityChart();
 
-        // Populate Recent Findings table (newest first, max 10)
+        // Populate Recent Findings table (newest first, max 5)
         // Clear existing entries first to avoid duplicates from real-time + API restore
         if (recentBody) {
           recentBody.querySelectorAll('.finding-entry').forEach(el => el.remove());
@@ -7867,7 +8165,7 @@
           if (findings.length === 0) {
             recentBody.innerHTML = '<div style="text-align: center; padding: 24px 0; color: var(--zerok-text-dim); font-size: 12px; opacity: 0.6;">No findings yet. Start an engagement to discover vulnerabilities.</div>';
           } else {
-            const recent = findings.slice(0, 10);
+            const recent = findings.slice(0, 5);
             recent.forEach(f => {
               recentBody.appendChild(createFindingEntry(f));
             });
@@ -7949,7 +8247,7 @@
           const bubbles = findings.filter(f => f.cvss > 0).map(f => ({
             x: f.cvss || 0,
             y: Array.isArray(f.affected_hosts) ? f.affected_hosts.length : (f.affected_hosts || 1),
-            r: f.category === 'Validated Exploit' ? 12 : 6,
+            r: f.category === 'Validated Exploit' ? 10 : 5,
             title: f.title,
             severity: (f.severity || 'info').toLowerCase(),
           }));
@@ -8106,6 +8404,9 @@
               badge.className = 'phase-badge complete';
               if (badgeRow) badgeRow.style.display = '';
             }
+            // Force pulse-dot to static green (no pulsing) for completed engagements
+            const pulse = document.getElementById('aiPulseDot');
+            if (pulse) { pulse.classList.remove('active', 'connected', 'disconnected'); pulse.classList.add('completed'); }
           } else if (completedCount > 0) {
             // Partially complete — estimate from agent progress
             const pct = Math.round((completedCount / agentEntries.length) * 100);
@@ -8125,7 +8426,16 @@
           const hasLiveEvents = timeline && timeline.querySelectorAll('.timeline-event').length > 0;
           if (!hasLiveEvents && timeline) {
             if (empty) empty.style.display = 'none';
-            events.forEach(evt => addTimelineEvent(evt, true, true));
+            events.forEach(evt => {
+              // Route tool events to expandable card renderers (same as WebSocket handler)
+              if (evt.type === 'tool_start' && evt.metadata && evt.metadata.tool_id) {
+                renderToolCard(evt);
+              } else if (evt.type === 'tool_complete' && evt.metadata && evt.metadata.tool_id) {
+                handleToolComplete(evt);
+              } else {
+                addTimelineEvent(evt, true, true);
+              }
+            });
             // Restore chip event counts from events
             try {
               const agRes2 = await fetch('/api/agents');
