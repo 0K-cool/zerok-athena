@@ -3835,12 +3835,35 @@
       cursor: not-allowed;
     }
 
+    .ai-drawer-footer .engage-mode-select {
+      background: var(--zerok-panel);
+      border: 1px solid var(--zerok-border);
+      color: var(--zerok-text);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      outline: none;
+    }
+    .ai-drawer-footer .engage-mode-select:focus {
+      border-color: var(--zerok-accent);
+    }
+    .ai-drawer-footer .engage-mode-select option {
+      background: var(--zerok-panel);
+      color: var(--zerok-text);
+    }
+
     .ai-drawer-footer .ctrl-btn.btn-engage {
       background: var(--zerok-critical);
       border-color: var(--zerok-critical);
       color: #fff;
     }
     .ai-drawer-footer .ctrl-btn.btn-engage:hover { opacity: 0.85; }
+    .ai-drawer-footer .ctrl-btn.btn-engage.ai-mode {
+      background: var(--zerok-accent);
+      border-color: var(--zerok-accent);
+    }
 
     .ai-drawer-footer .ctrl-btn.btn-pause {
       background: color-mix(in srgb, var(--zerok-medium) 20%, transparent);
@@ -5533,6 +5556,10 @@
       </div>
       <div class="ai-ctrl-group" id="ctrlIdle">
         <button class="ctrl-btn btn-clear" onclick="clearDrawer()" title="Clear timeline">Clear</button>
+        <select id="engageMode" class="engage-mode-select" title="Engagement mode">
+          <option value="automation">Automation</option>
+          <option value="ai">AI (Claude)</option>
+        </select>
         <button class="ctrl-btn btn-engage" id="engageBtn" onclick="startEngage()">Engage</button>
       </div>
       <div class="ai-ctrl-group" id="ctrlRunning" style="display:none;">
@@ -7569,13 +7596,27 @@
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (!currentEngagementId) { showToast('error', 'Error', 'No engagement selected'); return; }
       const eid = currentEngagementId;
-      // Use real engagement API with backend override
+      const mode = document.getElementById('engageMode').value;
       const backendOverride = 'external';  // Force external for Antsle bridge targets
       setCtrlState('running');
-      fetch(`/api/engagement/${eid}/start?backend=${backendOverride}`, { method: 'POST' })
-        .then(r => r.json())
-        .then(data => { if (!data.ok) { console.error(data); setCtrlState('idle'); }})
-        .catch(() => setCtrlState('idle'));
+
+      if (mode === 'ai') {
+        // AI Mode: spawn Claude Code Agent Teams
+        // Server resolves the target from the engagement ID if not passed
+        fetch(`/api/engagement/${eid}/start-ai?backend=${backendOverride}`, { method: 'POST' })
+          .then(r => r.json())
+          .then(data => {
+            if (!data.ok) { console.error(data); showToast('error', 'Error', data.error || 'Failed to start AI mode'); setCtrlState('idle'); }
+            else { showToast('success', 'AI Mode', 'Claude Code Agent Teams launched'); }
+          })
+          .catch(() => { showToast('error', 'Error', 'Failed to start AI engagement'); setCtrlState('idle'); });
+      } else {
+        // Automation Mode: Python orchestrator (existing behavior)
+        fetch(`/api/engagement/${eid}/start?backend=${backendOverride}`, { method: 'POST' })
+          .then(r => r.json())
+          .then(data => { if (!data.ok) { console.error(data); setCtrlState('idle'); }})
+          .catch(() => setCtrlState('idle'));
+      }
     }
 
     function pauseEngage() {
@@ -7619,6 +7660,21 @@
       setTimeout(connectWebSocket, 500);
       // Load engagements list, then populate dashboard from API
       loadEngagements().then(() => loadDashboardFromAPI());
+
+      // Mode selector: update Engage button style
+      const modeSelect = document.getElementById('engageMode');
+      const engBtn = document.getElementById('engageBtn');
+      if (modeSelect && engBtn) {
+        modeSelect.addEventListener('change', function() {
+          if (this.value === 'ai') {
+            engBtn.classList.add('ai-mode');
+            engBtn.textContent = 'Engage AI';
+          } else {
+            engBtn.classList.remove('ai-mode');
+            engBtn.textContent = 'Engage';
+          }
+        });
+      }
     });
 
     function resetDashboardFindingWidgets() {

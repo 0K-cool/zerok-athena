@@ -36,6 +36,7 @@ Event Types (client → server):
 import asyncio
 import json
 import os
+import subprocess
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -1870,11 +1871,120 @@ async def start_engagement(eid: str, backend: str = ""):
     return {"ok": True, "engagement_id": eid, "message": msg}
 
 
+# ──────────────────────────────────────────────
+# Phase E: AI Mode — Claude Code Agent Teams
+# ──────────────────────────────────────────────
+
+_ai_process: subprocess.Popen | None = None
+
+
+@app.post("/api/engagement/{eid}/start-ai")
+async def start_engagement_ai(eid: str, backend: str = "external", target: str = ""):
+    """Start an AI-powered PTES engagement using Claude Code Agent Teams.
+
+    Spawns a Claude Code process that runs the /athena-engage skill,
+    creating 5 AI agents that reason about pentesting decisions and
+    POST their results back to the dashboard REST API.
+
+    Args:
+        eid: Engagement ID (from Neo4j or mock state).
+        backend: Preferred Kali backend ("external" or "internal").
+        target: Target scope (IP/CIDR/URL).
+    """
+    global _ai_process
+
+    if not target:
+        # Try to get target from in-memory engagement data
+        eng = next((e for e in state.engagements if e.id == eid), None)
+        if eng:
+            target = eng.target
+        # Fallback: check Neo4j
+        if not target and neo4j_available and neo4j_driver:
+            try:
+                with neo4j_driver.session() as session:
+                    result = session.run(
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope",
+                        eid=eid,
+                    )
+                    record = result.single()
+                    if record and record.get("scope"):
+                        target = record["scope"]
+            except Exception:
+                pass
+        if not target:
+            return JSONResponse(status_code=400, content={
+                "error": "Target scope required. Pass ?target=<ip/cidr/url>"
+            })
+
+    # Kill any existing AI process
+    if _ai_process and _ai_process.poll() is None:
+        _ai_process.terminate()
+        try:
+            _ai_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _ai_process.kill()
+
+    # Set engagement active
+    state.active_engagement_id = eid
+    state.engagement_stopped = False
+
+    # Broadcast AI mode system event (triggers subtitle switch in UI)
+    await state.add_event(AgentEvent(
+        id=str(uuid.uuid4())[:8],
+        type="system",
+        agent="OR",
+        content="AI Mode activated. 5 Claude Code agents will execute PTES phases 1-7. HITL approval required for exploitation.",
+        timestamp=time.time(),
+    ))
+
+    # Build the Claude prompt
+    athena_dir = str(Path(__file__).resolve().parent.parent.parent)
+    prompt = (
+        f"Run /athena-engage for engagement {eid} against target {target}. "
+        f"Dashboard is at http://localhost:8080. "
+        f"Backend preference: {backend}. "
+        f"Engagement ID: {eid}. "
+        f"This is an authorized penetration test."
+    )
+
+    # Spawn Claude Code in the ATHENA project directory
+    try:
+        _ai_process = subprocess.Popen(
+            ["claude", "-p", prompt, "--allowedTools", "Bash,Read,Write,Edit,Task,TaskCreate,TaskUpdate,TaskList,TeamCreate,TeamDelete,SendMessage,Skill,mcp__kali_external__*,mcp__kali_internal__*,mcp__athena_neo4j__*,mcp__athena_knowledge_base__*"],
+            cwd=athena_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={**os.environ, "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"},
+        )
+    except FileNotFoundError:
+        return JSONResponse(status_code=500, content={
+            "error": "Claude CLI not found. Ensure 'claude' is in PATH."
+        })
+
+    return {
+        "ok": True,
+        "engagement_id": eid,
+        "mode": "ai",
+        "pid": _ai_process.pid,
+        "message": f"AI engagement started (PID {_ai_process.pid}) against {target}",
+    }
+
+
 @app.post("/api/engagement/{eid}/stop")
 async def stop_engagement(eid: str):
     """Stop a running engagement and kill all active processes."""
+    global _ai_process
     state.engagement_stopped = True
     state.engagement_pause_event.set()  # Unblock if paused so task can exit
+
+    # 0. Kill AI mode process if running
+    if _ai_process and _ai_process.poll() is None:
+        _ai_process.terminate()
+        try:
+            _ai_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _ai_process.kill()
+        _ai_process = None
 
     # 1. Unblock any waiting HITL approvals so the task can exit
     for evt_data in state.approval_events.values():
