@@ -1687,6 +1687,13 @@ async def delete_engagement_graph(eid: str):
         state.agent_statuses[code] = AgentStatus.IDLE
     state.agent_tasks.clear()
 
+    # Broadcast clear_timeline to all connected clients so their AI drawers reset
+    await state.broadcast({
+        "type": "clear_timeline",
+        "engagement": eid,
+        "timestamp": time.time(),
+    })
+
     return {"deleted": deleted, "engagement": eid}
 
 

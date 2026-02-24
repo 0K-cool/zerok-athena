@@ -6180,6 +6180,11 @@
       }
       if (type === 'pong' || type === 'error' || type === 'operator_command') return;
 
+      if (type === 'clear_timeline') {
+        clearDrawer();
+        return;
+      }
+
       if (type === 'engagement_changed') {
         loadEngagements();
         return;
