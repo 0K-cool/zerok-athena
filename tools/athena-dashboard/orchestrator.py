@@ -1092,13 +1092,12 @@ class Orchestrator:
             action="dispatch_agents",
         )
 
-        # Pre-seed discovered_urls with any scope targets that are already HTTP URLs
-        # This ensures downstream phases (Gobuster, Nikto, JS, web app testing)
-        # have targets even if Naabu/Nmap port scanning misses non-standard ports.
-        for t in ctx.scope.get("targets", []):
-            if t.startswith("http://") or t.startswith("https://"):
-                if t not in ctx.discovered_urls:
-                    ctx.discovered_urls.append(t)
+        # NOTE: Do NOT pre-seed discovered_urls from scope targets here.
+        # Parallel agents (JS, PO) would consume unvalidated URLs before
+        # AR's port filter runs — causing scans against closed ports.
+        # Instead, AR populates discovered_urls from Httpx after Naabu
+        # confirms open ports, and downstream agents build URLs from
+        # ctx.discovered_hosts as needed.
 
         # Run PO, AR, and JS in parallel
         po_task = asyncio.create_task(self._recon_passive(ctx))
@@ -1415,6 +1414,85 @@ class Orchestrator:
                 ))
                 await cv._emit_stats()
 
+        # SearchSploit version-based CVE lookup from Nmap service versions in Neo4j
+        version_queries: list[str] = []
+        from server import neo4j_available, neo4j_driver as _neo4j_driver
+        if neo4j_available and _neo4j_driver:
+            try:
+                with _neo4j_driver.session() as session:
+                    result = session.run("""
+                        MATCH (s:Service {engagement_id: $eid})
+                        WHERE s.version IS NOT NULL AND s.version <> ''
+                        RETURN DISTINCT s.service AS service, s.version AS version
+                    """, eid=ctx.engagement_id)
+                    for record in result:
+                        svc = record["service"] or ""
+                        ver = record["version"] or ""
+                        if ver:
+                            # Build query like "Apache 2.4.58" or "OpenSSH 8.9"
+                            query = f"{svc} {ver}".strip() if svc else ver
+                            if query and query not in version_queries:
+                                version_queries.append(query)
+            except Exception as e:
+                logger.warning("Neo4j version query for SearchSploit: %s", e)
+
+        if version_queries:
+            await cv.think(
+                thought=f"Searching ExploitDB for {len(version_queries)} service versions.",
+                reasoning="Nmap identified specific software versions. SearchSploit checks "
+                          "these against Exploit-DB for known public exploits and CVEs.",
+                action="searchsploit_lookup",
+            )
+            for query in version_queries[:10]:
+                ssploit_result = await cv.run_tool(
+                    "searchsploit_version",
+                    {"query": query},
+                    display=f"SearchSploit: {query}...",
+                )
+                if not ssploit_result.success:
+                    continue
+                try:
+                    data = json.loads(ssploit_result.stdout)
+                    exploits = data.get("RESULTS_EXPLOIT", [])
+                    for exp in exploits[:5]:
+                        title = exp.get("Title", "Unknown")
+                        path = exp.get("Path", "")
+                        cve_match = re.search(r"CVE-\d{4}-\d+", title)
+                        cve_id = cve_match.group(0) if cve_match else ""
+                        vuln = {
+                            "name": title,
+                            "severity": "HIGH",
+                            "host": "",
+                            "matched_at": query,
+                            "template_id": path,
+                            "cve_id": cve_id,
+                            "cvss_score": 0,
+                            "description": f"ExploitDB: {title}",
+                        }
+                        ctx.discovered_vulns.append(vuln)
+                        ctx.vuln_count += 1
+                        if cve_id:
+                            ctx.cves.append(cve_id)
+                    if exploits:
+                        await cv.write_vulns_neo4j([{
+                            "name": f"ExploitDB matches for {query}",
+                            "severity": "HIGH",
+                            "host": query,
+                            "matched_at": query,
+                            "template_id": "",
+                            "cve_id": ",".join(
+                                re.search(r"CVE-\d{4}-\d+", e.get("Title", "")).group(0)
+                                for e in exploits[:5]
+                                if re.search(r"CVE-\d{4}-\d+", e.get("Title", ""))
+                            ),
+                            "cvss_score": 0,
+                            "description": "; ".join(e.get("Title", "") for e in exploits[:5]),
+                        }])
+                        await cv._emit_stats()
+                except (json.JSONDecodeError, Exception) as e:
+                    logger.warning("SearchSploit parse error for %s: %s", query, e)
+
+        ctx.cves = list(set(ctx.cves))  # Deduplicate
         await cv.complete(
             f"CVE research complete: {len(ctx.discovered_vulns)} vulnerabilities, "
             f"{len(ctx.cves)} CVEs identified."
@@ -1720,19 +1798,21 @@ class Orchestrator:
         """
         ec = self._runner("EC", ctx)
 
-        # Filter for enrichable vulns: CRITICAL/HIGH with CVE IDs
+        # Filter for enrichable vulns: CRITICAL/HIGH (with or without CVE IDs).
+        # Vulns WITH CVE IDs get full enrichment (SearchSploit + Metasploit + AttackerKB).
+        # Vulns WITHOUT CVE IDs but with service/version info get Metasploit search by name.
         enrichable = [
             v for v in ctx.discovered_vulns
-            if v.get("severity") in ("CRITICAL", "HIGH") and v.get("cve_id")
+            if v.get("severity") in ("CRITICAL", "HIGH")
         ]
 
         if not enrichable:
             await ec.think(
-                thought="No CRITICAL/HIGH vulnerabilities with CVE IDs to enrich.",
-                reasoning="Enrichment requires CVE identifiers to query exploit databases. "
-                          "Vulns without CVEs will use generic Nuclei re-validation in EX.",
+                thought="No CRITICAL/HIGH vulnerabilities to enrich.",
+                reasoning="No critical or high severity vulnerabilities discovered yet. "
+                          "Enrichment skipped — EX will use generic Nuclei re-validation.",
             )
-            await ec.complete("No CVE-identified vulns for enrichment — skipping.")
+            await ec.complete("No CRITICAL/HIGH vulns for enrichment — skipping.")
             return
 
         # Cap at 10 vulns to stay within time budget
@@ -1780,18 +1860,34 @@ class Orchestrator:
 
         Returns total exploit count found. Mutates vuln dict in-place with
         enrichment fields.
+
+        Two modes:
+        - WITH CVE ID: Full enrichment (SearchSploit + Metasploit + AttackerKB)
+        - WITHOUT CVE ID: Keyword search (Metasploit by name/service, SearchSploit by matched_at)
         """
         cve_id = vuln.get("cve_id", "")
-        if not cve_id:
-            return 0
 
-        # Strip "CVE-" prefix for searchsploit (wants bare number)
-        cve_number = cve_id.replace("CVE-", "")
+        if cve_id:
+            # Full CVE-based enrichment
+            cve_number = cve_id.replace("CVE-", "")
+            ssploit_task = self._enrich_searchsploit(ec, cve_number)
+            msf_task = self._enrich_msf(ec, cve_id)
+            akb_task = self._enrich_attackerkb(ec, cve_id)
+        else:
+            # Keyword-based enrichment (no CVE ID available)
+            # Use vuln name or matched_at as search keyword for Metasploit/SearchSploit
+            keyword = vuln.get("matched_at", "") or vuln.get("name", "")
+            if not keyword:
+                return 0
+            # Truncate long keywords to first meaningful part
+            keyword = keyword.split(" - ")[0].strip()[:60]
+            ssploit_task = self._enrich_searchsploit(ec, keyword)
+            msf_task = self._enrich_msf_keyword(ec, keyword)
 
-        # Run all three sources concurrently per vuln
-        ssploit_task = self._enrich_searchsploit(ec, cve_number)
-        msf_task = self._enrich_msf(ec, cve_id)
-        akb_task = self._enrich_attackerkb(ec, cve_id)
+            async def _noop():
+                return None
+            akb_task = _noop()  # No AttackerKB without CVE ID
+
         results = await asyncio.gather(
             ssploit_task, msf_task, akb_task, return_exceptions=True,
         )
@@ -1837,13 +1933,22 @@ class Orchestrator:
 
         return vuln["exploit_count"]
 
-    async def _enrich_searchsploit(self, ec: AgentRunner, cve_number: str) -> list[dict]:
-        """Query SearchSploit for a CVE and return parsed results."""
-        result = await ec.run_tool(
-            "searchsploit_search",
-            {"cve_id": cve_number},
-            display=f"SearchSploit lookup: CVE-{cve_number}...",
-        )
+    async def _enrich_searchsploit(self, ec: AgentRunner, query: str) -> list[dict]:
+        """Query SearchSploit for a CVE number or keyword and return parsed results."""
+        # Detect if query looks like a CVE number (digits with dash)
+        is_cve = bool(re.match(r"^\d{4}-\d+$", query))
+        if is_cve:
+            result = await ec.run_tool(
+                "searchsploit_search",
+                {"cve_id": query},
+                display=f"SearchSploit CVE lookup: CVE-{query}...",
+            )
+        else:
+            result = await ec.run_tool(
+                "searchsploit_version",
+                {"query": query},
+                display=f"SearchSploit keyword: {query}...",
+            )
         if result.success:
             return parse_searchsploit_json(result.stdout)
         return []
@@ -1854,6 +1959,17 @@ class Orchestrator:
             "msf_search",
             {"cve_id": cve_id},
             display=f"Metasploit module search: {cve_id}...",
+        )
+        if result.success:
+            return parse_msf_search_output(result.stdout)
+        return []
+
+    async def _enrich_msf_keyword(self, ec: AgentRunner, keyword: str) -> list[dict]:
+        """Query Metasploit module database by keyword (service/software name)."""
+        result = await ec.run_tool(
+            "msf_search_keyword",
+            {"keyword": keyword},
+            display=f"Metasploit keyword search: {keyword}...",
         )
         if result.success:
             return parse_msf_search_output(result.stdout)
@@ -2310,14 +2426,20 @@ class Orchestrator:
                 if url not in web_targets:
                     web_targets.append(url)
 
-        # Fallback: use scope URLs directly if AR hasn't found anything yet
-        # (scope URLs were pre-seeded into discovered_urls by _phase_recon,
-        # but check raw scope too in case timing means they're not yet visible)
+        # Fallback: use scope URLs only if their port is confirmed open
         if not web_targets:
+            open_ports_set = {(r["ip"], r.get("port", 0)) for r in ctx.discovered_hosts}
             for t in ctx.scope.get("targets", []):
                 if t.startswith("http://") or t.startswith("https://"):
-                    if t not in web_targets:
-                        web_targets.append(t)
+                    try:
+                        _p = urlparse(t)
+                        _host = _p.hostname or ""
+                        _port = _p.port or (443 if _p.scheme == "https" else 80)
+                        if (_host, _port) in open_ports_set:
+                            if t not in web_targets:
+                                web_targets.append(t)
+                    except Exception:
+                        pass
 
         if not web_targets:
             await js.complete("No web targets for JavaScript analysis.")

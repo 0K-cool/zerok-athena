@@ -331,6 +331,19 @@
     }
   },
 
+  "msf_search_keyword": {
+    "display_name": "Metasploit Keyword Search",
+    "endpoint": "/api/command",
+    "command_template": "msfconsole -q -x 'search name:{keyword}; exit'",
+    "timeout": 45,
+    "backends": ["external", "internal"],
+    "category": "enrichment",
+    "params": {
+      "keyword": {"type": "string", "required": true, "description": "Service or software name to search (e.g. apache, vsftpd, iis)"},
+      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra flags"}
+    }
+  },
+
   "attackerkb_lookup": {
     "display_name": "AttackerKB CVE Intelligence",
     "endpoint": "/api/command",
