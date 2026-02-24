@@ -2185,6 +2185,12 @@ class Orchestrator:
                 elif not script_src.startswith("http"):
                     script_src = target_url.rstrip("/") + "/" + script_src
 
+                # Skip external CDN/third-party scripts — only fetch in-scope hosts
+                scope_hosts = set(extract_hosts(ctx.scope.get("targets", [])))
+                script_host = urlparse(script_src).hostname or ""
+                if script_host and script_host not in scope_hosts:
+                    continue
+
                 js_result = await js.run_tool(
                     "curl_raw",
                     {"url": script_src, "options": "-L --max-filesize 1048576"},
