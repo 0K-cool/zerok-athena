@@ -856,6 +856,12 @@ def parse_js_analysis(source: str) -> dict:
             "auth_mechanisms": ["JWT", "Bearer", ...]
         }
     """
+    # Cap input size to avoid regex catastrophe on huge vendor bundles
+    MAX_JS_SIZE = 512_000  # 512KB — app code is at the start/end, not deep in vendor deps
+    if len(source) > MAX_JS_SIZE:
+        # Analyze first and last 256KB (app code often split around vendor code)
+        source = source[:MAX_JS_SIZE // 2] + source[-(MAX_JS_SIZE // 2):]
+
     result = {
         "endpoints": [],
         "secrets": [],
