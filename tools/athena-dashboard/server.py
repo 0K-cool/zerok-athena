@@ -788,6 +788,8 @@ async def create_finding(payload: FindingPayload):
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
+                # Extract host IP from target (e.g. "10.1.1.20:3389" → "10.1.1.20")
+                target_host = payload.target.split(":")[0] if payload.target else None
                 session.run("""
                     MERGE (f:Finding {id: $id})
                     SET f.title = $title, f.severity = $severity,
@@ -797,9 +799,17 @@ async def create_finding(payload: FindingPayload):
                         f.timestamp = $timestamp, f.engagement_id = $engagement,
                         f.status = 'open'
                     WITH f
-                    MATCH (e:Engagement {id: $engagement})
-                    MERGE (f)-[:BELONGS_TO]->(e)
+                    OPTIONAL MATCH (e:Engagement {id: $engagement})
+                    FOREACH (_ IN CASE WHEN e IS NOT NULL THEN [1] ELSE [] END |
+                        MERGE (f)-[:BELONGS_TO]->(e)
+                    )
+                    WITH f
+                    OPTIONAL MATCH (h:Host {ip: $host_ip, engagement_id: $engagement})
+                    FOREACH (_ IN CASE WHEN h IS NOT NULL THEN [1] ELSE [] END |
+                        MERGE (f)-[:FOUND_ON]->(h)
+                    )
                 """, id=finding_id, title=payload.title,
+                     host_ip=target_host,
                      severity=payload.severity, category=payload.category,
                      target=payload.target, agent=payload.agent,
                      description=payload.description, cvss=payload.cvss,
@@ -1950,7 +1960,8 @@ async def get_attack_graph(engagement: Optional[str] = None):
                         'RUNS_ON', 'AFFECTS', 'EXPLOITS', 'LATERAL_MOVE',
                         'HARVESTED_FROM', 'EVIDENCED_BY', 'BELONGS_TO',
                         'HAS_SERVICE', 'HAS_VULN', 'CONFIRMED_BY', 'EXPLOITED_BY',
-                        'VERIFIED_BY', 'YIELDED', 'LEADS_TO', 'STARTS_AT', 'HAS_URL'
+                        'VERIFIED_BY', 'YIELDED', 'LEADS_TO', 'STARTS_AT', 'HAS_URL',
+                        'FOUND_ON'
                     ]
                     RETURN
                         coalesce(a.id, a.ip, a.name) AS from_id,
