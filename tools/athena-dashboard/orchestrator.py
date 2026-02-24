@@ -1494,7 +1494,65 @@ class Orchestrator:
             )
             if nikto_result.success:
                 nikto_findings = parse_nikto_output(nikto_result.stdout)
+
+                # Deduplicate: group repetitive findings (e.g. dozens of
+                # "backup/cert file found") into single summary findings
+                unique_findings = []
+                grouped: dict[str, list[str]] = {}  # pattern -> [paths]
+
+                # Noisy patterns that Nikto repeats for every file variant
+                _noisy_patterns = (
+                    "potentially interesting backup",
+                    "potentially interesting cert",
+                    "potentially interesting archive",
+                    "potentially interesting database",
+                )
+
                 for nf in nikto_findings:
+                    finding_text = nf["finding"].lower()
+                    matched_pattern = None
+                    for pat in _noisy_patterns:
+                        if pat in finding_text:
+                            matched_pattern = pat
+                            break
+                    if matched_pattern:
+                        # Extract path from finding (usually starts with /)
+                        path = nf["finding"].split(":")[0].strip() if ":" in nf["finding"] else ""
+                        grouped.setdefault(matched_pattern, []).append(path)
+                    else:
+                        unique_findings.append(nf)
+
+                # Report grouped findings as single summary each
+                for pat, paths in grouped.items():
+                    sample = ", ".join(paths[:5])
+                    extra = f" (and {len(paths) - 5} more)" if len(paths) > 5 else ""
+                    await wv.report_finding(
+                        title=f"Nikto: {len(paths)}x {pat.title()} files detected",
+                        severity="low",
+                        category="Web Server",
+                        target=target_url,
+                        description=(
+                            f"Nikto detected {len(paths)} {pat} file paths.\n"
+                            f"Samples: {sample}{extra}\n"
+                            f"Note: Many may be soft-404 false positives if the "
+                            f"server returns 200 for all paths."
+                        ),
+                    )
+
+                # Report unique (non-noisy) findings, capped at 20 per target
+                reported = 0
+                for nf in unique_findings:
+                    if reported >= 20:
+                        await wv.report_finding(
+                            title=f"Nikto: {len(unique_findings) - 20} additional findings omitted",
+                            severity="info",
+                            category="Web Server",
+                            target=target_url,
+                            description=f"Capped at 20 unique findings per target. "
+                                        f"{len(unique_findings)} total unique findings detected.",
+                        )
+                        break
+
                     finding_text = nf["finding"].lower()
                     # Map Nikto findings to severity levels
                     if any(k in finding_text for k in (
@@ -1505,7 +1563,7 @@ class Orchestrator:
                     elif any(k in finding_text for k in (
                         "directory index", "default password", "admin",
                         "phpinfo", "server-status", ".htaccess", ".git/",
-                        "backup", "database", "config",
+                        "database", "config",
                     )):
                         sev = "high"
                     elif any(k in finding_text for k in (
@@ -1524,6 +1582,7 @@ class Orchestrator:
                         target=target_url,
                         description=nf["finding"],
                     )
+                    reported += 1
 
         # ── Version-based exploit lookup via SearchSploit ──
         # Grab server headers from each target to discover software versions,
