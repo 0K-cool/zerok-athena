@@ -207,6 +207,14 @@ The ATHENA Dashboard is a real-time operator interface for monitoring AI agent a
 Browser <--WebSocket--> FastAPI (server.py) <--Events--> ATHENA Agents (Claude Code)
 ```
 
+#### Headless Subprocess Architecture
+- **CLAUDECODE env var:** Claude Code sets `CLAUDECODE=1` in its process. Spawning `claude -p` from a server running inside a Claude Code session triggers "nested session" error. **Fix:** Filter `CLAUDECODE` from subprocess env (official Anthropic bypass, SDK issue #573).
+- **Claude Agent SDK:** `pip install claude-agent-sdk` — official package for programmatic Claude Code. Handles NDJSON parsing, sessions, hooks, subagent orchestration. Newer versions (>=0.1.37) auto-filter CLAUDECODE. **TODO: Migrate from raw subprocess.Popen.**
+- **FastAPI event loop conflict:** Agent SDK's anyio transport can silently fail inside uvicorn's loop. Workaround: run agent queries in `ThreadPoolExecutor`.
+- **Orphaned processes:** Claude Code spawns Bun/Node subprocesses that can become orphaned. Monitor and clean up.
+- **Auth:** Use `ANTHROPIC_API_KEY` for server deployments, not OAuth (OAuth blocks on interactive login).
+- **Multi-tenant (Phase 3):** E2B sandbox per user/session — clean process tree, no CLAUDECODE inheritance.
+
 #### Core Capabilities
 - **Live Streaming Output** - Watch tool execution in real-time (Naabu, Nuclei, SQLMap output streams as it runs)
 - **Expandable Timeline Cards** - ThinkingCards (THOUGHT/REASONING/ACTION) and ToolExecutionCards (streaming terminal output with blinking cursor)

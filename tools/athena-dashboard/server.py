@@ -36,6 +36,7 @@ Event Types (client → server):
 import asyncio
 import json
 import os
+import re
 import subprocess
 import time
 import uuid
@@ -762,6 +763,51 @@ class FindingPayload(BaseModel):
     cve: Optional[str] = None
     evidence: Optional[str] = None
     engagement: str = "eng-001"
+    # Explicit relationship hints (optional — extracted from target if not provided)
+    host_ip: Optional[str] = None
+    service_port: Optional[int] = None
+    service_protocol: Optional[str] = "tcp"
+    technique_ids: Optional[list[str]] = None
+
+
+def _extract_host_port(target: str) -> tuple[str | None, int | None]:
+    """Extract host IP and port from various target formats.
+
+    Handles: '10.1.1.20:3389', 'http://10.1.1.20/path', 'http://10.1.1.20:8080/path'
+    Returns: (host_ip, port) — port is None for standard HTTP/HTTPS or when not specified.
+    """
+    if not target:
+        return None, None
+
+    ip_pattern = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")
+    ip_match = ip_pattern.search(target)
+    if not ip_match:
+        return None, None
+
+    host_ip = ip_match.group(1)
+
+    # Try to extract explicit port
+    port = None
+    # URL format: http://IP:PORT/path
+    url_port = re.search(r"://[^/]*?:(\d+)", target)
+    if url_port:
+        p = int(url_port.group(1))
+        if p not in (80, 443):  # Only track non-standard ports explicitly
+            port = p
+    elif "://" not in target:
+        # Raw format: IP:PORT
+        raw_port = re.search(r":(\d+)", target)
+        if raw_port:
+            port = int(raw_port.group(1))
+
+    # Infer port from protocol
+    if port is None:
+        if target.startswith("https://"):
+            port = 443
+        elif target.startswith("http://"):
+            port = 80
+
+    return host_ip, port
 
 
 @app.post("/api/findings")
@@ -784,12 +830,16 @@ async def create_finding(payload: FindingPayload):
     finding_id = str(uuid.uuid4())[:8]
     timestamp = time.time()
 
-    # Write to Neo4j if available
+    # Write to Neo4j if available — smart endpoint auto-creates relationships
+    # Pattern: MERGE nodes individually, then MERGE relationships (BloodHound pattern)
+    host_ip = payload.host_ip or _extract_host_port(payload.target)[0]
+    svc_port = payload.service_port or _extract_host_port(payload.target)[1]
+    svc_proto = payload.service_protocol or "tcp"
+
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
-                # Extract host IP from target (e.g. "10.1.1.20:3389" → "10.1.1.20")
-                target_host = payload.target.split(":")[0] if payload.target else None
+                # Step 1: Create/update Finding node
                 session.run("""
                     MERGE (f:Finding {id: $id})
                     SET f.title = $title, f.severity = $severity,
@@ -798,23 +848,47 @@ async def create_finding(payload: FindingPayload):
                         f.cvss = $cvss, f.cve = $cve, f.evidence = $evidence,
                         f.timestamp = $timestamp, f.engagement_id = $engagement,
                         f.status = 'open'
-                    WITH f
-                    OPTIONAL MATCH (e:Engagement {id: $engagement})
-                    FOREACH (_ IN CASE WHEN e IS NOT NULL THEN [1] ELSE [] END |
-                        MERGE (f)-[:BELONGS_TO]->(e)
-                    )
-                    WITH f
-                    OPTIONAL MATCH (h:Host {ip: $host_ip, engagement_id: $engagement})
-                    FOREACH (_ IN CASE WHEN h IS NOT NULL THEN [1] ELSE [] END |
-                        MERGE (f)-[:FOUND_ON]->(h)
-                    )
                 """, id=finding_id, title=payload.title,
-                     host_ip=target_host,
                      severity=payload.severity, category=payload.category,
                      target=payload.target, agent=payload.agent,
                      description=payload.description, cvss=payload.cvss,
                      cve=payload.cve, evidence=payload.evidence,
                      timestamp=timestamp, engagement=payload.engagement)
+
+                # Step 2: Auto-create Host + FOUND_ON edge (MERGE = idempotent)
+                if host_ip:
+                    session.run("""
+                        MERGE (h:Host {ip: $host_ip})
+                        ON CREATE SET h.engagement_id = $engagement,
+                                      h.status = 'alive',
+                                      h.first_seen = datetime()
+                        ON MATCH SET h.last_seen = datetime()
+                        WITH h
+                        MATCH (f:Finding {id: $finding_id})
+                        MERGE (f)-[:FOUND_ON]->(h)
+                    """, host_ip=host_ip, engagement=payload.engagement,
+                         finding_id=finding_id)
+
+                # Step 3: Auto-create Service + HAS_SERVICE + link Finding to Service
+                if host_ip and svc_port:
+                    svc_name = "http" if svc_port in (80, 443) else f"port-{svc_port}"
+                    session.run("""
+                        MERGE (h:Host {ip: $host_ip})
+                        MERGE (s:Service {host_ip: $host_ip, port: $port})
+                        ON CREATE SET s.name = $svc_name,
+                                      s.protocol = $protocol,
+                                      s.engagement_id = $engagement,
+                                      s.state = 'open',
+                                      s.first_seen = datetime()
+                        ON MATCH SET s.last_seen = datetime()
+                        MERGE (h)-[:HAS_SERVICE]->(s)
+                        WITH s
+                        MATCH (f:Finding {id: $finding_id})
+                        MERGE (f)-[:AFFECTS]->(s)
+                    """, host_ip=host_ip, port=svc_port, svc_name=svc_name,
+                         protocol=svc_proto, engagement=payload.engagement,
+                         finding_id=finding_id)
+
         except Exception as e:
             print(f"Neo4j finding write error: {e}")
 
@@ -1951,6 +2025,93 @@ def _synthesize_graph_from_findings(existing_nodes: list, existing_edges: list) 
     return nodes, edges
 
 
+def _connect_orphaned_nodes(nodes: list, edges: list) -> tuple[list, list]:
+    """Auto-connect orphaned findings/vulns to hosts and clean up broken edges.
+
+    1. Remove BELONGS_TO edges (point to engagement IDs, not visible nodes)
+    2. Extract host IPs from finding/vuln target URLs and connect via FOUND_ON
+    3. Connect vulnerabilities to services via HAS_VULN based on port in target
+    4. Deduplicate finding+vuln pairs that describe the same issue
+    """
+    import re
+
+    node_ids = {n["id"] for n in nodes}
+    host_ips = {n["id"] for n in nodes if n["type"] == "host"}
+    service_ids = {n["id"]: n for n in nodes if n["type"] == "service"}
+
+    # Track which nodes already have structural edges (not BELONGS_TO)
+    connected_nodes = set()
+    for e in edges:
+        if e["type"] != "BELONGS_TO":
+            connected_nodes.add(e["from"])
+            connected_nodes.add(e["to"])
+
+    # 1. Remove BELONGS_TO edges (they point to engagement IDs, not graph nodes)
+    edges = [e for e in edges if e["type"] != "BELONGS_TO"]
+
+    # 2. Extract host IP from target property and connect orphaned findings/vulns
+    ip_pattern = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")
+    port_pattern = re.compile(r":(\d+)")
+
+    for n in nodes:
+        if n["type"] not in ("finding", "vulnerability"):
+            continue
+        if n["id"] in connected_nodes:
+            continue  # Already connected
+
+        props = n.get("properties", {})
+        target = props.get("target", "") or props.get("affected_host", "") or ""
+        # Also check description for IP if target is empty
+        if not target:
+            target = props.get("description", "") or ""
+
+        ip_match = ip_pattern.search(target)
+        if not ip_match:
+            # Fallback: if there's only one host, connect to it
+            if len(host_ips) == 1:
+                host_ip = list(host_ips)[0]
+            else:
+                continue
+        else:
+            host_ip = ip_match.group(1)
+
+        if host_ip not in node_ids:
+            continue
+
+        edge_type = "FOUND_ON" if n["type"] == "finding" else "HAS_VULN"
+        # For vulns, edge goes host -> vuln; for findings, finding -> host
+        if n["type"] == "vulnerability":
+            # Try to connect to service if port is in target
+            port_match = port_pattern.search(target)
+            if port_match:
+                port = port_match.group(1)
+                # Find matching service
+                for sid, snode in service_ids.items():
+                    if snode.get("properties", {}).get("port") == port and snode.get("properties", {}).get("host_ip") == host_ip:
+                        edges.append({"from": sid, "to": n["id"], "type": "HAS_VULN", "label": "HAS_VULN"})
+                        connected_nodes.add(n["id"])
+                        break
+                else:
+                    edges.append({"from": host_ip, "to": n["id"], "type": "HAS_VULN", "label": "HAS_VULN"})
+                    connected_nodes.add(n["id"])
+            else:
+                # Connect to first HTTP service if exists, else host
+                http_svc = next((sid for sid, s in service_ids.items()
+                                 if s.get("properties", {}).get("host_ip") == host_ip
+                                 and "http" in (s.get("properties", {}).get("name", "") or "").lower()), None)
+                if http_svc:
+                    edges.append({"from": http_svc, "to": n["id"], "type": "HAS_VULN", "label": "HAS_VULN"})
+                else:
+                    edges.append({"from": host_ip, "to": n["id"], "type": "HAS_VULN", "label": "HAS_VULN"})
+                connected_nodes.add(n["id"])
+        else:
+            # Finding -> Host via FOUND_ON
+            edges.append({"from": n["id"], "to": host_ip, "type": "FOUND_ON", "label": "FOUND_ON"})
+            connected_nodes.add(n["id"])
+
+    return nodes, edges
+
+
 @app.get("/api/attack-graph")
 async def get_attack_graph(engagement: Optional[str] = None):
     """Return attack graph data from Neo4j or mock data."""
@@ -2037,6 +2198,10 @@ async def get_attack_graph(engagement: Optional[str] = None):
                 finding_count = sum(1 for n in nodes if n["type"] == "finding")
                 if finding_count > 0 and host_count == 0:
                     nodes, edges = _synthesize_graph_from_findings(nodes, edges)
+
+                # Post-process: auto-connect orphaned findings/vulns to hosts
+                nodes, edges = _connect_orphaned_nodes(nodes, edges)
+
                 return {"nodes": nodes, "edges": edges, "attack_paths": [], "source": "neo4j"}
         except Exception as e:
             print(f"Neo4j attack graph query error: {e}")
@@ -2513,6 +2678,7 @@ CRITICAL RULES:
         claude_bin,
         "-p", prompt,
         "--output-format", "stream-json",
+        "--verbose",
         "--dangerously-skip-permissions",
         "--model", "sonnet",
         "--allowedTools",
@@ -2524,12 +2690,15 @@ CRITICAL RULES:
     ]
 
     try:
+        # Filter CLAUDECODE to avoid "nested session" error when spawned
+        # from inside a running Claude Code session (official Anthropic bypass)
+        clean_env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
         _ai_process = subprocess.Popen(
             cmd,
             cwd=athena_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env={**os.environ},
+            env=clean_env,
         )
     except FileNotFoundError:
         await state.add_event(AgentEvent(

@@ -954,6 +954,7 @@
       border-radius: 6px;
       cursor: pointer;
       transition: background 0.2s;
+      min-width: 0;             /* Allow flex children to shrink */
     }
     .cred-row:hover { background: #252525; }
     .cred-icon {
@@ -969,6 +970,9 @@
     .cred-label {
       font-size: 12px;
       color: var(--zerok-text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     /* ==========================================================================
@@ -996,6 +1000,7 @@
       border: var(--zerok-card-border);
       border-radius: 0;
       overflow: visible;
+      min-width: 0;           /* Allow grid items to shrink below content size */
       display: flex;
       flex-direction: column;
     }
@@ -1043,6 +1048,8 @@
     .widget-body {
       padding: 8px 12px;
       flex: 1;
+      min-width: 0;             /* Allow content to shrink with grid */
+      overflow: hidden;
     }
 
     .widget-body::-webkit-scrollbar {
@@ -7150,23 +7157,25 @@
     // ── Kill Chain Mapping ──
     const KILL_CHAIN = [
       { id: 'initial_access', label: 'Init Access',
-        keywords: ['web vulnerability', 'information disclosure', 'directory listing', 'web server', 'recon', 'a01', 'a05',
-                   'secret in js', 'cross-site scripting', 'xss', 'version vulnerability', 'known exploit'] },
+        keywords: ['initial access', 'web vulnerability', 'information disclosure', 'directory listing',
+                   'recon', 'a01', 'a05', 'secret in js', 'cross-site scripting', 'xss',
+                   'version vulnerability', 'known exploit', 'exposed endpoint'] },
       { id: 'execution', label: 'Execution',
-        keywords: ['validated exploit', 'remote code execution', 'rce', 'injection', 'a03', 'exploit',
-                   'sql injection', 'command injection', 'authentication bypass', 'auth bypass'] },
+        keywords: ['validated exploit', 'remote code execution', 'rce', 'code execution',
+                   'sql injection', 'command injection', 'authentication bypass', 'auth bypass',
+                   'exploit confirmed', 'exploit successful', 'shell obtained'] },
       { id: 'persistence', label: 'Persistence',
-        keywords: ['backdoor', 'web shell', 'persistence', 'implant',
-                   'mass assignment', 'admin access'] },
+        keywords: ['backdoor', 'web shell', 'persistence established', 'implant installed',
+                   'cron job', 'scheduled task', 'startup script'] },
       { id: 'privesc', label: 'Priv Esc',
-        keywords: ['privilege escalation', 'privesc', 'suid', 'sudo', 'udf',
-                   'unauthenticated admin', 'authorization'] },
+        keywords: ['privilege escalation', 'privesc', 'suid exploit', 'sudo exploit', 'udf exploit',
+                   'root access', 'admin escalation', 'elevated privileges'] },
       { id: 'lateral', label: 'Lateral Move',
-        keywords: ['lateral movement', 'smb access', 'credential', 'pivot',
-                   'token reuse', 'credential reuse', 'idor'] },
+        keywords: ['lateral movement', 'pivoted to', 'smb lateral', 'credential reuse confirmed',
+                   'moved to host', 'token reuse confirmed', 'pass the hash'] },
       { id: 'exfil', label: 'Exfiltration',
-        keywords: ['exfiltration', 'data access', 'database', 'dump',
-                   'unauthorized data access', 'user data'] },
+        keywords: ['exfiltration', 'data exfiltrated', 'database dumped', 'data extracted',
+                   'sensitive data accessed', 'bulk download'] },
     ];
 
     function updateKillChain(allFindings) {
@@ -9839,8 +9848,12 @@
       data.nodes.forEach(n => {
         if (seenIds.has(n.id)) return;
         seenIds.add(n.id);
-        const label = n.type === 'service' && n.properties && n.properties.port
+        let label = n.type === 'service' && n.properties && n.properties.port
           ? n.label + ':' + n.properties.port : n.label;
+        // Truncate long labels on findings/vulns to prevent graph clutter
+        if ((n.type === 'finding' || n.type === 'vulnerability') && label.length > 40) {
+          label = label.substring(0, 37) + '...';
+        }
         const savedPos = _savedGraphPositions[n.id];
         nodeItems.push({
         id: n.id,
