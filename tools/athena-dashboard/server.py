@@ -1177,11 +1177,11 @@ async def get_exploit_stats(eid: str):
                     WITH e, collect(f) AS all_findings
                     RETURN size(all_findings) AS total_findings,
                            size([x IN all_findings WHERE x.category IN
-                               ['Validated Exploit', 'Exploitation', 'Injection', 'Lateral Movement']
-                               OR x.evidence IS NOT NULL]) AS exploit_count,
+                               ['Validated Exploit', 'Exploitation', 'Injection',
+                                'Authentication Bypass', 'Lateral Movement']]) AS exploit_count,
                            [x IN all_findings WHERE x.category IN
-                               ['Validated Exploit', 'Exploitation', 'Injection', 'Lateral Movement']
-                               OR x.evidence IS NOT NULL |
+                               ['Validated Exploit', 'Exploitation', 'Injection',
+                                'Authentication Bypass', 'Lateral Movement'] |
                                {title: x.title, severity: x.severity, timestamp: x.timestamp}] AS exploit_details
                 """, eid=eid)
                 record = result.single()
@@ -1199,10 +1199,11 @@ async def get_exploit_stats(eid: str):
     if discovered == 0:
         mem_findings = [f for f in state.findings if f.engagement == eid]
         discovered = len(mem_findings)
-        exploit_cats = {'validated exploit', 'exploitation', 'injection', 'lateral movement'}
+        exploit_cats = {'validated exploit', 'exploitation', 'injection',
+                        'authentication bypass', 'lateral movement'}
         for f in mem_findings:
             cat = (f.category or '').lower()
-            if any(ec in cat for ec in exploit_cats) or f.evidence:
+            if any(ec in cat for ec in exploit_cats):
                 confirmed += 1
                 sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
                 if sev in by_severity:
@@ -1212,10 +1213,11 @@ async def get_exploit_stats(eid: str):
 
     # MTTE: estimate from timestamp spread of findings (simplified)
     mem_findings = [f for f in state.findings if f.engagement == eid]
-    exploit_cats = {'validated exploit', 'exploitation', 'injection', 'lateral movement'}
+    exploit_cats = {'validated exploit', 'exploitation', 'injection',
+                    'authentication bypass', 'lateral movement'}
     timestamps = sorted([f.timestamp for f in mem_findings])
     exploit_findings = [f for f in mem_findings
-                        if any(ec in (f.category or '').lower() for ec in exploit_cats) or f.evidence]
+                        if any(ec in (f.category or '').lower() for ec in exploit_cats)]
     if timestamps and exploit_findings:
         start_ts = timestamps[0]
         for ef in exploit_findings:
