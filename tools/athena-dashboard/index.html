@@ -3049,6 +3049,7 @@
 
     .report-actions {
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       margin-top: 16px;
     }
@@ -3223,10 +3224,12 @@
     .ai-drawer-timeline {
       flex: 1;
       overflow-y: auto;
-      padding: 12px 20px;
+      overflow-x: hidden;
+      padding: 12px 16px;
       display: flex;
       flex-direction: column;
       gap: 0;
+      min-width: 0;
     }
 
     .ai-drawer-timeline::-webkit-scrollbar {
@@ -3245,6 +3248,8 @@
       background: color-mix(in srgb, var(--zerok-sidebar-active) 50%, var(--zerok-card));
       border-radius: 6px;
       animation: event-slide-in 0.3s ease-out;
+      min-width: 0;
+      max-width: 100%;
     }
 
     /* Compact status events — same visual weight as tool cards for consistency */
@@ -3422,6 +3427,8 @@
       margin: 4px 0;
       overflow: hidden;
       flex-shrink: 0;
+      min-width: 0;
+      max-width: 100%;
       transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
       animation: event-slide-in 0.3s ease-out;
     }
@@ -3447,6 +3454,8 @@
       cursor: pointer;
       user-select: none;
       transition: background 0.15s;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .timeline-card-header:hover {
@@ -4416,6 +4425,7 @@
             <path d="M3 6h12M3 12h12M6 3v12M12 3v12"/>
           </svg>
           <span class="nav-label">Reports</span>
+          <span class="nav-badge" id="nav-badge-reports" style="display:none">0</span>
         </button>
         <div class="nav-section">
           <button class="nav-item" onclick="toggleSettings()">
@@ -5566,10 +5576,16 @@
         <div id="reportsView" class="findings-view">
           <div class="findings-header">
             <h2 class="findings-title">Reports</h2>
-            <button class="modal-btn modal-btn-primary" onclick="generateReport()" style="font-size: 12px;">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M12 5v14M5 12h14"/></svg>
-              Generate Report
-            </button>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="modal-btn modal-btn-primary" onclick="generateReport()" style="font-size: 12px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M12 5v14M5 12h14"/></svg>
+                Generate Report
+              </button>
+              <button class="btn-danger-sm" onclick="clearAllReports()" title="Delete all reports for this engagement">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                Delete Reports
+              </button>
+            </div>
           </div>
 
           <div class="stat-grid">
@@ -6595,6 +6611,21 @@
         // Refresh Engagements page + sidebar LED when status changes (active → completed)
         if (typeof loadEngagementsView === 'function') loadEngagementsView();
         if (typeof loadEngagements === 'function') loadEngagements();
+        return;
+      }
+
+      if (type === 'report_created') {
+        // Update Reports sidebar badge
+        const reportsBadge = document.getElementById('nav-badge-reports');
+        if (reportsBadge) {
+          const count = parseInt(reportsBadge.textContent || '0') + 1;
+          reportsBadge.textContent = count;
+          reportsBadge.style.display = '';
+        }
+        // Refresh Reports view if visible
+        if (typeof loadReports === 'function') loadReports();
+        showToast('success', 'Report Generated', msg.report?.title || 'New report available');
+        incrementNotif();
         return;
       }
 
@@ -7974,6 +8005,13 @@
       setTimeout(connectWebSocket, 500);
       // Load engagements list, then populate dashboard from API
       loadEngagements().then(() => loadDashboardFromAPI());
+      // Pre-fetch reports count for sidebar badge
+      fetch('/api/reports').then(r => r.json()).then(reports => {
+        if (reports.length > 0) {
+          const badge = document.getElementById('nav-badge-reports');
+          if (badge) { badge.textContent = reports.length; badge.style.display = ''; }
+        }
+      }).catch(() => {});
 
       // Mode selector: update Engage button style
       const modeSelect = document.getElementById('engageMode');
@@ -9605,6 +9643,13 @@
         document.getElementById('reports-review-count').textContent = counts.review;
         document.getElementById('reports-delivered-count').textContent = counts.delivered;
 
+        // Update sidebar badge
+        const reportsBadge = document.getElementById('nav-badge-reports');
+        if (reportsBadge) {
+          reportsBadge.textContent = counts.total;
+          reportsBadge.style.display = counts.total > 0 ? '' : 'none';
+        }
+
         renderReports(allReports);
       } catch (e) {
         console.error('Failed to load reports:', e);
@@ -9656,10 +9701,19 @@
               <div class="report-summary-block">${escHtml(r.summary)}</div>
               ` : ''}
               <div class="report-actions">
-                ${r.status === 'final' || r.status === 'delivered' ? `<button class="report-action-btn primary" onclick="event.stopPropagation(); downloadReport('${r.id}')">Download PDF</button>` : ''}
-                ${r.status === 'review' ? `<button class="report-action-btn primary" onclick="event.stopPropagation(); markReportFinal('${r.id}')">Mark as Final</button>` : ''}
+                <button class="report-action-btn primary" onclick="event.stopPropagation(); downloadReport('${r.id}')">Download ${escHtml((r.format || 'PDF').toUpperCase())}</button>
                 ${r.status === 'draft' ? `<button class="report-action-btn" onclick="event.stopPropagation(); submitForReview('${r.id}')">Submit for Review</button>` : ''}
+                ${r.status === 'review' ? `<button class="report-action-btn primary" onclick="event.stopPropagation(); markReportFinal('${r.id}')">Mark as Final</button>` : ''}
+                ${r.status === 'final' ? `<button class="report-action-btn primary" onclick="event.stopPropagation(); markReportDelivered('${r.id}')">Mark as Delivered</button>` : ''}
                 <button class="report-action-btn" onclick="event.stopPropagation(); duplicateReport('${r.id}')">Duplicate</button>
+                <button class="btn-action-sm" onclick="event.stopPropagation(); archiveReport('${r.id}', '${escHtml(r.title)}')" title="Archive report">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M3 4v9a1 1 0 001 1h8a1 1 0 001-1V4M6 7h4"/></svg>
+                  Archive
+                </button>
+                <button class="btn-danger-sm" onclick="event.stopPropagation(); deleteReport('${r.id}', '${escHtml(r.title)}')" title="Delete report permanently">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h10M5 5V4a1 1 0 011-1h4a1 1 0 011 1v1M6 7v5M10 7v5M5 5l.5 8.5a1 1 0 001 .5h3a1 1 0 001-.5L11 5"/></svg>
+                  Delete
+                </button>
               </div>
             </div>
           </td>
@@ -9719,33 +9773,51 @@
     }
 
     function downloadReport(reportId) {
-      showReportToast('Report download would start...', 'var(--zerok-low)');
+      window.open(`/api/reports/${encodeURIComponent(reportId)}/download`, '_blank');
     }
 
-    function markReportFinal(reportId) {
-      // Update status badge in DOM
-      const row = document.querySelector(`tr[data-report-id="${reportId}"]`);
-      if (row) {
-        const badge = row.querySelector('.report-status-badge');
-        if (badge) { badge.className = 'report-status-badge final'; badge.textContent = 'FINAL'; }
-      }
-      // Update in-memory data
+    async function markReportFinal(reportId) {
+      try {
+        await fetch('/api/reports/' + encodeURIComponent(reportId), {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'final' }),
+        });
+      } catch (e) { console.error('PATCH failed:', e); }
       const report = allReports.find(r => r.id === reportId);
       if (report) report.status = 'final';
-      // Collapse detail row since buttons change
       if (expandedReportId === reportId) toggleReportDetail(reportId);
+      renderReports(allReports.filter(r => true));  // Re-render to update buttons
       showReportToast('Report marked as Final', 'var(--zerok-low)');
     }
 
-    function submitForReview(reportId) {
-      const row = document.querySelector(`tr[data-report-id="${reportId}"]`);
-      if (row) {
-        const badge = row.querySelector('.report-status-badge');
-        if (badge) { badge.className = 'report-status-badge review'; badge.textContent = 'REVIEW'; }
-      }
+    async function markReportDelivered(reportId) {
+      try {
+        await fetch('/api/reports/' + encodeURIComponent(reportId), {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'delivered' }),
+        });
+      } catch (e) { console.error('PATCH failed:', e); }
+      const report = allReports.find(r => r.id === reportId);
+      if (report) report.status = 'delivered';
+      if (expandedReportId === reportId) toggleReportDetail(reportId);
+      // Update delivered count
+      const deliveredCount = allReports.filter(r => r.status === 'delivered').length;
+      document.getElementById('reports-delivered-count').textContent = deliveredCount;
+      renderReports(allReports.filter(r => true));  // Re-render to update buttons
+      showReportToast('Report marked as Delivered', 'var(--zerok-primary)');
+    }
+
+    async function submitForReview(reportId) {
+      try {
+        await fetch('/api/reports/' + encodeURIComponent(reportId), {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'review' }),
+        });
+      } catch (e) { console.error('PATCH failed:', e); }
       const report = allReports.find(r => r.id === reportId);
       if (report) report.status = 'review';
       if (expandedReportId === reportId) toggleReportDetail(reportId);
+      renderReports(allReports.filter(r => true));  // Re-render to update buttons
       showReportToast('Report submitted for review', 'var(--zerok-warning)');
     }
 
@@ -9761,6 +9833,108 @@
         renderReports(allReports);
       }
       showReportToast('Report duplicated as draft', 'var(--zerok-info)');
+    }
+
+    async function archiveReport(reportId, title) {
+      const confirmed = await showConfirmModal({
+        title: 'Archive Report',
+        message: 'Archive <strong>' + escHtml(title) + '</strong>? It will be moved to the archived directory.',
+        actionLabel: 'Archive',
+        variant: 'warning',
+      });
+      if (!confirmed) return;
+      try {
+        const res = await fetch('/api/reports/' + encodeURIComponent(reportId), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'archived' }),
+        });
+        const result = await res.json();
+        if (result.ok) {
+          allReports = allReports.filter(r => r.id !== reportId);
+          renderReports(allReports);
+          // Update badge
+          const badge = document.getElementById('nav-badge-reports');
+          if (badge) {
+            badge.textContent = allReports.length;
+            badge.style.display = allReports.length > 0 ? '' : 'none';
+          }
+          document.getElementById('reports-total-count').textContent = allReports.length;
+          showToast('success', 'Archived', 'Report archived');
+        } else {
+          showToast('error', 'Error', result.error || 'Failed to archive report');
+        }
+      } catch (e) {
+        console.error('Failed to archive report:', e);
+        showToast('error', 'Error', 'Failed to archive report');
+      }
+    }
+
+    async function deleteReport(reportId, title) {
+      const confirmed = await showConfirmModal({
+        title: 'Delete Report',
+        message: 'Permanently delete <strong>' + escHtml(title) + '</strong>? The report file will be removed from disk. This cannot be undone.',
+        actionLabel: 'Delete Permanently',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
+      try {
+        const res = await fetch('/api/reports/' + encodeURIComponent(reportId), { method: 'DELETE' });
+        const result = await res.json();
+        if (result.ok) {
+          allReports = allReports.filter(r => r.id !== reportId);
+          renderReports(allReports);
+          // Update badge
+          const badge = document.getElementById('nav-badge-reports');
+          if (badge) {
+            badge.textContent = allReports.length;
+            badge.style.display = allReports.length > 0 ? '' : 'none';
+          }
+          document.getElementById('reports-total-count').textContent = allReports.length;
+          showToast('success', 'Report Deleted', 'Report permanently removed');
+        } else {
+          showToast('error', 'Error', result.error || 'Failed to delete report');
+        }
+      } catch (e) {
+        console.error('Failed to delete report:', e);
+        showToast('error', 'Error', 'Failed to delete report');
+      }
+    }
+
+    async function clearAllReports() {
+      const eid = currentEngagementId;
+      const count = allReports.length;
+      if (count === 0) {
+        showToast('success', 'No Reports', 'No reports to delete');
+        return;
+      }
+      const confirmed = await showConfirmModal({
+        title: 'Delete All Reports',
+        message: 'Permanently delete <strong>' + count + ' report(s)</strong>' + (eid ? ' for engagement <strong>' + escHtml(eid) + '</strong>' : '') + '? Report files will be removed from disk. This cannot be undone.',
+        actionLabel: 'Delete Reports',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
+      try {
+        const url = eid ? '/api/reports?engagement=' + eid : '/api/reports';
+        const res = await fetch(url, { method: 'DELETE' });
+        const result = await res.json();
+        if (result.ok) {
+          showToast('success', 'Reports Deleted', result.deleted + ' report(s) removed');
+          allReports = [];
+          renderReports(allReports);
+          // Update badge
+          const badge = document.getElementById('nav-badge-reports');
+          if (badge) { badge.textContent = '0'; badge.style.display = 'none'; }
+          document.getElementById('reports-total-count').textContent = '0';
+          document.getElementById('reports-final-count').textContent = '0';
+          document.getElementById('reports-review-count').textContent = '0';
+          document.getElementById('reports-delivered-count').textContent = '0';
+        }
+      } catch (e) {
+        console.error('Failed to delete reports:', e);
+        showToast('error', 'Error', 'Failed to delete reports: ' + e.message);
+      }
     }
 
     // ────────────────────────────────────────

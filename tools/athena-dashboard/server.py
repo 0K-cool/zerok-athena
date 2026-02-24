@@ -37,6 +37,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 import uuid
@@ -248,6 +249,7 @@ class DashboardState:
         self.engagements: list[Engagement] = []
         self.scans: list[dict] = []
         self._credentials: dict[str, list[dict]] = {}  # engagement_id → [credential records]
+        self._reports: list[dict] = []  # Reports registered via POST /api/reports
         self.connected_clients: set[WebSocket] = set()
         self._event_lock = asyncio.Lock()
         self.active_engagement_id: str | None = None  # Set when engagement is created/selected
@@ -1927,10 +1929,267 @@ async def delete_scans(engagement: Optional[str] = None):
     return {"deleted": deleted}
 
 
+def _read_report_meta(reporting_dir: Path) -> dict:
+    """Read persisted report metadata from .report-meta.json."""
+    meta_file = reporting_dir / ".report-meta.json"
+    if meta_file.exists():
+        try:
+            return json.loads(meta_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def _write_report_meta(reporting_dir: Path, meta: dict) -> None:
+    """Write report metadata to .report-meta.json."""
+    meta_file = reporting_dir / ".report-meta.json"
+    meta_file.write_text(json.dumps(meta, indent=2))
+
+
+def _find_report_dir(athena_dir: Path, report_id: str) -> tuple[Path | None, Path | None]:
+    """Find the reporting directory and file for a given report ID."""
+    engagements_dir = athena_dir / "engagements" / "active"
+    if not engagements_dir.exists():
+        return None, None
+    for eng_dir in engagements_dir.iterdir():
+        if not eng_dir.is_dir():
+            continue
+        reporting_dir = eng_dir / "09-reporting"
+        if not reporting_dir.exists():
+            continue
+        for report_file in reporting_dir.iterdir():
+            if report_file.is_file() and f"file-{report_file.stem}" == report_id:
+                return reporting_dir, report_file
+    return None, None
+
+
 @app.get("/api/reports")
-async def get_reports():
-    """Get report data (Phase E: wire to real report generation)."""
-    return []
+async def get_reports(engagement: Optional[str] = None):
+    """Get reports by scanning engagement 09-reporting/ directories and in-memory state."""
+    eid = engagement or state.active_engagement_id
+    reports = list(state._reports)  # In-memory reports from POST
+
+    # Also scan filesystem for report files in engagement directories
+    athena_dir = Path(__file__).parent.parent.parent  # ATHENA project root
+    engagements_dir = athena_dir / "engagements" / "active"
+    if engagements_dir.exists():
+        for eng_dir in engagements_dir.iterdir():
+            if not eng_dir.is_dir():
+                continue
+            # Match engagement ID if provided (dir name starts with eid)
+            if eid and not eng_dir.name.startswith(eid):
+                continue
+            reporting_dir = eng_dir / "09-reporting"
+            if not reporting_dir.exists():
+                continue
+            # Load persisted metadata for this reporting directory
+            meta = _read_report_meta(reporting_dir)
+            for report_file in reporting_dir.iterdir():
+                if report_file.is_file() and report_file.suffix in (".md", ".pdf", ".docx", ".html"):
+                    file_id = f"file-{report_file.stem}"
+                    # Skip if already registered via POST
+                    if any(r.get("id") == file_id for r in reports):
+                        continue
+                    stat = report_file.stat()
+                    # Derive engagement name from directory (e.g. eng-46fdb6_2026-02-24_WebApp → WebApp)
+                    parts = eng_dir.name.split("_")
+                    eng_name = parts[-1] if len(parts) >= 3 else eng_dir.name
+                    # Apply persisted metadata (status, etc.)
+                    saved = meta.get(file_id, {})
+                    reports.append({
+                        "id": file_id,
+                        "title": saved.get("title") or report_file.stem.replace("-", " ").replace("_", " ").title(),
+                        "type": saved.get("type") or (
+                            "technical" if "technical" in report_file.stem.lower() else
+                            "executive" if "executive" in report_file.stem.lower() else
+                            "remediation" if "remediation" in report_file.stem.lower() else "pentest"),
+                        "status": saved.get("status", "draft"),
+                        "pages": saved.get("pages"),
+                        "findings_included": saved.get("findings_included"),
+                        "engagement_id": eid or parts[0],
+                        "engagement_name": eng_name,
+                        "author": saved.get("author", "AI Generated"),
+                        "format": report_file.suffix.lstrip(".").upper(),
+                        "file_path": str(report_file.relative_to(athena_dir)),
+                        "updated_at": saved.get("updated_at") or time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_mtime)),
+                        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_ctime)),
+                    })
+
+    return reports
+
+
+@app.post("/api/reports")
+async def create_report(payload: dict):
+    """Register a report from an AI agent or manual creation."""
+    report_id = payload.get("id", f"rpt-{str(uuid.uuid4())[:8]}")
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    report = {
+        "id": report_id,
+        "title": payload.get("title", "Untitled Report"),
+        "type": payload.get("type", "pentest"),
+        "status": payload.get("status", "draft"),
+        "pages": payload.get("pages"),
+        "findings_included": payload.get("findings_included") or payload.get("findings"),
+        "engagement_id": payload.get("engagement_id", state.active_engagement_id),
+        "engagement_name": payload.get("engagement_name", ""),
+        "author": payload.get("author", "AI Generated"),
+        "format": payload.get("format", "MD"),
+        "file_path": payload.get("file_path"),
+        "summary": payload.get("summary"),
+        "updated_at": now,
+        "created_at": now,
+    }
+    state._reports.append(report)
+
+    # Broadcast so sidebar badge updates
+    await state.broadcast({
+        "type": "report_created",
+        "report": report,
+    })
+
+    return {"ok": True, "report_id": report_id}
+
+
+@app.get("/api/reports/{report_id}/download")
+async def download_report(report_id: str):
+    """Download a report file by ID."""
+    athena_dir = Path(__file__).parent.parent.parent
+    # Check in-memory reports first, then scan filesystem
+    all_reports = list(state._reports)
+    # Also scan filesystem
+    engagements_dir = athena_dir / "engagements" / "active"
+    if engagements_dir.exists():
+        for eng_dir in engagements_dir.iterdir():
+            if not eng_dir.is_dir():
+                continue
+            reporting_dir = eng_dir / "09-reporting"
+            if not reporting_dir.exists():
+                continue
+            for report_file in reporting_dir.iterdir():
+                if report_file.is_file() and report_file.suffix in (".md", ".pdf", ".docx", ".html"):
+                    file_id = f"file-{report_file.stem}"
+                    if file_id == report_id:
+                        return FileResponse(
+                            str(report_file),
+                            filename=report_file.name,
+                            media_type="application/octet-stream",
+                        )
+    # Check in-memory reports with file_path
+    for r in all_reports:
+        if r.get("id") == report_id and r.get("file_path"):
+            fp = athena_dir / r["file_path"]
+            if fp.exists():
+                return FileResponse(
+                    str(fp),
+                    filename=fp.name,
+                    media_type="application/octet-stream",
+                )
+    return JSONResponse({"error": "Report not found"}, status_code=404)
+
+
+@app.delete("/api/reports/{report_id}")
+async def delete_report(report_id: str):
+    """Delete a single report by ID (removes file from disk + metadata)."""
+    athena_dir = Path(__file__).parent.parent.parent
+    # Try filesystem reports
+    reporting_dir, report_file = _find_report_dir(athena_dir, report_id)
+    if reporting_dir and report_file:
+        report_file.unlink()
+        # Clean up metadata entry
+        meta = _read_report_meta(reporting_dir)
+        meta.pop(report_id, None)
+        _write_report_meta(reporting_dir, meta)
+        state._reports = [r for r in state._reports if r.get("id") != report_id]
+        return {"ok": True, "deleted": 1}
+    # Try in-memory reports with file_path
+    for r in list(state._reports):
+        if r.get("id") == report_id:
+            if r.get("file_path"):
+                fp = athena_dir / r["file_path"]
+                if fp.exists():
+                    fp.unlink()
+            state._reports = [x for x in state._reports if x.get("id") != report_id]
+            return {"ok": True, "deleted": 1}
+    return JSONResponse({"error": "Report not found"}, status_code=404)
+
+
+@app.patch("/api/reports/{report_id}")
+async def update_report(report_id: str, payload: dict):
+    """Update report status (archive, mark final, etc.). Persists to .report-meta.json."""
+    athena_dir = Path(__file__).parent.parent.parent
+    new_status = payload.get("status")
+    if not new_status:
+        return JSONResponse({"error": "status required"}, status_code=400)
+
+    # Handle archive — move report file to engagements/archived/
+    if new_status == "archived":
+        reporting_dir, report_file = _find_report_dir(athena_dir, report_id)
+        if reporting_dir and report_file:
+            eng_dir = reporting_dir.parent
+            archive_dir = athena_dir / "engagements" / "archived" / eng_dir.name / "09-reporting"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(report_file), str(archive_dir / report_file.name))
+            # Clean up metadata entry
+            meta = _read_report_meta(reporting_dir)
+            meta.pop(report_id, None)
+            _write_report_meta(reporting_dir, meta)
+            state._reports = [r for r in state._reports if r.get("id") != report_id]
+            return {"ok": True, "status": "archived"}
+
+    # Persist status to filesystem metadata for file-based reports
+    reporting_dir, _ = _find_report_dir(athena_dir, report_id)
+    if reporting_dir:
+        meta = _read_report_meta(reporting_dir)
+        if report_id not in meta:
+            meta[report_id] = {}
+        meta[report_id]["status"] = new_status
+        meta[report_id]["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        _write_report_meta(reporting_dir, meta)
+        return {"ok": True, "status": new_status}
+
+    # Update in-memory reports (from POST)
+    for r in state._reports:
+        if r.get("id") == report_id:
+            r["status"] = new_status
+            r["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+            return {"ok": True, "status": new_status}
+
+    return JSONResponse({"error": "Report not found"}, status_code=404)
+
+
+@app.delete("/api/reports")
+async def delete_all_reports(engagement: Optional[str] = None):
+    """Delete all reports for an engagement (or all reports)."""
+    eid = engagement or state.active_engagement_id
+    athena_dir = Path(__file__).parent.parent.parent
+    deleted = 0
+
+    # Delete filesystem reports
+    engagements_dir = athena_dir / "engagements" / "active"
+    if engagements_dir.exists():
+        for eng_dir in engagements_dir.iterdir():
+            if not eng_dir.is_dir():
+                continue
+            if eid and not eng_dir.name.startswith(eid):
+                continue
+            reporting_dir = eng_dir / "09-reporting"
+            if not reporting_dir.exists():
+                continue
+            for report_file in reporting_dir.iterdir():
+                if report_file.is_file() and report_file.suffix in (".md", ".pdf", ".docx", ".html"):
+                    report_file.unlink()
+                    deleted += 1
+
+    # Clear in-memory reports
+    if eid:
+        before = len(state._reports)
+        state._reports = [r for r in state._reports if r.get("engagement_id") != eid]
+        deleted += before - len(state._reports)
+    else:
+        deleted += len(state._reports)
+        state._reports.clear()
+
+    return {"ok": True, "deleted": deleted}
 
 
 @app.get("/api/approvals")
