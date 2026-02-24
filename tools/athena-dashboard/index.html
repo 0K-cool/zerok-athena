@@ -4419,7 +4419,7 @@
       <div class="content-header">
         <div class="content-title-section">
           <h1 class="content-title">Penetration Testing Dashboard</h1>
-          <p class="content-subtitle">PTES Methodology • 19 AI Agents • Dual-Backend Architecture</p>
+          <p class="content-subtitle" id="subtitle-mode">PTES Methodology • 19 Automated Agents • Dual-Backend Architecture</p>
         </div>
         <div class="header-actions">
           <span id="engagement-running-badge" class="engagement-running-badge" title="Engagement in progress">
@@ -6197,6 +6197,11 @@
 
       if (type === 'system') {
         renderSystemMessage(msg);
+        // Detect AI Mode activation from system event
+        if (msg.content && msg.content.includes('AI Mode activated')) {
+          const subtitle = document.getElementById('subtitle-mode');
+          if (subtitle) subtitle.textContent = 'PTES Methodology \u2022 5 AI Agents (Claude) \u2022 Dual-Backend Architecture';
+        }
         return;
       }
 

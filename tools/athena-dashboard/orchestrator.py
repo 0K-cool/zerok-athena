@@ -2164,15 +2164,32 @@ class Orchestrator:
                 enrichment_desc = " | ".join(parts)
 
             # Determine exploitation strategy
+            tmpl_id = vuln.get("template_id", "")
+            # A valid Nuclei template_id is alphanumeric with hyphens (e.g.
+            # "CVE-2021-12345", "nginx-version-detect").  File paths from
+            # SearchSploit (e.g. "/usr/share/exploitdb/…") are NOT valid.
+            has_nuclei_tmpl = bool(
+                tmpl_id
+                and "/" not in tmpl_id
+                and not tmpl_id.startswith(".")
+            )
+
             if best_module and best_module.get("module_type") == "exploit":
                 strategy = "metasploit"
                 strategy_desc = f"Metasploit module: {best_module['module_path']} (rank: {best_module['rank']})"
             elif "sqli" in vuln_name.lower() or "sql" in vuln_name.lower():
                 strategy = "sqlmap"
                 strategy_desc = "SQLMap injection validation"
-            else:
+            elif has_nuclei_tmpl:
                 strategy = "nuclei"
-                strategy_desc = "Nuclei template re-validation"
+                strategy_desc = f"Nuclei template re-validation ({tmpl_id})"
+            elif vuln.get("cve_id"):
+                # Has a CVE but no Nuclei template — try Nuclei CVE-based scan
+                strategy = "nuclei_cve"
+                strategy_desc = f"Nuclei CVE scan ({vuln['cve_id']})"
+            else:
+                strategy = "curl_verify"
+                strategy_desc = "HTTP service verification (no exploit template available)"
 
             await ex.think(
                 thought=f"Preparing exploitation for: {vuln_name} [{strategy}]",
@@ -2210,8 +2227,12 @@ class Orchestrator:
                 await self._exploit_with_metasploit(ex, vuln, target, best_module, ctx)
             elif strategy == "sqlmap":
                 await self._exploit_with_sqlmap(ex, vuln, target, ctx)
-            else:
+            elif strategy == "nuclei":
                 await self._exploit_with_nuclei(ex, vuln, target, ctx)
+            elif strategy == "nuclei_cve":
+                await self._exploit_with_nuclei_cve(ex, vuln, target, ctx)
+            else:
+                await self._exploit_with_curl_verify(ex, vuln, target, ctx)
 
         await ex.complete(
             f"Exploitation validation complete: {ctx.finding_count} findings confirmed."
@@ -2326,10 +2347,16 @@ class Orchestrator:
                 await ex.think(
                     thought=f"Metasploit module completed but no session opened for {vuln.get('name', '')}.",
                     reasoning="Module may require specific payload/target configuration. "
-                              "Falling back to Nuclei re-validation.",
+                              "Falling back to secondary validation.",
                 )
-                # Fall through to Nuclei as backup
-                await self._exploit_with_nuclei(ex, vuln, target, ctx)
+                # Fall through to appropriate backup based on template_id validity
+                _tmpl = vuln.get("template_id", "")
+                if _tmpl and "/" not in _tmpl and not _tmpl.startswith("."):
+                    await self._exploit_with_nuclei(ex, vuln, target, ctx)
+                elif vuln.get("cve_id"):
+                    await self._exploit_with_nuclei_cve(ex, vuln, target, ctx)
+                else:
+                    await self._exploit_with_curl_verify(ex, vuln, target, ctx)
 
     async def _exploit_with_sqlmap(
         self, ex: AgentRunner, vuln: dict, target: str, ctx: EngagementContext,
@@ -2392,6 +2419,80 @@ class Orchestrator:
         await vf.complete(
             f"Verification complete: {ctx.finding_count} findings confirmed."
         )
+
+    async def _exploit_with_nuclei_cve(
+        self, ex: AgentRunner, vuln: dict, target: str, ctx: EngagementContext,
+    ):
+        """Priority 3b: Nuclei scan by CVE ID (for non-Nuclei-sourced vulns with CVEs)."""
+        cve_id = vuln.get("cve_id", "")
+        if not cve_id:
+            return
+        # Nuclei supports scanning by CVE tag: -tags cve-2021-12345
+        cve_tag = cve_id.lower().replace("cve-", "cve-")  # Nuclei expects lowercase
+        result = await ex.run_tool(
+            "nuclei_scan",
+            {"targets": [target],
+             "additional_args": f"-tags {cve_tag}"},
+            display=f"Nuclei CVE scan: {cve_id} on {target}...",
+        )
+        if result.success:
+            re_vulns = parse_nuclei_results(result.stdout, ctx.engagement_id)
+            if re_vulns:
+                v = re_vulns[0]
+                await ex.report_finding(
+                    title=f"Confirmed: {vuln.get('name', 'Unknown')}",
+                    severity=vuln.get("severity", "HIGH").lower(),
+                    category="Validated Exploit",
+                    target=target,
+                    description=f"Confirmed via Nuclei CVE scan ({cve_id}). "
+                                f"{v.get('description', vuln.get('name', ''))}",
+                    cvss=vuln.get("cvss_score", 0),
+                    cve=cve_id,
+                    evidence=result.stdout[:2000],
+                )
+
+    async def _exploit_with_curl_verify(
+        self, ex: AgentRunner, vuln: dict, target: str, ctx: EngagementContext,
+    ):
+        """Priority 4: HTTP verification for vulns without Nuclei templates or CVEs.
+
+        Sends a HEAD/GET request to confirm the target service is reachable
+        and reports the vulnerability with its original source evidence.
+        """
+        # Build a meaningful URL from target
+        url = target
+        if not url.startswith("http"):
+            url = f"http://{url}"
+
+        result = await ex.run_tool(
+            "curl_raw",
+            {"url": url, "options": "-I -m 10"},
+            display=f"HTTP verify: {vuln.get('name', 'Unknown')} on {target}...",
+        )
+        if result.success and result.stdout:
+            # Service is reachable — report as "Unconfirmed but Reachable"
+            vuln_desc = vuln.get("description", vuln.get("name", "Unknown"))
+            source_info = []
+            if vuln.get("exploitdb_results"):
+                source_info.append(f"ExploitDB: {len(vuln['exploitdb_results'])} PoC(s)")
+            if vuln.get("metasploit_modules"):
+                source_info.append(f"Metasploit: {len(vuln['metasploit_modules'])} module(s)")
+            if vuln.get("cve_id"):
+                source_info.append(f"CVE: {vuln['cve_id']}")
+            source_str = " | ".join(source_info) if source_info else "SearchSploit/Internet"
+
+            await ex.report_finding(
+                title=f"Potential: {vuln.get('name', 'Unknown')}",
+                severity=vuln.get("severity", "HIGH").lower(),
+                category="Potential Exploit",
+                target=target,
+                description=f"Service reachable, public exploit exists but no automated "
+                            f"validation template available. Manual verification recommended.\n"
+                            f"Sources: {source_str}\n{vuln_desc}",
+                cvss=vuln.get("cvss_score", 0),
+                cve=vuln.get("cve_id", ""),
+                evidence=f"HTTP Response:\n{result.stdout[:1000]}",
+            )
 
     # ── Phase 6: Post-Exploitation ──
 

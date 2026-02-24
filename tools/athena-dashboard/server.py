@@ -639,6 +639,33 @@ async def create_approval(payload: ApprovalPayload):
     return {"ok": True, "approval_id": req.id}
 
 
+@app.get("/api/approvals/{request_id}")
+async def get_approval_status(request_id: str):
+    """
+    Poll approval status (for external Claude Code agents).
+
+    Agents POST to /api/approvals to create a request, then poll this endpoint
+    until resolved=true. Returns approved=true/false once the operator decides.
+
+    Example:
+        curl http://localhost:8080/api/approvals/abc123
+    """
+    if request_id not in state.approval_requests:
+        return JSONResponse(status_code=404, content={"error": "Approval request not found"})
+    req = state.approval_requests[request_id]
+    resolved = req.status != ApprovalStatus.PENDING
+    return {
+        "id": request_id,
+        "agent": req.agent,
+        "action": req.action,
+        "target": req.target,
+        "risk_level": req.risk_level,
+        "resolved": resolved,
+        "approved": req.status == ApprovalStatus.APPROVED if resolved else None,
+        "status": req.status.value,
+    }
+
+
 @app.post("/api/approvals/{request_id}/resolve")
 async def resolve_approval_api(request_id: str, approved: bool = True, reason: str = ""):
     """Resolve a HITL approval via REST (alternative to WebSocket)."""
