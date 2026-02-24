@@ -2273,18 +2273,136 @@ async def start_engagement(eid: str, backend: str = ""):
 _ai_process: subprocess.Popen | None = None
 
 
+async def _stream_ai_output(eid: str, process: subprocess.Popen):
+    """Read Claude Code streaming JSON output and forward events to dashboard."""
+    loop = asyncio.get_event_loop()
+    agent_code = "OR"
+    tool_count = 0
+
+    try:
+        while True:
+            line = await loop.run_in_executor(None, process.stdout.readline)
+            if not line:
+                break
+            line_str = line.decode("utf-8", errors="replace").strip()
+            if not line_str:
+                continue
+
+            # Try parsing as JSON (stream-json format)
+            try:
+                event = json.loads(line_str)
+                etype = event.get("type", "")
+
+                # Tool use — broadcast as tool_start
+                if etype == "tool_use":
+                    tool_name = event.get("name", "unknown")
+                    tool_count += 1
+                    # Detect agent from tool name
+                    if "kali" in tool_name:
+                        agent_code = "OR"
+                    await state.add_event(AgentEvent(
+                        id=str(uuid.uuid4())[:8],
+                        type="tool_start",
+                        agent=agent_code,
+                        content=f"Calling {tool_name}",
+                        timestamp=time.time(),
+                        metadata={"tool": tool_name},
+                    ))
+
+                # Tool result — broadcast as tool_complete
+                elif etype == "tool_result":
+                    content = str(event.get("content", ""))[:500]
+                    await state.add_event(AgentEvent(
+                        id=str(uuid.uuid4())[:8],
+                        type="tool_complete",
+                        agent=agent_code,
+                        content=content,
+                        timestamp=time.time(),
+                    ))
+
+                # Assistant text — broadcast as thinking/system
+                elif etype == "assistant":
+                    text = ""
+                    message = event.get("message", {})
+                    for block in message.get("content", []):
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text += block.get("text", "")
+                    if text:
+                        await state.add_event(AgentEvent(
+                            id=str(uuid.uuid4())[:8],
+                            type="system",
+                            agent="OR",
+                            content=text[:1000],
+                            timestamp=time.time(),
+                        ))
+
+                # Final result
+                elif etype == "result":
+                    result_text = event.get("result", "")
+                    if result_text:
+                        await state.add_event(AgentEvent(
+                            id=str(uuid.uuid4())[:8],
+                            type="system",
+                            agent="OR",
+                            content=f"AI engagement complete. {str(result_text)[:500]}",
+                            timestamp=time.time(),
+                        ))
+
+            except json.JSONDecodeError:
+                # Plain text output — forward as system event
+                if len(line_str) > 5:
+                    await state.add_event(AgentEvent(
+                        id=str(uuid.uuid4())[:8],
+                        type="system",
+                        agent="OR",
+                        content=line_str[:500],
+                        timestamp=time.time(),
+                    ))
+
+    except Exception as e:
+        await state.add_event(AgentEvent(
+            id=str(uuid.uuid4())[:8],
+            type="system",
+            agent="OR",
+            content=f"AI stream error: {str(e)[:200]}",
+            timestamp=time.time(),
+        ))
+
+    # Read stderr for errors
+    try:
+        stderr = await loop.run_in_executor(None, process.stderr.read)
+        if stderr:
+            stderr_str = stderr.decode("utf-8", errors="replace").strip()
+            if stderr_str:
+                await state.add_event(AgentEvent(
+                    id=str(uuid.uuid4())[:8],
+                    type="system",
+                    agent="OR",
+                    content=f"AI process stderr: {stderr_str[:500]}",
+                    timestamp=time.time(),
+                ))
+    except Exception:
+        pass
+
+    # Mark engagement complete
+    exit_code = process.wait()
+    await state.add_event(AgentEvent(
+        id=str(uuid.uuid4())[:8],
+        type="system",
+        agent="OR",
+        content=f"AI process exited (code {exit_code}). {tool_count} tool calls made.",
+        timestamp=time.time(),
+    ))
+
+
 @app.post("/api/engagement/{eid}/start-ai")
 async def start_engagement_ai(eid: str, backend: str = "external", target: str = ""):
-    """Start an AI-powered PTES engagement using Claude Code Agent Teams.
+    """Start an AI-powered PTES engagement using Claude Code.
 
-    Spawns a Claude Code process that runs the /athena-engage skill,
-    creating 5 AI agents that reason about pentesting decisions and
-    POST their results back to the dashboard REST API.
+    Spawns a headless Claude Code process that orchestrates the full
+    PTES methodology, streaming events back to the dashboard in real-time.
 
-    Args:
-        eid: Engagement ID (from Neo4j or mock state).
-        backend: Preferred Kali backend ("external" or "internal").
-        target: Target scope (IP/CIDR/URL).
+    Works both from the dashboard GUI and from CLI (/athena-engage).
     """
     global _ai_process
 
@@ -2323,16 +2441,16 @@ async def start_engagement_ai(eid: str, backend: str = "external", target: str =
     state.active_engagement_id = eid
     state.engagement_stopped = False
 
-    # Broadcast AI mode system event (triggers subtitle switch in UI)
+    # Broadcast AI mode system event
     await state.add_event(AgentEvent(
         id=str(uuid.uuid4())[:8],
         type="system",
         agent="OR",
-        content="AI Mode activated. 5 Claude Code agents will execute PTES phases 1-7. HITL approval required for exploitation.",
+        content=f"AI Mode activated. Claude Code will execute PTES phases 1-7 against {target}. HITL approval required for exploitation.",
         timestamp=time.time(),
     ))
 
-    # Broadcast engagement_active so dashboard shows running badge and selects engagement
+    # Broadcast engagement_active so dashboard shows running badge
     await state.broadcast({
         "type": "engagement_started",
         "engagement_id": eid,
@@ -2341,29 +2459,100 @@ async def start_engagement_ai(eid: str, backend: str = "external", target: str =
         "timestamp": time.time(),
     })
 
-    # Build the Claude prompt
+    # Build comprehensive orchestration prompt
     athena_dir = str(Path(__file__).resolve().parent.parent.parent)
-    prompt = (
-        f"Run /athena-engage for engagement {eid} against target {target}. "
-        f"Dashboard is at http://localhost:8080. "
-        f"Backend preference: {backend}. "
-        f"Engagement ID: {eid}. "
-        f"This is an authorized penetration test."
-    )
+    prompt = f"""You are the ATHENA AI pentesting orchestrator for engagement {eid}.
 
-    # Spawn Claude Code in the ATHENA project directory
+TARGET: {target}
+DASHBOARD: http://localhost:8080
+ENGAGEMENT ID: {eid}
+BACKEND: Use kali_{backend} MCP tools
+AUTHORIZATION: This is an authorized penetration test.
+
+Execute a full PTES penetration test following these phases:
+
+PHASE 1 - RECONNAISSANCE:
+- Update agent LEDs: POST http://localhost:8080/api/events with {{"type":"agent_status","agent":"PO","status":"running"}}
+- Run nmap scan via kali_{backend} MCP tools against {target}
+- Run httpx probe if web ports found
+- Register each scan: POST http://localhost:8080/api/scans with tool name, status, output
+- Write Host and Service nodes to Neo4j via athena_neo4j MCP
+- POST findings to http://localhost:8080/api/engagements/{eid}/findings
+
+PHASE 2 - VULNERABILITY ANALYSIS:
+- Update agent LEDs for CV, WV, AP
+- Run nuclei scan against discovered web services
+- Run nikto scan
+- Write Vulnerability nodes to Neo4j
+- POST findings with severity levels
+
+PHASE 3 - EXPLOITATION (HITL REQUIRED):
+- For any exploitable vulnerabilities, POST approval request:
+  POST http://localhost:8080/api/approvals with action, description, risk_level
+- Poll GET http://localhost:8080/api/approvals/{{id}} until approved or rejected
+- Only execute exploitation tools if approved
+- Write ExploitResult and Credential nodes to Neo4j
+- POST credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
+
+PHASE 4-7 - VERIFICATION, POST-EXPLOIT, CLEANUP, REPORTING:
+- Verify findings independently
+- Document all results
+- Mark engagement complete
+
+CRITICAL RULES:
+- Register EVERY tool execution as a scan via POST /api/scans BEFORE running and PATCH /api/scans/{{id}} AFTER
+- Include REAL raw tool output in scan output_preview (never AI summaries)
+- POST agent status events to update dashboard LEDs in real-time
+- Write all findings to Neo4j with engagement_id: {eid}
+"""
+
+    # Spawn Claude Code headlessly with streaming output
+    # Use absolute path — shell functions not available in subprocess
+    claude_bin = os.environ.get("CLAUDE_BIN", os.path.expanduser("~/.local/bin/claude"))
+    cmd = [
+        claude_bin,
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--dangerously-skip-permissions",
+        "--model", "sonnet",
+        "--allowedTools",
+        ",".join([
+            "Bash", "Read", "Write", "Edit",
+            "mcp__kali_external__*", "mcp__kali_internal__*",
+            "mcp__athena_neo4j__*",
+        ]),
+    ]
+
     try:
         _ai_process = subprocess.Popen(
-            ["claude", "-p", prompt, "--allowedTools", "Bash,Read,Write,Edit,Task,TaskCreate,TaskUpdate,TaskList,TeamCreate,TeamDelete,SendMessage,Skill,mcp__kali_external__*,mcp__kali_internal__*,mcp__athena_neo4j__*,mcp__athena_knowledge_base__*"],
+            cmd,
             cwd=athena_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env={**os.environ, "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"},
+            env={**os.environ},
         )
     except FileNotFoundError:
+        await state.add_event(AgentEvent(
+            id=str(uuid.uuid4())[:8],
+            type="system",
+            agent="OR",
+            content="ERROR: Claude CLI not found. Install Claude Code: npm install -g @anthropic-ai/claude-code",
+            timestamp=time.time(),
+        ))
         return JSONResponse(status_code=500, content={
             "error": "Claude CLI not found. Ensure 'claude' is in PATH."
         })
+
+    # Start background task to stream output to dashboard
+    asyncio.create_task(_stream_ai_output(eid, _ai_process))
+
+    await state.add_event(AgentEvent(
+        id=str(uuid.uuid4())[:8],
+        type="system",
+        agent="OR",
+        content=f"Claude Code process started (PID {_ai_process.pid}). Streaming output to dashboard...",
+        timestamp=time.time(),
+    ))
 
     return {
         "ok": True,

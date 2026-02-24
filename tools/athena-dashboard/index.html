@@ -514,13 +514,13 @@
       display: block;
     }
 
-    /* Dashboard view fills content area; 2nd row absorbs extra vertical space */
+    /* Dashboard view fills content area; widget rows share extra vertical space */
     #dashboardView.active {
       display: flex;
       flex-direction: column;
       min-height: 100%;
     }
-    #widget-row-1 {
+    #dashboardView > .widget-grid {
       flex: 1 0 auto;
     }
 
