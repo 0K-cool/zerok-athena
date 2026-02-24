@@ -23,7 +23,7 @@
   "naabu_scan": {
     "display_name": "Naabu Fast Port Scanner",
     "endpoint": "/api/command",
-    "command_template": "PATH=$PATH:/home/kelvin/go/bin naabu -host {target} -json",
+    "command_template": "PATH=$PATH:/home/kelvin/go/bin naabu -host {target} -json -rate 3000 -c 50 -retries 2 -warm-up-time 1",
     "timeout": 120,
     "backends": ["external", "internal"],
     "category": "recon",
