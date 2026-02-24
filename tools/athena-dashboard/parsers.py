@@ -30,20 +30,31 @@ except ImportError:
     # Fallback: define minimal versions if bridge.py not found
     def parse_naabu_results(raw_output: str, engagement_id: str) -> list[dict]:
         records = []
+        seen: set[tuple[str, int]] = set()
         for line in raw_output.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
+            ip, port, proto = "", 0, "tcp"
             if line.startswith("{"):
                 try:
                     obj = json.loads(line)
-                    records.append({"ip": obj.get("ip", ""), "port": int(obj.get("port", 0)), "protocol": "tcp"})
+                    ip = obj.get("ip", "")
+                    port = int(obj.get("port", 0))
+                    proto = obj.get("protocol", "tcp")
                 except (json.JSONDecodeError, ValueError):
                     continue
             elif ":" in line:
                 parts = line.rsplit(":", 1)
-                if len(parts) == 2 and parts[1].isdigit():
-                    records.append({"ip": parts[0], "port": int(parts[1]), "protocol": "tcp"})
+                if len(parts) == 2:
+                    ip = parts[0]
+                    port_str = parts[1].split("/")[0]  # strip /tcp, /udp suffix
+                    proto = parts[1].split("/")[1] if "/" in parts[1] else "tcp"
+                    if port_str.isdigit():
+                        port = int(port_str)
+            if ip and port and (ip, port) not in seen:
+                seen.add((ip, port))
+                records.append({"ip": ip, "port": port, "protocol": proto})
         return records
 
     def parse_nuclei_results(raw_output: str, engagement_id: str) -> list[dict]:

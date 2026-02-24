@@ -296,7 +296,7 @@ class AgentRunner:
             scan_record["status"] = "completed" if (result.success or result.stdout) else "error"
             scan_record["duration_s"] = round(result.elapsed_s)
             scan_record["completed_at"] = end_iso
-            scan_record["output_preview"] = (result.stdout[:500] if result.stdout else "")
+            scan_record["output_preview"] = (result.stdout if result.stdout else "")
 
             # Broadcast scan completion so Scans page updates in real-time
             await self.state.broadcast({

@@ -2551,7 +2551,7 @@
       color: var(--zerok-text-muted);
       white-space: pre-wrap;
       overflow-x: auto;
-      max-height: 300px;
+      max-height: 520px;
       overflow-y: auto;
     }
 
@@ -9112,7 +9112,7 @@
                   <div class="scan-detail-value">${s.started_at ? new Date(s.started_at).toLocaleString() : 'Not started'} ${s.completed_at ? '→ ' + new Date(s.completed_at).toLocaleString() : ''}</div>
                 </div>
               </div>
-              <div class="scan-detail-label" style="margin-bottom: 8px;">Output Preview</div>
+              <div class="scan-detail-label" style="margin-bottom: 8px;">Output</div>
               <div class="scan-output-block">${formatScanOutput(s.output_preview)}</div>
             </div>
           </td>
