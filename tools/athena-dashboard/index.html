@@ -514,6 +514,16 @@
       display: block;
     }
 
+    /* Dashboard view fills content area; 2nd row absorbs extra vertical space */
+    #dashboardView.active {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+    #widget-row-1 {
+      flex: 1 0 auto;
+    }
+
     /* Content Header - same charcoal as sidebar (upside-down L) */
     .content-header {
       padding: 6px 24px;
@@ -749,6 +759,7 @@
     /* Content */
     .content {
       flex: 1;
+      height: 0;                    /* Forces % children to resolve against flex height */
       padding: var(--zerok-content-padding);
       overflow-y: auto;
       scrollbar-width: none;        /* Firefox */
@@ -4647,7 +4658,7 @@
         </div>
 
         <!-- Widget Row 1 -->
-        <div class="widget-grid" style="grid-template-columns: 1fr 1fr 0.5fr 0.5fr;">
+        <div class="widget-grid" id="widget-row-1" style="grid-template-columns: 1fr 1fr 0.5fr 0.5fr;">
           <!-- Agent Status -->
           <div class="widget">
             <div class="widget-header">
