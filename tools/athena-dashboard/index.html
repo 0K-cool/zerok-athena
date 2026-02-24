@@ -9861,9 +9861,10 @@
         label: e.label || '',
         arrows: { to: { enabled: true, scaleFactor: 0.6 } },
         color: {
-          color: e.type === 'EXPLOITS' ? '#f44336' :
-                 e.type === 'LATERAL_MOVE' ? '#FF9800' :
-                 e.type === 'HARVESTED_FROM' ? '#9C27B0' :
+          color: e.type === 'EXPLOITS' || e.type === 'CONFIRMED_BY' || e.type === 'EXPLOITED_BY' ? '#f44336' :
+                 e.type === 'LATERAL_MOVE' || e.type === 'LEADS_TO' ? '#FF9800' :
+                 e.type === 'HARVESTED_FROM' || e.type === 'YIELDED' ? '#9C27B0' :
+                 e.type === 'VERIFIED_BY' ? '#4CAF50' :
                  '#555',
           highlight: '#fff',
           opacity: 0.7
@@ -9875,8 +9876,9 @@
           strokeWidth: 3,
           strokeColor: '#1e1e1e'
         },
-        width: e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE' ? 2.5 : 1.5,
-        dashes: e.type === 'HARVESTED_FROM' ? [5, 5] : false,
+        width: e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE' || e.type === 'CONFIRMED_BY' || e.type === 'EXPLOITED_BY' ? 2.5 : 1.5,
+        dashes: e.type === 'HARVESTED_FROM' || e.type === 'YIELDED' ? [5, 5] :
+                e.type === 'VERIFIED_BY' ? [3, 3] : false,
         smooth: { type: 'curvedCW', roundness: 0.15 }
       }));
 
@@ -10140,18 +10142,20 @@
                 label: e.label || '',
                 arrows: { to: { enabled: true, scaleFactor: 0.6 } },
                 color: {
-                  color: e.type === 'EXPLOITS' ? '#f44336' :
-                         e.type === 'LATERAL_MOVE' ? '#FF9800' :
-                         e.type === 'HARVESTED_FROM' ? '#9C27B0' :
-                         e.type === 'AFFECTS' ? '#f44336' :
-                         e.type === 'RUNS_ON' ? '#2196F3' :
+                  color: e.type === 'EXPLOITS' || e.type === 'CONFIRMED_BY' || e.type === 'EXPLOITED_BY' ? '#f44336' :
+                         e.type === 'LATERAL_MOVE' || e.type === 'LEADS_TO' ? '#FF9800' :
+                         e.type === 'HARVESTED_FROM' || e.type === 'YIELDED' ? '#9C27B0' :
+                         e.type === 'VERIFIED_BY' ? '#4CAF50' :
+                         e.type === 'AFFECTS' || e.type === 'HAS_VULN' ? '#f44336' :
+                         e.type === 'RUNS_ON' || e.type === 'HAS_SERVICE' ? '#2196F3' :
                          '#555',
                   highlight: '#fff', opacity: 0.7
                 },
                 font: { color: '#888', size: 9, face: 'JetBrains Mono, monospace', strokeWidth: 3, strokeColor: '#1e1e1e' },
-                width: e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE' ? 2.5 :
-                       e.type === 'AFFECTS' ? 2 : 1.5,
-                dashes: e.type === 'HARVESTED_FROM' ? [5, 5] : false,
+                width: e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE' || e.type === 'CONFIRMED_BY' || e.type === 'EXPLOITED_BY' ? 2.5 :
+                       e.type === 'AFFECTS' || e.type === 'HAS_VULN' ? 2 : 1.5,
+                dashes: e.type === 'HARVESTED_FROM' || e.type === 'YIELDED' ? [5, 5] :
+                        e.type === 'VERIFIED_BY' ? [3, 3] : false,
                 smooth: { type: 'curvedCW', roundness: 0.15 }
               });
             }
