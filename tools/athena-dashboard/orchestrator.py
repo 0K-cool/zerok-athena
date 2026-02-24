@@ -100,13 +100,25 @@ class AgentRunner:
         self.ctx = ctx
 
     def _check_stopped(self):
-        """Raise if engagement was stopped."""
+        """Raise if engagement was stopped (checks both ctx flag and server flag)."""
         if self.ctx.stopped:
             raise EngagementStopped()
+        # Also check server-side stop flag (set by /api/engagement/{eid}/stop)
+        if self.state.engagement_stopped:
+            self.ctx.stopped = True
+            raise EngagementStopped()
+
+    async def _checkpoint(self):
+        """Check stop flag AND wait if paused. Call between tool executions."""
+        self._check_stopped()
+        # Block here if engagement is paused (event is cleared)
+        await self.state.engagement_pause_event.wait()
+        # Re-check stop after resume (operator may have stopped while paused)
+        self._check_stopped()
 
     async def think(self, thought: str, reasoning: str, action: str = ""):
         """Emit agent_thinking event to dashboard."""
-        self._check_stopped()
+        await self._checkpoint()
         from server import AgentEvent, AgentStatus, AGENT_NAMES
         await self.state.update_agent_status(self.agent, AgentStatus.RUNNING, thought)
         metadata = {"thought": thought, "reasoning": reasoning}
@@ -134,13 +146,38 @@ class AgentRunner:
         Emits: tool_start → progress chunks (for long tools) → tool_complete
         Also records a scan entry in state.scans for the Scans page.
         """
-        self._check_stopped()
+        await self._checkpoint()
         from server import AgentEvent, AGENT_NAMES
 
         tool_id = str(uuid.uuid4())[:8]
         tool_display = display or f"Running {tool_name}..."
         start_time = time.time()
         start_iso = datetime.now(timezone.utc).isoformat()
+
+        # Look up display name from tool registry
+        tool_def = {}
+        for t in self.kali.list_tools():
+            if t.get("name") == tool_name:
+                tool_def = t
+                break
+
+        # Create running scan record BEFORE execution so Scans page shows it live
+        scan_record = {
+            "id": f"scan-{tool_id}",
+            "tool": tool_name,
+            "tool_display": tool_def.get("display_name", tool_display),
+            "target": params.get("target", params.get("url", params.get("targets", [""])[0] if isinstance(params.get("targets"), list) else "")),
+            "agent": self.agent,
+            "status": "running",
+            "duration_s": 0,
+            "findings_count": 0,
+            "started_at": start_iso,
+            "completed_at": None,
+            "engagement_id": self.ctx.engagement_id,
+            "output_preview": "",
+            "command": tool_display,
+        }
+        self.state.scans.append(scan_record)
 
         # tool_start
         await self.state.add_event(AgentEvent(
@@ -151,14 +188,41 @@ class AgentRunner:
             timestamp=start_time,
             metadata={"tool": tool_name, "tool_id": tool_id},
         ))
+        # Broadcast so Scans page shows running entry immediately
+        await self.state.broadcast({
+            "type": "scan_update",
+            "scan": scan_record,
+            "timestamp": time.time(),
+        })
 
         # Execute on Kali (backend_override takes precedence over auto-selection)
+        # Retry loop: if tool was killed during pause, re-run it on resume
         effective_backend = self.ctx.backend_override or backend
-        result = await self.kali.run_tool(
-            tool_name, params,
-            backend=effective_backend,
-            target_type=self.ctx.target_type,
-        )
+        while True:
+            result = await self.kali.run_tool(
+                tool_name, params,
+                backend=effective_backend,
+                target_type=self.ctx.target_type,
+            )
+
+            # Re-check stop/pause after long-running tool returns
+            await self._checkpoint()
+
+            # If this scan was killed during pause, re-run it so we don't miss vulns
+            if scan_record.get("status") == "paused":
+                logger.info(f"Re-running {tool_name} after pause (was killed mid-scan)")
+                scan_record["status"] = "running"
+                scan_record["started_at"] = datetime.now(timezone.utc).isoformat()
+                await self.state.broadcast({
+                    "type": "scan_update", "scan": scan_record, "timestamp": time.time(),
+                })
+                await self.state.broadcast({
+                    "type": "system",
+                    "content": f"Re-running {tool_def.get('display_name', tool_name)} (interrupted by pause)",
+                    "timestamp": time.time(),
+                })
+                continue  # Re-run the same tool
+            break  # Normal completion — exit loop
 
         end_iso = datetime.now(timezone.utc).isoformat()
 
@@ -179,38 +243,144 @@ class AgentRunner:
             metadata={"tool_id": tool_id, "elapsed_s": result.elapsed_s, "success": result.success},
         ))
 
-        # Record scan for Scans page
-        # Look up display name from tool registry
-        tool_def = {}
-        for t in self.kali.list_tools():
-            if t.get("name") == tool_name:
-                tool_def = t
-                break
-        scan_record = {
-            "id": f"scan-{tool_id}",
-            "tool": tool_name,
-            "tool_display": tool_def.get("display_name", tool_display),
-            "target": params.get("target", params.get("url", params.get("targets", [""])[0] if isinstance(params.get("targets"), list) else "")),
-            "agent": self.agent,
-            "status": "completed" if result.success else "error",
-            "duration_s": round(result.elapsed_s),
-            "findings_count": 0,
-            "started_at": start_iso,
-            "completed_at": end_iso,
-            "engagement_id": self.ctx.engagement_id,
-            "output_preview": (result.stdout[:500] if result.stdout else ""),
-            "command": tool_display,
-        }
-        self.state.scans.append(scan_record)
+        # Update scan record with final results
+        # Skip instant connection failures (0s errors = backend unavailable, not a real scan)
+        if not result.success and result.elapsed_s < 0.5 and not result.stdout:
+            logger.info(f"Removing scan record for {tool_name}: instant failure (backend unavailable)")
+            self.state.scans = [s for s in self.state.scans if s["id"] != scan_record["id"]]
+        else:
+            # Tools like Nikto exit non-zero even on success; treat as completed if we got output
+            scan_record["status"] = "completed" if (result.success or result.stdout) else "error"
+            scan_record["duration_s"] = round(result.elapsed_s)
+            scan_record["completed_at"] = end_iso
+            scan_record["output_preview"] = (result.stdout[:500] if result.stdout else "")
 
-        # Broadcast scan update so Scans page refreshes in real-time
-        await self.state.broadcast({
-            "type": "scan_complete",
-            "scan": scan_record,
-            "timestamp": time.time(),
-        })
+            # Broadcast scan completion so Scans page updates in real-time
+            await self.state.broadcast({
+                "type": "scan_complete",
+                "scan": scan_record,
+                "timestamp": time.time(),
+            })
+
+        # Generic credential extraction from ANY tool output
+        if result.stdout and result.success:
+            await self._extract_credentials_from_output(
+                tool_name, result.stdout,
+                params.get("target", params.get("url", "")),
+            )
 
         return result
+
+    async def _extract_credentials_from_output(
+        self, tool_name: str, output: str, target: str,
+    ):
+        """Parse tool output for credential patterns from any tool.
+
+        Patterns detected:
+        - Hydra:     [22][ssh] host: 10.0.0.1   login: admin   password: admin123
+        - NetExec:   SMB  10.0.0.1  445  WORKGROUP  [+] admin:password (Pwned!)
+        - CrackMapExec: same as NetExec
+        - Nuclei:    [default-login] ... login=admin&password=admin
+        - Nmap NSE:  Credentials valid: admin:admin, ...
+        - Generic:   username: X  password: Y  (case insensitive)
+        """
+        import re as _re
+
+        found = []
+
+        # Hydra-style: [port][service] host: X   login: Y   password: Z
+        for m in _re.finditer(
+            r'\[(\d+)\]\[(\w+)\]\s*host:\s*(\S+)\s+login:\s*(\S+)\s+password:\s*(\S+)',
+            output, _re.IGNORECASE,
+        ):
+            found.append({
+                "username": m.group(4),
+                "password": "***",
+                "service": m.group(2).upper(),
+                "port": m.group(1),
+                "host": m.group(3),
+                "source": f"Hydra ({tool_name})",
+                "type": "harvested",
+                "access_level": "user",
+            })
+
+        # NetExec/CrackMapExec: [+] user:password (Pwned!)
+        for m in _re.finditer(
+            r'\[\+\]\s*(?:\S+\s+)?(\S+?):(\S+?)(?:\s+\(Pwned!?\)|$)',
+            output,
+        ):
+            user = m.group(1)
+            if user and user.lower() not in ("unknown", "", "smb", "ssh", "http"):
+                found.append({
+                    "username": user,
+                    "password": "***",
+                    "service": tool_name,
+                    "host": target,
+                    "source": f"NetExec/CME ({tool_name})",
+                    "type": "harvested",
+                    "access_level": "user",
+                })
+
+        # Nuclei default-login templates: often contain login=X&password=Y or user=X&pass=Y
+        for m in _re.finditer(
+            r'(?:login|user(?:name)?)=([^&\s"]+).*?(?:password|pass(?:wd)?)=([^&\s"]+)',
+            output, _re.IGNORECASE,
+        ):
+            user = m.group(1)
+            if user and user.lower() not in ("unknown", "", "{{", "{%"):
+                found.append({
+                    "username": user,
+                    "password": "***",
+                    "service": tool_name,
+                    "host": target,
+                    "source": f"Nuclei ({tool_name})",
+                    "type": "default",
+                    "access_level": "user",
+                })
+
+        # Nmap NSE credentials: "Valid credentials" or "Credentials valid"
+        for m in _re.finditer(
+            r'(?:valid\s+credentials?|credentials?\s+valid)[:\s]+(\S+):(\S+)',
+            output, _re.IGNORECASE,
+        ):
+            found.append({
+                "username": m.group(1),
+                "password": "***",
+                "service": tool_name,
+                "host": target,
+                "source": f"Nmap NSE ({tool_name})",
+                "type": "default",
+                "access_level": "user",
+            })
+
+        # Generic: "Login: X  Password: Y" or "username: X  password: Y"
+        for m in _re.finditer(
+            r'(?:login|username)\s*[=:]\s*["\']?(\S+?)["\']?\s+password\s*[=:]\s*["\']?(\S+?)["\']?(?:\s|$)',
+            output, _re.IGNORECASE,
+        ):
+            user = m.group(1)
+            if user and user.lower() not in ("unknown", "", "none", "null"):
+                found.append({
+                    "username": user,
+                    "password": "***",
+                    "service": tool_name,
+                    "host": target,
+                    "source": tool_name,
+                    "type": "harvested",
+                    "access_level": "user",
+                })
+
+        # Deduplicate by username+host before recording
+        seen = set()
+        for cred in found:
+            key = f"{cred['username']}@{cred.get('host', '')}:{cred.get('port', '')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            # Determine access level from username
+            if cred["username"].lower() in ("root", "administrator", "admin", "system"):
+                cred["access_level"] = "root"
+            await self.state.add_credential(self.ctx.engagement_id, cred)
 
     async def _stream_output(self, tool_id: str, output: str, chunk_size: int = 512):
         """Stream tool output in chunks to WebSocket clients."""
@@ -279,7 +449,7 @@ class AgentRunner:
         write_neo4j: bool = True,
     ):
         """Report a vulnerability finding to Neo4j and dashboard."""
-        self._check_stopped()
+        await self._checkpoint()
         from server import Finding, Severity
 
         normalized_title = self._normalize_finding_title(title)
@@ -498,7 +668,7 @@ class AgentRunner:
 
         Returns True if approved, False if rejected.
         """
-        self._check_stopped()
+        await self._checkpoint()
         from server import ApprovalRequest, ApprovalStatus
 
         approval_id = str(uuid.uuid4())[:8]
@@ -558,6 +728,7 @@ class AgentRunner:
 
     async def complete(self, summary: str = ""):
         """Mark agent as completed."""
+        await self._checkpoint()
         from server import AgentEvent, AgentStatus
         await self.state.update_agent_status(self.agent, AgentStatus.COMPLETED)
         if summary:
@@ -782,6 +953,7 @@ class Orchestrator:
                     f"1 finding reported."
                 )
                 await self.state.update_agent_status("OR", AgentStatus.COMPLETED)
+                await self._update_engagement_status(engagement_id, "completed")
                 return
 
             await self._phase_threat_modeling(ctx)
@@ -798,6 +970,9 @@ class Orchestrator:
             )
             # Mark Orchestrator as completed so pulse dot stops
             await self.state.update_agent_status("OR", AgentStatus.COMPLETED)
+
+            # Update engagement status in Neo4j
+            await self._update_engagement_status(engagement_id, "completed")
 
         except EngagementStopped:
             await self._emit_phase("STOPPED")
@@ -1541,18 +1716,55 @@ class Orchestrator:
                     cve=vuln.get("cve_id", ""),
                     evidence=output[:2000],
                 )
-                # Track credential if session opened
+                # Track credential / access from session — only if a REAL username was found
                 if session_opened:
-                    await self.state.add_credential(
-                        ctx.engagement_id,
-                        {
-                            "username": "session",
-                            "source": f"Metasploit ({module['module_path']})",
-                            "host": rhost,
-                            "type": "exploited",
-                            "finding_id": ctx.findings[-1]["id"] if ctx.findings else "",
-                        },
+                    # Parse session details from Metasploit output
+                    # Typical: "Meterpreter session 1 opened (10.0.0.1:4444 -> 10.1.1.25:52432)"
+                    # or "Command shell session 1 opened ..."
+                    sess_type = "meterpreter" if "meterpreter" in output.lower() else "shell"
+                    # Extract UID if present (e.g., "Server username: www-data")
+                    uid_match = _re.search(
+                        r'(?:uid=\d+\((\w+)\)|Server username:\s*(\S+)|'
+                        r'running as[:\s]+(\S+)|current user[:\s]+(\S+))',
+                        output, _re.IGNORECASE,
                     )
+                    username = None
+                    if uid_match:
+                        username = next((g for g in uid_match.groups() if g), None)
+                    # Only record credential if we got a real username
+                    if username:
+                        # Determine access level from output
+                        access_level = "user"
+                        if any(w in output.lower() for w in ("uid=0", "root", "nt authority\\system", "admin")):
+                            access_level = "root"
+                        # Determine port/service from module path
+                        mod_path = module["module_path"]
+                        service = "unknown"
+                        for svc_hint, svc_name in [
+                            ("http", "HTTP"), ("apache", "HTTP"), ("tomcat", "HTTP/Tomcat"),
+                            ("smb", "SMB"), ("ssh", "SSH"), ("ftp", "FTP"), ("mysql", "MySQL"),
+                            ("postgres", "PostgreSQL"), ("php", "PHP/CGI"), ("java", "Java"),
+                            ("distcc", "distccd"), ("samba", "Samba"), ("vnc", "VNC"),
+                        ]:
+                            if svc_hint in mod_path.lower():
+                                service = svc_name
+                                break
+                        await self.state.add_credential(
+                            ctx.engagement_id,
+                            {
+                                "username": username,
+                                "access_level": access_level,
+                                "session_type": sess_type,
+                                "service": service,
+                                "port": rport or "—",
+                                "source": f"Metasploit ({mod_path})",
+                                "host": rhost,
+                                "type": "exploited",
+                                "finding_id": ctx.findings[-1]["id"] if ctx.findings else "",
+                                "vuln_name": vuln.get("name", ""),
+                                "cve": vuln.get("cve_id", ""),
+                            },
+                        )
             else:
                 # Module ran but no session — still report as validated attempt
                 await ex.think(
@@ -1679,17 +1891,27 @@ class Orchestrator:
                                     target=r["host"],
                                     description=r["info"],
                                 )
-                                # Track credential harvest
-                                await self.state.add_credential(
-                                    ctx.engagement_id,
-                                    {
-                                        "username": r.get("username", "unknown"),
-                                        "source": "NetExec SMB",
-                                        "host": r["host"],
-                                        "type": "default" if "default" in r.get("info", "").lower() else "harvested",
-                                        "finding_id": ctx.findings[-1]["id"] if ctx.findings else "",
-                                    },
-                                )
+                                # Track credential harvest — only if real username found
+                                nxc_user = r.get("username", "")
+                                if nxc_user and nxc_user.lower() != "unknown":
+                                    info_lower = r.get("info", "").lower()
+                                    cred_type = "default" if "default" in info_lower else (
+                                        "weak" if any(w in info_lower for w in ("weak", "password1", "123")) else "harvested"
+                                    )
+                                    await self.state.add_credential(
+                                        ctx.engagement_id,
+                                        {
+                                            "username": nxc_user,
+                                            "access_level": "admin" if "admin" in info_lower else "user",
+                                            "service": f"SMB ({r.get('protocol', 'smb').upper()})",
+                                            "port": str(r.get("port", 445)),
+                                            "source": "NetExec",
+                                            "host": r["host"],
+                                            "hostname": r.get("hostname", ""),
+                                            "type": cred_type,
+                                            "finding_id": ctx.findings[-1]["id"] if ctx.findings else "",
+                                        },
+                                    )
 
         await pe.complete("Post-exploitation analysis complete.")
 
@@ -1783,11 +2005,20 @@ class Orchestrator:
         return {"targets": [], "exclusions": []}
 
     async def _detect_target_type(self, scope: dict) -> str:
-        """Detect if targets are internal or external."""
+        """Detect if targets are internal or external.
+
+        Special case: 10.1.1.0/24 is the Antsle bridge network — targets
+        there are reachable only from the external (Antsle) Kali backend,
+        so they map to "external" despite being RFC-1918 addresses.
+        """
         import ipaddress
+        antsle_bridge = ipaddress.ip_network("10.1.1.0/24")
         for target in scope.get("targets", []):
             try:
                 net = ipaddress.ip_network(target, strict=False)
+                # Antsle bridge targets use the external Kali backend
+                if net.subnet_of(antsle_bridge):
+                    return "external"
                 if net.is_private:
                     return "internal"
             except ValueError:
@@ -1799,6 +2030,26 @@ class Orchestrator:
         await self.state.broadcast({
             "type": "phase_update",
             "phase": phase,
+            "timestamp": time.time(),
+        })
+
+    async def _update_engagement_status(self, eid: str, status: str):
+        """Update engagement status in Neo4j and broadcast to clients."""
+        from server import neo4j_available, neo4j_driver
+        if neo4j_available and neo4j_driver:
+            try:
+                with neo4j_driver.session() as session:
+                    session.run(
+                        "MATCH (e:Engagement {id: $eid}) SET e.status = $status",
+                        eid=eid, status=status,
+                    )
+            except Exception as e:
+                logger.warning("Failed to update engagement status in Neo4j: %s", e)
+        # Broadcast so Engagements page updates in real-time
+        await self.state.broadcast({
+            "type": "engagement_status",
+            "engagement_id": eid,
+            "status": status,
             "timestamp": time.time(),
         })
 

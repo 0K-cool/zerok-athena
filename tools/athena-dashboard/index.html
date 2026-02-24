@@ -600,6 +600,16 @@
       animation: engDotPulse 1.5s ease-in-out infinite;
     }
     .engagement-running-badge.active { display: inline-flex; }
+    .engagement-running-badge.paused {
+      display: inline-flex;
+      background: rgba(251, 191, 36, 0.15);
+      color: #fbbf24;
+      animation: none;
+    }
+    .engagement-running-badge.paused .eng-dot {
+      background: #fbbf24;
+      animation: engDotPulse 2.5s ease-in-out infinite;
+    }
     @keyframes engBadgePulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.7; }
@@ -650,6 +660,11 @@
       flex: 1;
       padding: var(--zerok-content-padding);
       overflow-y: auto;
+      scrollbar-width: none;        /* Firefox */
+      -ms-overflow-style: none;     /* IE/Edge */
+    }
+    .content::-webkit-scrollbar {
+      display: none;                /* Chrome/Safari */
     }
 
     /* Minimal theme: Uniform frame, left tight to sidebar */
@@ -770,7 +785,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 4px;
+      padding: 6px 4px;
       gap: 0;
     }
     .kill-chain-step {
@@ -825,14 +840,14 @@
     .cred-tracker {
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      padding: 8px 0;
+      gap: 6px;
+      padding: 4px 0;
     }
     .cred-row {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 8px 12px;
+      gap: 10px;
+      padding: 6px 10px;
       background: #1a1a1a;
       border-radius: 6px;
       cursor: pointer;
@@ -840,14 +855,14 @@
     }
     .cred-row:hover { background: #252525; }
     .cred-icon {
-      width: 28px;
-      height: 28px;
+      width: 22px;
+      height: 22px;
       flex-shrink: 0;
     }
     .cred-count {
-      font-size: 22px;
+      font-size: 18px;
       font-weight: 700;
-      min-width: 30px;
+      min-width: 26px;
     }
     .cred-label {
       font-size: 12px;
@@ -870,16 +885,21 @@
       gap: 6px;
       margin-bottom: 6px;
     }
+    .widget-grid:last-child {
+      margin-bottom: 0;
+    }
 
     .widget {
       background: var(--zerok-card);
       border: var(--zerok-card-border);
       border-radius: 0;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .widget-header {
-      padding: 10px 14px;
+      padding: 6px 14px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -919,7 +939,22 @@
     }
 
     .widget-body {
-      padding: 12px;
+      padding: 8px 12px;
+      flex: 1;
+    }
+
+    .widget-body::-webkit-scrollbar {
+      width: 4px;
+    }
+    .widget-body::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .widget-body::-webkit-scrollbar-thumb {
+      background: var(--zerok-border);
+      border-radius: 2px;
+    }
+    .widget-body::-webkit-scrollbar-thumb:hover {
+      background: var(--zerok-text-dim);
     }
 
     /* Layer Grid */
@@ -1047,20 +1082,23 @@
     .full-width {
       margin-bottom: 6px;
     }
+    .full-width:last-child {
+      margin-bottom: 0;
+    }
 
     /* Framework Coverage Matrix Widget */
     .framework-matrix {
       background: var(--zerok-card);
       border: var(--zerok-card-border);
       border-radius: 0;  /* Square corners to match matrix style */
-      padding: 16px;
+      padding: 12px;
     }
 
     .framework-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
+      margin-bottom: 10px;
     }
 
     .framework-tabs {
@@ -1144,7 +1182,7 @@
     .tactic-header {
       background: var(--zerok-primary);
       color: white;
-      padding: 8px 6px;
+      padding: 10px 6px;
       font-size: 10px;
       font-weight: 600;
       text-align: center;
@@ -1157,13 +1195,13 @@
 
     /* Technique Cell */
     .technique-cell {
-      padding: 6px 5px;
+      padding: 7px 5px;
       font-size: 9px;
       text-align: center;
       cursor: pointer;
       transition: all 0.15s ease;
       border-radius: 0;  /* Square corners */
-      min-height: 36px;
+      min-height: 35px;
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -1225,7 +1263,7 @@
     /* Bar chart mock */
     .bar-chart-wrapper {
       display: flex;
-      height: 140px;
+      height: 120px;
       gap: 0;
     }
 
@@ -1561,6 +1599,11 @@
       background: var(--zerok-text-dim);
     }
 
+    .engagement-status-dot.paused {
+      background: #fbbf24;
+      animation: engDotPulse 2.5s ease-in-out infinite;
+    }
+
     .engagement-name {
       flex: 1;
       min-width: 0;
@@ -1656,6 +1699,9 @@
     .modal-header {
       padding: 20px 24px;
       border-bottom: 1px solid var(--zerok-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
 
     .modal-title {
@@ -1663,6 +1709,26 @@
       font-weight: 600;
       color: var(--zerok-text);
       margin: 0;
+    }
+
+    .modal-close {
+      background: none;
+      border: 1px solid var(--zerok-border);
+      color: var(--zerok-text-muted);
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .modal-close:hover {
+      background: var(--zerok-border);
+      color: var(--zerok-text);
     }
 
     .modal-body {
@@ -1787,6 +1853,25 @@
 
     .modal-btn-danger:hover {
       background: color-mix(in srgb, var(--zerok-critical) 85%, white);
+    }
+
+    .btn-danger-sm {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border: 1px solid var(--zerok-border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--zerok-text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-danger-sm:hover {
+      border-color: var(--zerok-critical);
+      color: var(--zerok-critical);
+      background: rgba(239, 68, 68, 0.1);
     }
 
     .modal-btn-warning {
@@ -2325,6 +2410,16 @@
     .scan-status-badge.queued {
       background: color-mix(in srgb, var(--zerok-warning) 20%, transparent);
       color: var(--zerok-warning);
+    }
+
+    .scan-status-badge.cancelled {
+      background: color-mix(in srgb, var(--zerok-high) 20%, transparent);
+      color: var(--zerok-high);
+    }
+
+    .scan-status-badge.paused {
+      background: color-mix(in srgb, var(--zerok-primary) 20%, transparent);
+      color: var(--zerok-primary);
     }
 
     .scan-status-badge.error {
@@ -3018,9 +3113,27 @@
       animation: event-slide-in 0.3s ease-out;
     }
 
-    /* Compact status events — HIDDEN (cards already show agent activity) */
+    /* Compact status events — condensed display for replayed history */
     .timeline-event.compact {
-      display: none;
+      padding: 4px 8px;
+      gap: 6px;
+      font-size: 11px;
+    }
+    .timeline-event.compact .timeline-icon {
+      width: 18px;
+      height: 18px;
+      font-size: 10px;
+    }
+    .timeline-event.compact .timeline-header {
+      gap: 4px;
+    }
+    .timeline-event.compact .timeline-text {
+      font-size: 11px;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
     }
 
     @keyframes event-slide-in {
@@ -3346,6 +3459,16 @@
       color: var(--zerok-low);
     }
 
+    .tool-status-badge.cancelled {
+      background: color-mix(in srgb, var(--zerok-high) 12%, transparent);
+      color: var(--zerok-high);
+    }
+
+    .tool-status-badge.paused {
+      background: color-mix(in srgb, var(--zerok-primary) 12%, transparent);
+      color: var(--zerok-primary);
+    }
+
     .tool-name-badge {
       display: inline-block;
       font-size: 10px;
@@ -3496,6 +3619,12 @@
       animation: none;
     }
 
+    .tool-progress-fill.cancelled {
+      width: 100%;
+      background: var(--zerok-high);
+      animation: none;
+    }
+
     @keyframes progress-indeterminate {
       0% { width: 10%; margin-left: 0; }
       50% { width: 60%; margin-left: 20%; }
@@ -3515,6 +3644,10 @@
 
     .tool-timer.done {
       color: var(--zerok-low);
+    }
+
+    .tool-timer.cancelled {
+      color: var(--zerok-high);
     }
 
     /* ── Clickable Agent Chips (Filter) ── */
@@ -4117,6 +4250,7 @@
             <path d="M8 6h2M6 8v2M12 8v2M8 12h2"/>
           </svg>
           <span class="nav-label">Attack Graph</span>
+          <span class="nav-badge" id="nav-badge-attack-graph" style="display:none">0</span>
         </button>
         <button class="nav-item">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -4313,16 +4447,6 @@
             </div>
             <div class="stat-value-row">
               <span class="stat-value" id="kpi-engagements">0</span>
-              <span class="stat-change" style="color: var(--zerok-text-dim);">—</span>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-header">
-              <span class="stat-label">Total Findings</span>
-            </div>
-            <div class="stat-value-row">
-              <span class="stat-value" id="kpi-findings" style="color: var(--zerok-critical);">0</span>
-              <span class="stat-change" style="color: var(--zerok-text-dim);">—</span>
             </div>
           </div>
           <div class="stat-card">
@@ -4334,13 +4458,29 @@
               <span style="font-size: 16px; color: var(--zerok-text-dim);">hosts</span>
             </div>
           </div>
+          <!-- Open Ports KPI Card -->
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Open Ports</span>
+            </div>
+            <div class="stat-value-row">
+              <span class="stat-value" id="kpi-open-ports" style="color: var(--zerok-primary);">0</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Total Findings</span>
+            </div>
+            <div class="stat-value-row">
+              <span class="stat-value" id="kpi-findings" style="color: var(--zerok-critical);">0</span>
+            </div>
+          </div>
           <div class="stat-card">
             <div class="stat-header">
               <span class="stat-label">Confirmed Exploits</span>
             </div>
             <div class="stat-value-row">
               <span class="stat-value" id="kpi-criticals" style="color: var(--zerok-high);">0</span>
-              <span class="stat-change" style="color: var(--zerok-text-dim);">—</span>
             </div>
           </div>
           <!-- MTTE KPI Card -->
@@ -4351,16 +4491,6 @@
             </div>
             <div class="stat-value-row">
               <span class="stat-value" id="kpi-mtte" style="color: var(--zerok-info);">—</span>
-            </div>
-          </div>
-          <!-- Open Ports KPI Card -->
-          <div class="stat-card">
-            <div class="stat-header">
-              <span class="stat-label">Open Ports</span>
-            </div>
-            <div class="stat-value-row">
-              <span class="stat-value" id="kpi-open-ports" style="color: var(--zerok-primary);">0</span>
-              <span class="stat-change" style="color: var(--zerok-text-dim);">—</span>
             </div>
           </div>
         </div>
@@ -4446,7 +4576,7 @@
               <span class="widget-title">Scan Coverage</span>
             </div>
             <div class="widget-body" style="display: flex; align-items: center; justify-content: center; min-height: 120px;">
-              <div style="position: relative; width: 100px; height: 100px;" id="scan-coverage-ring">
+              <div style="position: relative; width: 130px; height: 130px;" id="scan-coverage-ring">
                 <svg viewBox="0 0 100 100" style="transform: rotate(-90deg);">
                   <circle cx="50" cy="50" r="40" fill="none" stroke="var(--zerok-border)" stroke-width="8"/>
                   <circle cx="50" cy="50" r="40" fill="none" stroke="var(--zerok-primary)" stroke-width="8"
@@ -4462,14 +4592,30 @@
         </div>
 
         <!-- Widget Row 2 -->
-        <div class="two-columns">
+        <div class="widget-grid" style="grid-template-columns: 0.8fr 1.2fr 1fr;">
+          <!-- Vulnerability Status Donut -->
+          <div class="widget">
+            <div class="widget-header">
+              <span class="widget-title">Vulnerability Status</span>
+            </div>
+            <div class="widget-body" style="display: flex; align-items: center; justify-content: center; padding: 8px;">
+              <div style="position: relative; width: 100%; height: 160px;">
+                <canvas id="vulnStatusDonut"></canvas>
+                <div id="vuln-donut-center" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; pointer-events: none;">
+                  <span style="font-size: 22px; font-weight: 700; color: var(--zerok-text);" id="vuln-donut-total">0</span>
+                  <span style="font-size: 9px; color: var(--zerok-text-dim);">Total</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Recent Findings -->
           <div class="widget">
             <div class="widget-header">
               <span class="widget-title">Recent Findings</span>
               <button class="widget-action" onclick="switchView('findings')">See All</button>
             </div>
-            <div class="widget-body" id="recent-findings-body">
+            <div class="widget-body" id="recent-findings-body" style="max-height: 180px; overflow-y: auto;">
               <div style="text-align: center; padding: 24px 0; color: var(--zerok-text-dim); font-size: 12px; opacity: 0.6;">
                 No findings yet. Start an engagement to discover vulnerabilities.
               </div>
@@ -4482,7 +4628,7 @@
               <span class="widget-title">Top Vulnerability Categories</span>
               <span style="font-size: 11px; color: var(--zerok-text-dim);">All Engagements</span>
             </div>
-            <div class="widget-body" id="top-vulns-body">
+            <div class="widget-body" id="top-vulns-body" style="max-height: 180px; overflow-y: auto;">
               <div style="text-align: center; padding: 24px 0; color: var(--zerok-text-dim); font-size: 12px; opacity: 0.6;">
                 No vulnerability data yet.
               </div>
@@ -4491,7 +4637,7 @@
         </div>
 
         <!-- Advanced Charts Row -->
-        <div class="widget-grid">
+        <div class="widget-grid" style="grid-template-columns: 1.2fr 1fr 0.8fr;">
           <!-- Area Chart with Gradient -->
           <div class="widget">
             <div class="widget-header">
@@ -4499,7 +4645,7 @@
               <span style="font-size: 11px; color: var(--zerok-text-dim);">Last 30 days</span>
             </div>
             <div class="widget-body">
-              <canvas id="areaChart" height="140"></canvas>
+              <canvas id="areaChart" height="145"></canvas>
             </div>
           </div>
 
@@ -4509,8 +4655,8 @@
               <span class="widget-title">Kill Chain Depth</span>
               <span style="font-size: 11px; color: var(--zerok-text-dim);" id="killchain-stage">No activity</span>
             </div>
-            <div class="widget-body">
-              <div class="kill-chain-stepper" id="kill-chain-stepper">
+            <div class="widget-body" style="display: flex; align-items: center; height: 100%;">
+              <div class="kill-chain-stepper" id="kill-chain-stepper" style="width: 100%;">
                 <div class="kill-chain-step" data-stage="initial_access">
                   <div class="kill-chain-node" style="--kc-color: #22c55e;"></div>
                   <span class="kill-chain-label">Init Access</span>
@@ -4544,19 +4690,36 @@
             </div>
           </div>
 
-          <!-- Exploitation Success Rate — Gauge -->
+          <!-- Exploitation Success Rate — Semi-circular SVG Gauge -->
           <div class="widget">
             <div class="widget-header">
               <span class="widget-title">Exploitation Success Rate</span>
             </div>
-            <div class="widget-body" style="display: flex; justify-content: center; align-items: center;">
-              <div style="position: relative; width: 160px; height: 100px;">
-                <canvas id="exploitGaugeChart"></canvas>
-                <div style="position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; pointer-events: none;">
-                  <span style="font-size: 22px; font-weight: 700; color: var(--zerok-primary);" id="gauge-center-pct">0%</span>
-                  <span style="font-size: 10px; color: var(--zerok-text-dim);" id="gauge-center-sub">0 of 0 confirmed</span>
+            <div class="widget-body" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 120px; padding: 8px 0;">
+              <div style="position: relative; width: 200px; height: 105px;" id="exploit-gauge-ring">
+                <svg viewBox="0 0 200 115" width="200" height="105">
+                  <defs>
+                    <linearGradient id="exploitGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#dc2626"/>
+                      <stop offset="100%" stop-color="#ef4444"/>
+                    </linearGradient>
+                  </defs>
+                  <!-- Background arc (dim) -->
+                  <path d="M 24,95 A 76,76 0 0,1 176,95" fill="none" stroke="var(--zerok-border)" stroke-width="12" stroke-linecap="round"/>
+                  <!-- Progress arc (red gradient) -->
+                  <path d="M 24,95 A 76,76 0 0,1 176,95" fill="none" stroke="url(#exploitGaugeGradient)" stroke-width="12" stroke-linecap="round"
+                    stroke-dasharray="238.76" stroke-dashoffset="238.76" id="exploit-gauge-arc"/>
+                  <!-- 0 label -->
+                  <text x="24" y="113" fill="var(--zerok-text-dim)" font-size="11" font-family="Inter, sans-serif" text-anchor="middle">0</text>
+                  <!-- 100 label -->
+                  <text x="176" y="113" fill="var(--zerok-text-dim)" font-size="11" font-family="Inter, sans-serif" text-anchor="middle">100</text>
+                </svg>
+                <!-- Percentage centered in arc -->
+                <div style="position: absolute; top: 48%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                  <span style="font-size: 28px; font-weight: 700; color: #ef4444;" id="gauge-center-pct">0%</span>
                 </div>
               </div>
+              <span style="font-size: 10px; color: var(--zerok-text-dim); margin-top: -4px;" id="gauge-center-sub">0 of 0 confirmed</span>
             </div>
           </div>
         </div>
@@ -4570,7 +4733,7 @@
               <span style="font-size: 11px; color: var(--zerok-text-dim);">Finding Categories</span>
             </div>
             <div class="widget-body">
-              <canvas id="radarChart" height="160"></canvas>
+              <canvas id="radarChart" height="140"></canvas>
             </div>
           </div>
 
@@ -4581,7 +4744,7 @@
               <span style="font-size: 11px; color: var(--zerok-text-dim);">CVSS × Hosts</span>
             </div>
             <div class="widget-body">
-              <canvas id="remediationChart" height="160"></canvas>
+              <canvas id="remediationChart" height="140"></canvas>
             </div>
           </div>
 
@@ -4907,7 +5070,7 @@
             <h2 class="findings-title">Engagements</h2>
             <button class="modal-btn modal-btn-primary" onclick="openCreateEngagementModal()" style="font-size: 12px;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M12 5v14M5 12h14"/></svg>
-              + New Engagement
+              New Engagement
             </button>
           </div>
 
@@ -4965,8 +5128,8 @@
         <div id="findingsView" class="findings-view">
           <div class="findings-header">
             <h2 class="findings-title">Findings</h2>
-            <button class="modal-btn modal-btn-danger" id="clearFindingsBtn" onclick="clearFindings()" style="font-size: 12px;">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px; margin-right: 4px;"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6"/></svg>
+            <button class="btn-danger-sm" id="clearFindingsBtn" onclick="clearFindings()" title="Delete all findings for this engagement">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
               Delete Findings
             </button>
           </div>
@@ -5029,6 +5192,10 @@
         <div id="scansView" class="findings-view">
           <div class="findings-header">
             <h2 class="findings-title">Scans</h2>
+            <button class="btn-danger-sm" onclick="clearAllScans()" title="Delete all scan records for this engagement">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+              Delete Scans
+            </button>
           </div>
 
           <div class="stat-grid">
@@ -5103,8 +5270,8 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6"/></svg>
                 Clear View
               </button>
-              <button class="modal-btn modal-btn-danger" id="deleteGraphBtn" onclick="deleteAttackGraph()" style="font-size: 12px; margin-left: 4px;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px; margin-right: 4px;"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6"/></svg>
+              <button class="btn-danger-sm" id="deleteGraphBtn" onclick="deleteAttackGraph()" title="Delete graph data from Neo4j">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                 Delete Graph
               </button>
             </div>
@@ -5490,7 +5657,7 @@
 
     // Chart instances (for cleanup on theme change)
     let areaChart;
-    let exploitGaugeChart, radarChart, remediationChart, mtteSparkline;
+    let radarChart, remediationChart, mtteSparkline, vulnStatusDonut;
 
     function initCharts() {
       const primaryColor = getPrimaryColor();
@@ -5498,11 +5665,10 @@
 
       // Destroy existing charts if they exist
       if (areaChart) areaChart.destroy();
-      // (radarChart and donutChart removed — replaced by kill chain + exploit gauge)
-      if (exploitGaugeChart) exploitGaugeChart.destroy();
       if (radarChart) radarChart.destroy();
       if (remediationChart) remediationChart.destroy();
       if (mtteSparkline) mtteSparkline.destroy();
+      if (vulnStatusDonut) vulnStatusDonut.destroy();
 
       // Common chart defaults
       Chart.defaults.color = '#a0a0a0';
@@ -5592,30 +5758,124 @@
         }
       });
 
-      // ===== Exploitation Success Rate — Half-Circle Gauge =====
-      const gaugeCtx = document.getElementById('exploitGaugeChart');
-      if (gaugeCtx) {
-        const gctx = gaugeCtx.getContext('2d');
-        const gaugeGradient = gctx.createLinearGradient(0, 0, 160, 0);
-        gaugeGradient.addColorStop(0, primaryColor);
-        gaugeGradient.addColorStop(1, primaryColor + 'aa');
-        exploitGaugeChart = new Chart(gctx, {
+      // ===== Exploitation Success Rate — SVG Gauge (no Chart.js) =====
+      // Handled via updateExploitGauge() — pure SVG arc manipulation
+
+      // ===== Vulnerability Status — Donut Chart with Leader Lines =====
+      const vulnDonutCtx = document.getElementById('vulnStatusDonut');
+      if (vulnDonutCtx) {
+        // Leader-lines plugin: draws spider lines from each segment to labels
+        const leaderLinesPlugin = {
+          id: 'vulnLeaderLines',
+          afterDraw(chart) {
+            const { ctx, data, chartArea } = chart;
+            const dataset = data.datasets[0];
+            const total = dataset.data.reduce((a, b) => a + b, 0);
+            if (total === 0) return;
+
+            const meta = chart.getDatasetMeta(0);
+            const centerX = (chartArea.left + chartArea.right) / 2;
+            const centerY = (chartArea.top + chartArea.bottom) / 2;
+            const outerRadius = meta.data[0] ? meta.data[0].outerRadius : 0;
+            if (!outerRadius) return;
+
+            const lineLen1 = 12;  // radial segment
+            const lineLen2 = 18;  // horizontal segment
+            const colors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'];
+            const labels = data.labels;
+
+            ctx.save();
+            ctx.font = '600 10px Inter, sans-serif';
+            ctx.textBaseline = 'middle';
+
+            meta.data.forEach((arc, i) => {
+              if (dataset.data[i] === 0) return;
+              const midAngle = (arc.startAngle + arc.endAngle) / 2;
+              const cos = Math.cos(midAngle);
+              const sin = Math.sin(midAngle);
+
+              // Point on outer edge
+              const x1 = centerX + cos * outerRadius;
+              const y1 = centerY + sin * outerRadius;
+              // End of radial segment
+              const x2 = centerX + cos * (outerRadius + lineLen1);
+              const y2 = centerY + sin * (outerRadius + lineLen1);
+              // Horizontal endpoint
+              const dir = cos >= 0 ? 1 : -1;
+              const x3 = x2 + dir * lineLen2;
+              const y3 = y2;
+
+              // Draw leader line
+              ctx.beginPath();
+              ctx.moveTo(x1, y1);
+              ctx.lineTo(x2, y2);
+              ctx.lineTo(x3, y3);
+              ctx.strokeStyle = colors[i] || '#666';
+              ctx.lineWidth = 1;
+              ctx.stroke();
+
+              // Small dot at segment edge
+              ctx.beginPath();
+              ctx.arc(x1, y1, 2, 0, Math.PI * 2);
+              ctx.fillStyle = colors[i] || '#666';
+              ctx.fill();
+
+              // Label text
+              ctx.textAlign = dir >= 0 ? 'left' : 'right';
+              const textX = x3 + dir * 4;
+              ctx.fillStyle = '#a0a0a0';
+              ctx.fillText(labels[i], textX, y3);
+              // Count value (bold, white)
+              const labelWidth = ctx.measureText(labels[i]).width;
+              ctx.fillStyle = colors[i] || '#fff';
+              ctx.fillText(' ' + dataset.data[i], textX + (dir >= 0 ? labelWidth : -labelWidth), y3);
+            });
+            ctx.restore();
+          }
+        };
+
+        vulnStatusDonut = new Chart(vulnDonutCtx.getContext('2d'), {
           type: 'doughnut',
           data: {
-            labels: ['Exploited', 'Remaining'],
+            labels: ['Critical', 'High', 'Medium', 'Low', 'Info'],
             datasets: [{
-              data: [0, 100],
-              backgroundColor: [gaugeGradient, '#2a2a2a'],
-              borderWidth: 0,
+              data: [0, 0, 0, 0, 0],
+              backgroundColor: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'],
+              borderWidth: 3,
+              borderColor: '#1a1a1a',
+              hoverBorderWidth: 3,
+              hoverBorderColor: '#fff',
+              spacing: 2,
+              borderRadius: 4,
             }]
           },
+          plugins: [leaderLinesPlugin],
           options: {
             responsive: true,
             maintainAspectRatio: false,
-            rotation: -90,
-            circumference: 180,
-            cutout: '75%',
-            plugins: { legend: { display: false }, tooltip: { enabled: false } }
+            cutout: '80%',
+            layout: { padding: { top: 20, bottom: 20, left: 50, right: 50 } },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: '#1e1e1e',
+                titleColor: '#fff',
+                bodyColor: '#a0a0a0',
+                borderColor: '#3a3a3a',
+                borderWidth: 1,
+                padding: 8,
+                displayColors: true,
+                boxWidth: 10,
+                boxHeight: 10,
+                callbacks: {
+                  label: function(ctx) {
+                    const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                    const pct = total ? Math.round((ctx.raw / total) * 100) : 0;
+                    return ` ${ctx.label}: ${ctx.raw} (${pct}%)`;
+                  }
+                }
+              }
+            }
           }
         });
       }
@@ -5642,19 +5902,17 @@
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            layout: { padding: { top: -6, bottom: 0, left: 4, right: 4 } },
             plugins: {
               legend: {
-                display: true,
-                position: 'top',
-                align: 'end',
-                labels: { boxWidth: 12, boxHeight: 2, padding: 8, font: { size: 9 } }
+                display: false
               }
             },
             scales: {
               r: {
                 angleLines: { color: '#3a3a3a' },
                 grid: { color: '#3a3a3a' },
-                pointLabels: { font: { size: 9 }, color: '#a0a0a0' },
+                pointLabels: { font: { size: 10 }, color: '#a0a0a0', padding: 2 },
                 ticks: { display: false },
                 suggestedMin: 0,
                 suggestedMax: 100
@@ -5684,11 +5942,12 @@
                 }
               }
             },
+            layout: { padding: { top: 16, right: 16 } },
             scales: {
               x: { title: { display: true, text: 'CVSS', font: { size: 10 }, color: '#666' },
-                   min: 0, max: 10, grid: { color: '#2a2a2a' }, ticks: { font: { size: 9 } } },
+                   min: 0, max: 10.5, grid: { color: '#2a2a2a' }, ticks: { font: { size: 9 }, callback: v => v <= 10 ? v : '' } },
               y: { title: { display: true, text: 'Hosts', font: { size: 10 }, color: '#666' },
-                   min: 0, grid: { color: '#2a2a2a' }, ticks: { font: { size: 9 }, stepSize: 1 } }
+                   min: 0, suggestedMax: 3, grid: { color: '#2a2a2a' }, ticks: { font: { size: 9 }, stepSize: 1 } }
             }
           }
         });
@@ -5912,9 +6171,7 @@
       if (type === 'agent_status') {
         updateAgentChip(msg.agent, msg.status);
         updatePulseDot();
-        if (msg.status === 'running') {
-          addTimelineEvent(msg, false, true); // compact=true for status events
-        }
+        // Skip timeline entry — agent chips already show status; STATUS lines are noise
         // Update main dashboard agent status grid
         updateAgentStatusTile(msg.agent, msg.status);
         return;
@@ -6000,15 +6257,17 @@
         return;
       }
 
-      if (type === 'scan_complete') {
+      if (type === 'scan_update' || type === 'scan_complete') {
         // Real-time scan update — refresh Scans page if visible
         if (typeof loadScans === 'function') loadScans();
-        // Update Scans nav badge
-        const scansBadge = document.getElementById('nav-badge-scans');
-        if (scansBadge) {
-          const count = parseInt(scansBadge.textContent || '0') + 1;
-          scansBadge.textContent = count;
-          scansBadge.style.display = '';
+        // Update Scans nav badge on completion (not on running start)
+        if (type === 'scan_complete') {
+          const scansBadge = document.getElementById('nav-badge-scans');
+          if (scansBadge) {
+            const count = parseInt(scansBadge.textContent || '0') + 1;
+            scansBadge.textContent = count;
+            scansBadge.style.display = '';
+          }
         }
         return;
       }
@@ -6020,6 +6279,13 @@
           .then(credData => updateCredentialTracker(credData))
           .catch(() => {});
         showToast('warning', 'Credential Harvested', (msg.credential?.username || 'Unknown') + ' from ' + (msg.credential?.source || 'unknown'));
+        return;
+      }
+
+      if (type === 'engagement_status') {
+        // Refresh Engagements page + sidebar LED when status changes (active → completed)
+        if (typeof loadEngagementsView === 'function') loadEngagementsView();
+        if (typeof loadEngagements === 'function') loadEngagements();
         return;
       }
 
@@ -6041,6 +6307,10 @@
       // Show pending approvals
       if (msg.pending_approvals && msg.pending_approvals.length > 0) {
         showApprovalModal(msg.pending_approvals[0]);
+      }
+      // Sync engagement control state from server
+      if (msg.engagement_active) {
+        setCtrlState(msg.engagement_paused ? 'paused' : 'running');
       }
       // Skip recent_events replay — timeline starts empty until Run Demo
       // Events are delivered live via WebSocket during demo execution
@@ -6069,13 +6339,14 @@
         setCtrlState('running');
       }
 
-      // Refresh attack graph and findings when engagement completes
+      // Refresh all widgets when engagement completes
       if (msg.phase === 'COMPLETE') {
         _completedPhases.clear();
         updateScanCoverage(100);
-        // Final graph + findings refresh on completion
         if (typeof refreshAttackGraphLive === 'function') refreshAttackGraphLive();
         refreshFindingsFromApi();
+        // Refresh all KPI widgets (exploit gauge, MTTE, services, credentials, bubble chart)
+        loadDashboardFromAPI();
       }
     }
 
@@ -6089,6 +6360,20 @@
         const offset = 251 - (251 * pct / 100);
         arcEl.setAttribute('stroke-dashoffset', offset);
       }
+    }
+
+    function updateExploitGauge(rate, confirmed, total) {
+      const arcEl = document.getElementById('exploit-gauge-arc');
+      const pctEl = document.getElementById('gauge-center-pct');
+      const subEl = document.getElementById('gauge-center-sub');
+      if (arcEl) {
+        // Half-circle arc length = π * 76 ≈ 238.76
+        const arcLen = 238.76;
+        const offset = arcLen - (arcLen * (rate || 0) / 100);
+        arcEl.setAttribute('stroke-dashoffset', offset);
+      }
+      if (pctEl) pctEl.textContent = Math.round(rate || 0) + '%';
+      if (subEl) subEl.textContent = (confirmed || 0) + ' of ' + (total || 0) + ' confirmed';
     }
 
     async function refreshFindingsFromApi() {
@@ -6230,6 +6515,7 @@
     function handleToolComplete(msg) {
       const toolId = msg.metadata.tool_id;
       const tool = runningTools[toolId];
+      const isCancelled = msg.metadata && msg.metadata.cancelled;
       if (tool) {
         const elapsed = Math.round((Date.now() - tool.startTime) / 1000);
 
@@ -6239,21 +6525,21 @@
         // Update timer
         const timerEl = tool.el.querySelector('[data-timer="' + toolId + '"]');
         if (timerEl) {
-          timerEl.textContent = elapsed + 's';
-          timerEl.className = 'tool-timer done';
+          timerEl.textContent = isCancelled ? '—' : elapsed + 's';
+          timerEl.className = 'tool-timer ' + (isCancelled ? 'cancelled' : 'done');
         }
 
         // Update status badge
         const statusEl = tool.el.querySelector('[data-status-badge="' + toolId + '"]');
         if (statusEl) {
-          statusEl.textContent = 'Done (' + elapsed + 's)';
-          statusEl.className = 'tool-status-badge done';
+          statusEl.textContent = isCancelled ? 'Cancelled' : 'Done (' + elapsed + 's)';
+          statusEl.className = 'tool-status-badge ' + (isCancelled ? 'cancelled' : 'done');
         }
 
         // Update progress bar
         const progressEl = tool.el.querySelector('[data-progress="' + toolId + '"]');
         if (progressEl) {
-          progressEl.className = 'tool-progress-fill done';
+          progressEl.className = 'tool-progress-fill ' + (isCancelled ? 'cancelled' : 'done');
         }
 
         // Remove cursor
@@ -6395,8 +6681,10 @@
       // Main dashboard KPI cards
       const kpiHosts = document.getElementById('kpi-hosts');
       const kpiFindings = document.getElementById('kpi-findings');
+      const kpiOpenPorts = document.getElementById('kpi-open-ports');
       if (msg.hosts !== undefined && kpiHosts) kpiHosts.textContent = msg.hosts;
       if (msg.findings !== undefined && kpiFindings) kpiFindings.textContent = msg.findings;
+      if (msg.services !== undefined && kpiOpenPorts) kpiOpenPorts.textContent = msg.services;
 
       // Nav badge for findings
       const findingsBadge = document.getElementById('nav-badge-findings');
@@ -6496,21 +6784,25 @@
         });
       });
 
+      // Find the deepest matched stage index
       let deepest = -1;
       const stepper = document.getElementById('kill-chain-stepper');
       if (!stepper) return;
       const steps = stepper.querySelectorAll('.kill-chain-step');
       steps.forEach((step, idx) => {
-        const stageId = step.dataset.stage;
+        if (stages.has(step.dataset.stage) && idx > deepest) deepest = idx;
+      });
+
+      // Fill ALL stages up to deepest (you can't reach Execution without Init Access)
+      steps.forEach((step, idx) => {
         const node = step.querySelector('.kill-chain-node');
         const label = step.querySelector('.kill-chain-label');
         const conn = step.querySelector('.kill-chain-connector');
-        if (stages.has(stageId)) {
+        if (idx <= deepest) {
           node.classList.add('achieved');
           node.style.background = getComputedStyle(node).getPropertyValue('--kc-color');
           label.classList.add('achieved');
           if (conn) conn.classList.add('achieved');
-          deepest = idx;
         } else {
           node.classList.remove('achieved', 'current');
           node.style.background = '#2a2a2a';
@@ -6541,7 +6833,7 @@
     function showCredentialDetail(filter) {
       const eid = currentEngagementId;
       if (!eid) return;
-      const titles = { all: 'Credentials Harvested', weak: 'Default / Weak Passwords', unique: 'Unique Accounts' };
+      const titles = { all: 'Credentials & Access', weak: 'Default / Weak Passwords', unique: 'Unique Accounts' };
       document.getElementById('cred-modal-title').textContent = titles[filter] || 'Credentials';
       const body = document.getElementById('cred-modal-body');
       body.innerHTML = '<div style="color: var(--zerok-text-muted); text-align: center; padding: 20px;">Loading...</div>';
@@ -6554,30 +6846,76 @@
           if (filter === 'weak') creds = creds.filter(c => c.type === 'default' || c.type === 'weak');
           if (filter === 'unique') {
             const seen = new Set();
-            creds = creds.filter(c => { if (seen.has(c.username)) return false; seen.add(c.username); return true; });
+            creds = creds.filter(c => {
+              const key = (c.username || '') + '@' + (c.host || '');
+              if (seen.has(key)) return false; seen.add(key); return true;
+            });
           }
           if (creds.length === 0) {
             body.innerHTML = '<div style="color: var(--zerok-text-muted); text-align: center; padding: 20px;">No credential data recorded yet.</div>';
             return;
           }
-          body.innerHTML = creds.map(c => {
-            const ts = c.timestamp ? new Date(c.timestamp * 1000).toLocaleTimeString() : '';
-            const typeColor = c.type === 'exploited' ? '#ef4444' : c.type === 'default' ? '#f59e0b' : '#22c55e';
+
+          // Render table-style credential view
+          const typeColors = { exploited: '#ef4444', default: '#f59e0b', weak: '#f59e0b', harvested: '#22c55e' };
+          const accessIcons = { root: '👑', admin: '⚠️', user: '👤', unknown: '—' };
+
+          let html = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr style="border-bottom:1px solid var(--zerok-border);color:var(--zerok-text-muted);text-align:left;">
+              <th style="padding:6px 8px;font-weight:500;">User</th>
+              <th style="padding:6px 8px;font-weight:500;">Host</th>
+              <th style="padding:6px 8px;font-weight:500;">Service</th>
+              <th style="padding:6px 8px;font-weight:500;">Access</th>
+              <th style="padding:6px 8px;font-weight:500;">Type</th>
+              <th style="padding:6px 8px;font-weight:500;">Via</th>
+            </tr></thead><tbody>`;
+
+          for (const c of creds) {
+            const tc = typeColors[c.type] || '#666';
+            const al = c.access_level || 'user';
+            const accessColor = al === 'root' ? '#ef4444' : al === 'admin' ? '#f59e0b' : '#94a3b8';
             const fid = c.finding_id || '';
-            return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1a1a1a;border-radius:6px;border-left:3px solid ${typeColor};">
-              <div style="flex:1;min-width:0;">
-                <div style="font-weight:600;color:var(--zerok-text);font-size:13px;">${escHtml(c.username || 'unknown')}</div>
-                <div style="font-size:11px;color:var(--zerok-text-muted);margin-top:2px;">
-                  ${escHtml(c.source || '')} &bull; ${escHtml(c.host || '')}
-                  ${fid ? ' &bull; <span style="cursor:pointer;color:var(--zerok-primary);text-decoration:underline;" onclick="closeCredentialModal();scrollToFinding(\'' + escHtml(fid) + '\')">' + escHtml(fid) + '</span>' : ''}
-                </div>
-              </div>
-              <div style="text-align:right;flex-shrink:0;">
-                <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:${typeColor}22;color:${typeColor};font-weight:600;text-transform:uppercase;">${escHtml(c.type || 'harvested')}</span>
-                ${ts ? '<div style="font-size:10px;color:var(--zerok-text-dim);margin-top:3px;">' + ts + '</div>' : ''}
-              </div>
-            </div>`;
-          }).join('');
+            const fidLink = fid
+              ? `<span style="cursor:pointer;color:var(--zerok-primary);text-decoration:underline;font-size:10px;" onclick="closeCredentialModal();scrollToFinding('${escHtml(fid)}')">${escHtml(fid)}</span>`
+              : '';
+            html += `<tr style="border-bottom:1px solid #1f1f1f;">
+              <td style="padding:8px;font-weight:600;color:var(--zerok-text);">
+                ${escHtml(c.username || 'unknown')}
+                ${c.session_type ? `<div style="font-size:10px;color:var(--zerok-text-dim);font-weight:400;">${escHtml(c.session_type)}</div>` : ''}
+              </td>
+              <td style="padding:8px;color:var(--zerok-text-muted);font-family:monospace;font-size:11px;">
+                ${escHtml(c.host || '—')}${c.port && c.port !== '—' ? ':' + escHtml(c.port) : ''}
+                ${c.hostname ? `<div style="font-size:10px;color:var(--zerok-text-dim);">${escHtml(c.hostname)}</div>` : ''}
+              </td>
+              <td style="padding:8px;color:var(--zerok-text-muted);">${escHtml(c.service || '—')}</td>
+              <td style="padding:8px;">
+                <span style="color:${accessColor};font-weight:600;">${accessIcons[al] || '—'} ${escHtml(al)}</span>
+              </td>
+              <td style="padding:8px;">
+                <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:${tc}22;color:${tc};font-weight:600;text-transform:uppercase;">${escHtml(c.type || 'harvested')}</span>
+              </td>
+              <td style="padding:8px;font-size:11px;color:var(--zerok-text-dim);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(c.source || '')}">
+                ${escHtml(c.source || '—')}
+                ${fidLink ? `<div style="margin-top:2px;">${fidLink}</div>` : ''}
+                ${c.cve ? `<div style="font-size:10px;color:var(--zerok-primary);">${escHtml(c.cve)}</div>` : ''}
+                ${c.vuln_name ? `<div style="font-size:10px;color:var(--zerok-text-dim);">${escHtml(c.vuln_name)}</div>` : ''}
+              </td>
+            </tr>`;
+          }
+          html += '</tbody></table>';
+
+          // Summary bar
+          const rootCount = creds.filter(c => c.access_level === 'root').length;
+          const adminCount = creds.filter(c => c.access_level === 'admin').length;
+          const uniqueHosts = new Set(creds.map(c => c.host)).size;
+          const summaryHtml = `<div style="display:flex;gap:16px;padding:10px 12px;background:#1a1a1a;border-radius:6px;margin-bottom:10px;font-size:12px;">
+            <span style="color:var(--zerok-text-muted);">Total: <b style="color:var(--zerok-text);">${creds.length}</b></span>
+            ${rootCount ? `<span style="color:#ef4444;">👑 Root: <b>${rootCount}</b></span>` : ''}
+            ${adminCount ? `<span style="color:#f59e0b;">⚠️ Admin: <b>${adminCount}</b></span>` : ''}
+            <span style="color:var(--zerok-text-muted);">Hosts: <b style="color:var(--zerok-text);">${uniqueHosts}</b></span>
+          </div>`;
+
+          body.innerHTML = summaryHtml + html;
         })
         .catch(() => { body.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px;">Failed to load credentials.</div>'; });
     }
@@ -6605,8 +6943,11 @@
 
       // Update severity bar chart
       updateSeverityChart();
-
-      // (donut chart removed — exploit gauge updates via loadDashboardFromAPI)
+      // Refresh vuln donut from Neo4j (Vulnerability nodes, not findings)
+      if (currentEngagementId) {
+        fetch(`/api/engagements/${currentEngagementId}/vuln-severity`)
+          .then(r => r.json()).then(d => updateVulnStatusDonut(d)).catch(() => {});
+      }
 
       // Add to recent findings list
       const recentBody = document.getElementById('recent-findings-body');
@@ -6626,8 +6967,10 @@
 
       // Update Confirmed Exploits KPI for exploitation-related findings
       const cat = (msg.category || '').toLowerCase();
+      const findingTitle = (msg.title || '').toLowerCase();
       const exploitCategories = ['validated exploit', 'exploitation', 'injection', 'lateral movement'];
-      if (exploitCategories.some(ec => cat.includes(ec)) || msg.evidence) {
+      const isConfirmed = findingTitle.startsWith('confirmed:') || findingTitle.startsWith('confirmed -');
+      if (exploitCategories.some(ec => cat.includes(ec)) || msg.evidence || isConfirmed) {
         const kpiExploits = document.getElementById('kpi-criticals');
         if (kpiExploits) {
           kpiExploits.textContent = (parseInt(kpiExploits.textContent) || 0) + 1;
@@ -6691,6 +7034,24 @@
         if (valSpan) valSpan.textContent = count;
         if (bar) bar.style.height = (count > 0 ? Math.max(4, (count / maxVal) * 120) : 0) + 'px';
       });
+    }
+
+    function updateVulnStatusDonut(vulnData) {
+      if (!vulnStatusDonut) return;
+      // Accept either {severity: {critical:N,...}, total:N} from API or fall back to _severityCounts
+      const sev = vulnData ? vulnData.severity : _severityCounts;
+      const data = [
+        (sev.critical || 0),
+        (sev.high || 0),
+        (sev.medium || 0),
+        (sev.low || 0),
+        (sev.info || 0),
+      ];
+      const total = vulnData ? (vulnData.total || 0) : data.reduce((a, b) => a + b, 0);
+      vulnStatusDonut.data.datasets[0].data = total > 0 ? data : [0, 0, 0, 0, 0];
+      vulnStatusDonut.update();
+      const totalEl = document.getElementById('vuln-donut-total');
+      if (totalEl) totalEl.textContent = total;
     }
 
     function updateOwaspFromFinding(msg) {
@@ -6957,13 +7318,21 @@
       const empty = document.getElementById('aiEmpty');
       if (empty) empty.style.display = 'none';
 
+      // Update control state based on system message content
+      const content = (msg.content || '').toLowerCase();
+      if (content.includes('paused')) setCtrlState('paused');
+      else if (content.includes('resumed')) setCtrlState('running');
+      else if (content.includes('stopped') || content.includes('completed')) setCtrlState('idle');
+
       const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+
+      const icon = content.includes('paused') ? '⏸' : content.includes('resumed') ? '▶' : content.includes('stopped') ? '⏹' : '⚙';
 
       const el = document.createElement('div');
       el.className = 'timeline-event';
       el.setAttribute('data-agent', 'OR');
       el.innerHTML =
-        '<span class="event-icon" style="background:var(--zerok-medium);">⏸</span>' +
+        '<span class="event-icon" style="background:var(--zerok-medium);">' + icon + '</span>' +
         '<div class="event-body">' +
           '<div class="event-header">' +
             '<span><strong>System</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-medium) 20%,transparent);color:var(--zerok-medium);">CONTROL</span></span>' +
@@ -7031,6 +7400,7 @@
       if (typeof _severityCounts !== 'undefined') {
         Object.keys(_severityCounts).forEach(k => _severityCounts[k] = 0);
         if (typeof updateSeverityChart === 'function') updateSeverityChart();
+        if (typeof updateVulnStatusDonut === 'function') updateVulnStatusDonut();
       }
       // Reset completed phases tracking
       if (typeof _completedPhases !== 'undefined') _completedPhases.clear();
@@ -7069,6 +7439,9 @@
         const el = document.getElementById(id);
         if (el) el.textContent = '0';
       });
+      // Reset Attack Graph nav badge
+      const graphBadge = document.getElementById('nav-badge-attack-graph');
+      if (graphBadge) { graphBadge.style.display = 'none'; graphBadge.textContent = '0'; }
     }
 
     async function deleteAttackGraph() {
@@ -7108,13 +7481,31 @@
     // ── Engagement Controls ──
     function setCtrlState(state) {
       // state: 'idle' | 'running' | 'paused'
-      document.getElementById('ctrlIdle').style.display = state === 'idle' ? 'flex' : 'none';
-      document.getElementById('ctrlRunning').style.display = state === 'running' ? 'flex' : 'none';
-      document.getElementById('ctrlPaused').style.display = state === 'paused' ? 'flex' : 'none';
-      // Toggle "Pentest Running" badge in header
+      const ctrlIdle = document.getElementById('ctrlIdle');
+      const ctrlRunning = document.getElementById('ctrlRunning');
+      const ctrlPaused = document.getElementById('ctrlPaused');
+      if (ctrlIdle) ctrlIdle.style.display = state === 'idle' ? 'flex' : 'none';
+      if (ctrlRunning) ctrlRunning.style.display = state === 'running' ? 'flex' : 'none';
+      if (ctrlPaused) ctrlPaused.style.display = state === 'paused' ? 'flex' : 'none';
+      // Toggle "Pentest Running/Paused" badge in header
       const engBadge = document.getElementById('engagement-running-badge');
       if (engBadge) {
-        engBadge.classList.toggle('active', state === 'running');
+        engBadge.classList.remove('active', 'paused');
+        if (state === 'running') {
+          engBadge.classList.add('active');
+          engBadge.querySelector('span:last-child').textContent = 'Pentest Running';
+        } else if (state === 'paused') {
+          engBadge.classList.add('paused');
+          engBadge.querySelector('span:last-child').textContent = 'Pentest Paused';
+        }
+      }
+      // Update sidebar engagement LED color
+      const activeItem = document.querySelector('.engagement-list-item.active .engagement-status-dot');
+      if (activeItem) {
+        activeItem.classList.remove('active', 'paused', 'completed');
+        if (state === 'running') activeItem.classList.add('active');
+        else if (state === 'paused') activeItem.classList.add('paused');
+        else activeItem.classList.add('active'); // idle but engagement exists = green dot
       }
     }
 
@@ -7131,14 +7522,16 @@
     }
 
     function pauseEngage() {
-      fetch('/api/demo/pause', { method: 'POST' })
+      const eid = currentEngagementId || 'dryrun-ms2';
+      fetch(`/api/engagement/${eid}/pause`, { method: 'POST' })
         .then(r => r.json())
         .then(() => setCtrlState('paused'))
         .catch(() => {});
     }
 
     function resumeEngage() {
-      fetch('/api/demo/resume', { method: 'POST' })
+      const eid = currentEngagementId || 'dryrun-ms2';
+      fetch(`/api/engagement/${eid}/resume`, { method: 'POST' })
         .then(r => r.json())
         .then(() => setCtrlState('running'))
         .catch(() => {});
@@ -7148,8 +7541,19 @@
       const eid = currentEngagementId || 'dryrun-ms2';
       fetch(`/api/engagement/${eid}/stop`, { method: 'POST' })
         .then(r => r.json())
-        .then(() => setCtrlState('idle'))
-        .catch(() => setCtrlState('idle'));
+        .then(() => { setCtrlState('idle'); resetAgentChips(); })
+        .catch(() => { setCtrlState('idle'); resetAgentChips(); });
+    }
+
+    function resetAgentChips() {
+      activeChipFilter = null;
+      document.querySelectorAll('.agent-chip').forEach(chip => {
+        chip.className = 'agent-chip';
+        const badge = chip.querySelector('.chip-event-count');
+        if (badge) { badge.textContent = '0'; badge.classList.remove('visible'); }
+      });
+      const pulse = document.getElementById('aiPulseDot');
+      if (pulse) { pulse.classList.remove('active'); pulse.classList.add('connected'); }
     }
 
     // ── Initialize WebSocket on Load ──
@@ -7164,10 +7568,11 @@
       // Reset severity counts
       Object.keys(_severityCounts).forEach(k => _severityCounts[k] = 0);
       updateSeverityChart();
-      // Clear Recent Findings list
+      updateVulnStatusDonut();
+      // Clear Recent Findings list and restore placeholder
       const recentBody = document.getElementById('recent-findings-body');
       if (recentBody) {
-        recentBody.querySelectorAll('.finding-entry').forEach(el => el.remove());
+        recentBody.innerHTML = '<div style="text-align: center; padding: 24px 0; color: var(--zerok-text-dim); font-size: 12px; opacity: 0.6;">No findings yet. Start an engagement to discover vulnerabilities.</div>';
       }
       // Reset area chart (findings over time)
       if (areaChart) {
@@ -7179,15 +7584,8 @@
       document.querySelectorAll('.kill-chain-node').forEach(n => { n.classList.remove('achieved', 'current'); });
       document.querySelectorAll('.kill-chain-connector').forEach(c => { c.classList.remove('achieved'); });
       document.querySelectorAll('.kill-chain-label').forEach(l => { l.textContent = l.parentElement?.querySelector('.kill-chain-node')?.dataset.stage?.replace('_', ' ') || ''; });
-      // Reset Exploit Gauge
-      if (exploitGaugeChart) {
-        exploitGaugeChart.data.datasets[0].data = [0, 100];
-        exploitGaugeChart.update();
-      }
-      const gaugeCenter = document.getElementById('gauge-center-pct');
-      if (gaugeCenter) gaugeCenter.textContent = '0%';
-      const gaugeSub = document.getElementById('gauge-center-sub');
-      if (gaugeSub) gaugeSub.textContent = '0 of 0 confirmed';
+      // Reset Exploit Gauge (SVG arc)
+      updateExploitGauge(0, 0, 0);
       // Reset Radar chart
       if (radarChart) {
         radarChart.data.datasets[0].data = [0, 0, 0, 0, 0, 0];
@@ -7198,6 +7596,13 @@
         remediationChart.data.datasets = [];
         remediationChart.update();
       }
+      // Reset Vulnerability Status Donut
+      if (vulnStatusDonut) {
+        vulnStatusDonut.data.datasets[0].data = [0, 0, 0, 0, 0];
+        vulnStatusDonut.update();
+      }
+      const vulnDonutTotal = document.getElementById('vuln-donut-total');
+      if (vulnDonutTotal) vulnDonutTotal.textContent = '0';
       // Reset Credential Tracker
       const credHarvested = document.getElementById('cred-harvested');
       if (credHarvested) credHarvested.textContent = '0';
@@ -7235,10 +7640,62 @@
       // Reset nav badge
       const findingsBadge = document.getElementById('nav-badge-findings');
       if (findingsBadge) findingsBadge.style.display = 'none';
+
+      // ── Reset Agent Status chips to idle ──
+      document.querySelectorAll('.agent-chip').forEach(chip => {
+        chip.className = 'agent-chip';
+        const badge = chip.querySelector('.chip-event-count');
+        if (badge) { badge.textContent = '0'; badge.classList.remove('visible'); }
+      });
+      const pulse = document.getElementById('aiPulseDot');
+      if (pulse) { pulse.classList.remove('active'); pulse.classList.add('connected'); }
+
+      // ── Reset Agent Status Tiles to Idle ──
+      const agentGrid = document.getElementById('agent-status-grid');
+      if (agentGrid) {
+        agentGrid.querySelectorAll('.layer-blocks').forEach(s => {
+          s.textContent = 'Idle';
+          s.style.cssText = '';
+        });
+      }
+
+      // ── Reset Scan Coverage to 0% ──
+      if (typeof _completedPhases !== 'undefined') _completedPhases.clear();
+      updateScanCoverage(0);
+
+      // ── Reset Phase Badge ──
+      const phaseRow = document.getElementById('phaseBadgeRow');
+      if (phaseRow) phaseRow.style.display = 'none';
+      const phaseBadge = document.getElementById('phaseBadge');
+      if (phaseBadge) phaseBadge.textContent = '—';
+
+      // ── Reset PTES matrix cells to No Coverage ──
+      document.querySelectorAll('[data-ptes]').forEach(cell => {
+        cell.classList.remove('covered', 'partial');
+        cell.classList.add('none');
+      });
+
+      // ── Reset Hosts Discovered KPI ──
+      const kpiHosts = document.getElementById('kpi-hosts');
+      if (kpiHosts) kpiHosts.textContent = '0';
+
+      // ── Reset Confirmed Exploits KPI ──
+      const kpiCriticals = document.getElementById('kpi-criticals');
+      if (kpiCriticals) kpiCriticals.textContent = '0';
+
+      // ── Reset AI Timeline ──
+      const timeline = document.getElementById('aiTimeline');
+      if (timeline) timeline.innerHTML = '';
+      const empty = document.getElementById('aiEmpty');
+      if (empty && timeline) { empty.style.display = ''; timeline.appendChild(empty); }
+
+      // ── Reset engagement controls ──
+      setCtrlState('idle');
     }
 
     async function loadDashboardFromAPI() {
       if (!currentEngagementId) return;
+      let _loadedFindingsCount = 0;
       try {
         // Set Active Engagements count
         const kpiEng = document.getElementById('kpi-engagements');
@@ -7254,8 +7711,8 @@
 
         // Load findings to populate Recent Findings + severity counts
         const res = await fetch(`/api/engagements/${currentEngagementId}/findings`);
-        const findings = await res.json();
-        if (!findings || !findings.length) return;
+        const findings = (await res.json()) || [];
+        _loadedFindingsCount = findings.length;
 
         const recentBody = document.getElementById('recent-findings-body');
         const sevColors = {
@@ -7263,23 +7720,28 @@
           medium: 'var(--zerok-medium)', low: 'var(--zerok-low)', info: 'var(--zerok-info)'
         };
 
-        // Populate severity counts
+        // Reset and repopulate severity counts (avoids double-counting from real-time + API)
+        Object.keys(_severityCounts).forEach(k => _severityCounts[k] = 0);
         findings.forEach(f => {
           const s = (f.severity || 'info').toLowerCase();
           if (_severityCounts.hasOwnProperty(s)) _severityCounts[s]++;
         });
-        updateSeverityChart();
-
-        // (donut chart removed — replaced by exploit gauge)
+        if (findings.length) updateSeverityChart();
 
         // Populate Recent Findings table (newest first, max 10)
+        // Clear existing entries first to avoid duplicates from real-time + API restore
         if (recentBody) {
+          recentBody.querySelectorAll('.finding-entry').forEach(el => el.remove());
           const placeholder = recentBody.querySelector('div[style*="text-align: center"]');
           if (placeholder) placeholder.remove();
-          const recent = findings.slice(0, 10);
-          recent.forEach(f => {
-            recentBody.appendChild(createFindingEntry(f));
-          });
+          if (findings.length === 0) {
+            recentBody.innerHTML = '<div style="text-align: center; padding: 24px 0; color: var(--zerok-text-dim); font-size: 12px; opacity: 0.6;">No findings yet. Start an engagement to discover vulnerabilities.</div>';
+          } else {
+            const recent = findings.slice(0, 10);
+            recent.forEach(f => {
+              recentBody.appendChild(createFindingEntry(f));
+            });
+          }
         }
 
         // Populate OWASP Top Vulnerability Categories from loaded findings
@@ -7400,53 +7862,49 @@
         }
       } catch (e) { /* ignore */ }
 
-      // Restore Scan Coverage — check engagement status
-      try {
-        const engRes = await fetch('/api/engagements');
-        const engData = await engRes.json();
-        const engs = engData.engagements || engData;
-        const eng = engs.find(e => e.id === currentEngagementId);
-        if (eng && (eng.status === 'completed' || eng.status === 'complete')) {
-          updateScanCoverage(100);
-        } else if (eng && eng.status === 'active') {
-          // Estimate coverage from scans — if scans exist, engagement ran at least partially
-          const scansRes2 = await fetch(`/api/scans?engagement=${currentEngagementId}`);
-          const scans2 = await scansRes2.json();
-          if (Array.isArray(scans2) && scans2.length > 0) {
-            // Map scan tools to phases for coverage estimation
-            const phaseTools = {
-              'INTELLIGENCE GATHERING': ['naabu_scan', 'subfinder_scan', 'gau_discover'],
-              'THREAT MODELING': ['httpx_probe'],
-              'VULNERABILITY ANALYSIS': ['nmap_scan', 'gobuster_scan', 'nikto_scan', 'nuclei_scan'],
-              'EXPLOITATION': ['sqlmap_scan', 'metasploit_exploit', 'crackmapexec_scan', 'exploit_crafter'],
-              'POST-EXPLOITATION': ['responder_listen', 'crackmapexec_scan'],
-              'REPORTING': ['report_generator'],
-            };
-            const coveredPhases = new Set();
-            const toolNames = scans2.map(s => s.tool || '');
-            for (const [phase, tools] of Object.entries(phaseTools)) {
-              if (tools.some(t => toolNames.includes(t))) coveredPhases.add(phase);
+      // Restore Scan Coverage — check engagement status (only if findings exist)
+      if (_loadedFindingsCount > 0) {
+        try {
+          const engRes = await fetch('/api/engagements');
+          const engData = await engRes.json();
+          const engs = engData.engagements || engData;
+          const eng = engs.find(e => e.id === currentEngagementId);
+          if (eng && (eng.status === 'completed' || eng.status === 'complete')) {
+            updateScanCoverage(100);
+          } else if (eng && eng.status === 'active') {
+            // Estimate coverage from scans
+            const scansRes2 = await fetch(`/api/scans?engagement=${currentEngagementId}`);
+            const scans2 = await scansRes2.json();
+            if (Array.isArray(scans2) && scans2.length > 0) {
+              const phaseTools = {
+                'INTELLIGENCE GATHERING': ['naabu_scan', 'subfinder_scan', 'gau_discover'],
+                'THREAT MODELING': ['httpx_probe'],
+                'VULNERABILITY ANALYSIS': ['nmap_scan', 'gobuster_scan', 'nikto_scan', 'nuclei_scan'],
+                'EXPLOITATION': ['sqlmap_scan', 'metasploit_exploit', 'crackmapexec_scan', 'exploit_crafter'],
+                'POST-EXPLOITATION': ['responder_listen', 'crackmapexec_scan'],
+                'REPORTING': ['report_generator'],
+              };
+              const coveredPhases = new Set();
+              const toolNames = scans2.map(s => s.tool || '');
+              for (const [phase, tools] of Object.entries(phaseTools)) {
+                if (tools.some(t => toolNames.includes(t))) coveredPhases.add(phase);
+              }
+              const pct = Math.round((coveredPhases.size / _allPhases.length) * 100);
+              updateScanCoverage(pct);
             }
-            const pct = Math.round((coveredPhases.size / _allPhases.length) * 100);
-            updateScanCoverage(pct);
           }
-        }
-      } catch (e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
+      }
 
       // ── Exploit Stats (gauge + KPI cards) ──
       try {
         const esRes = await fetch(`/api/engagements/${currentEngagementId}/exploit-stats`);
         const es = await esRes.json();
-        // Update Exploit Gauge half-circle
-        if (exploitGaugeChart) {
-          const rate = es.success_rate || 0;
-          exploitGaugeChart.data.datasets[0].data = [rate, 100 - rate];
-          exploitGaugeChart.update();
-        }
-        const gaugePct = document.getElementById('gauge-center-pct');
-        if (gaugePct) gaugePct.textContent = Math.round(es.success_rate || 0) + '%';
-        const gaugeSub = document.getElementById('gauge-center-sub');
-        if (gaugeSub) gaugeSub.textContent = (es.confirmed_exploits || 0) + ' of ' + (es.discovered_vulns || 0) + ' confirmed';
+        // Update Exploit Gauge SVG arc
+        updateExploitGauge(es.success_rate, es.confirmed_exploits, es.discovered_vulns);
+        // Set Confirmed Exploits KPI from authoritative server count
+        const kpiExploitsEl = document.getElementById('kpi-criticals');
+        if (kpiExploitsEl && es.confirmed_exploits !== undefined) kpiExploitsEl.textContent = es.confirmed_exploits;
         // Update MTTE KPI card
         const mtteEl = document.getElementById('kpi-mtte');
         if (mtteEl) mtteEl.textContent = es.mtte_display || '—';
@@ -7474,6 +7932,55 @@
         updateCredentialTracker(credData);
       } catch (e) { console.warn('credentials:', e.message); }
 
+      // ── Vulnerability Status Donut (from Vulnerability nodes, NOT findings) ──
+      try {
+        const vulnRes = await fetch(`/api/engagements/${currentEngagementId}/vuln-severity`);
+        const vulnData = await vulnRes.json();
+        updateVulnStatusDonut(vulnData);
+      } catch (e) { console.warn('vuln-severity:', e.message); }
+
+      // ── Restore agent chips, PTES matrix, and status tiles from /api/agents ──
+      try {
+        const agRes = await fetch('/api/agents');
+        const agents = await agRes.json();
+        for (const [code, info] of Object.entries(agents)) {
+          const chip = document.querySelector(`.agent-chip[data-agent="${code}"]`);
+          if (chip) {
+            chip.classList.remove('running', 'completed', 'waiting', 'error');
+            if (info.status === 'completed') chip.classList.add('completed');
+            else if (info.status === 'running') chip.classList.add('running');
+            else if (info.status === 'waiting') chip.classList.add('waiting');
+            else if (info.status === 'error') chip.classList.add('error');
+          }
+          // Restore PTES matrix and agent status tiles
+          const ptesStatus = info.status === 'completed' ? 'complete' : info.status;
+          updatePtesFromAgent(code, ptesStatus);
+          updateAgentStatusTile(code, ptesStatus);
+        }
+        updatePulseDot();
+        // Derive scan coverage from agent completion (only if findings exist)
+        const agentEntries = Object.values(agents);
+        const completedCount = agentEntries.filter(a => a.status === 'completed').length;
+        const runningCount = agentEntries.filter(a => a.status === 'running').length;
+        if (_loadedFindingsCount > 0) {
+          if (completedCount > 0 && runningCount === 0) {
+            // All done and findings exist — engagement complete
+            updateScanCoverage(100);
+            const badge = document.getElementById('phaseBadge');
+            const badgeRow = document.getElementById('phaseBadgeRow');
+            if (badge) {
+              badge.textContent = 'COMPLETE';
+              badge.className = 'phase-badge complete';
+              if (badgeRow) badgeRow.style.display = '';
+            }
+          } else if (completedCount > 0) {
+            // Partially complete — estimate from agent progress
+            const pct = Math.round((completedCount / agentEntries.length) * 100);
+            updateScanCoverage(pct);
+          }
+        }
+      } catch (e) { /* ignore agent restore failure */ }
+
       // ── Restore AI Timeline from server event history ──
       try {
         const evtRes = await fetch('/api/events?limit=200');
@@ -7486,38 +7993,44 @@
           if (!hasLiveEvents && timeline) {
             if (empty) empty.style.display = 'none';
             events.forEach(evt => addTimelineEvent(evt, true, true));
-            // Restore agent chip statuses from /api/agents
+            // Restore chip event counts from events
             try {
-              const agRes = await fetch('/api/agents');
-              const agents = await agRes.json();
-              for (const [code, info] of Object.entries(agents)) {
-                const chip = document.querySelector(`.agent-chip[data-agent="${code}"]`);
-                if (chip) {
-                  chip.classList.remove('running', 'completed', 'waiting', 'error');
-                  if (info.status === 'completed') chip.classList.add('completed');
-                  else if (info.status === 'running') chip.classList.add('running');
-                  else if (info.status === 'waiting') chip.classList.add('waiting');
-                  else if (info.status === 'error') chip.classList.add('error');
-                }
-                // Restore chip event counts
+              const agRes2 = await fetch('/api/agents');
+              const agents2 = await agRes2.json();
+              for (const [code] of Object.entries(agents2)) {
                 const countEl = document.querySelector(`[data-agent-count="${code}"]`);
                 if (countEl) {
                   const agentEvents = events.filter(e => e.agent === code);
-                  if (agentEvents.length > 0) countEl.textContent = agentEvents.length;
+                  if (agentEvents.length > 0) {
+                    countEl.textContent = agentEvents.length;
+                    countEl.classList.add('visible');
+                  }
                 }
               }
-              updatePulseDot();
-            } catch (e) { /* ignore agent restore failure */ }
-            // Update phase badge if events contain phase info
-            const phaseEvents = events.filter(e => e.type === 'phase_change');
-            if (phaseEvents.length > 0) {
-              const last = phaseEvents[phaseEvents.length - 1];
-              const badge = document.getElementById('phaseBadge');
-              const badgeRow = document.getElementById('phaseBadgeRow');
-              if (badge && last.metadata && last.metadata.phase) {
-                badge.textContent = last.metadata.phase;
-                badge.className = 'phase-badge' + (last.metadata.phase === 'COMPLETE' ? ' complete' : '');
-                if (badgeRow) badgeRow.style.display = '';
+            } catch (e) { /* ignore */ }
+          }
+          // Update phase badge and restore _completedPhases for Scan Coverage
+          const phaseEvents = events.filter(e => e.type === 'phase_change');
+          if (phaseEvents.length > 0) {
+            // Restore all completed phases for scan coverage calculation
+            phaseEvents.forEach(pe => {
+              const phase = pe.metadata && pe.metadata.phase;
+              if (phase && phase !== 'COMPLETE' && phase !== 'STOPPED') {
+                _completedPhases.add(phase);
+              }
+            });
+            const last = phaseEvents[phaseEvents.length - 1];
+            const badge = document.getElementById('phaseBadge');
+            const badgeRow = document.getElementById('phaseBadgeRow');
+            if (badge && last.metadata && last.metadata.phase) {
+              badge.textContent = last.metadata.phase;
+              badge.className = 'phase-badge' + (last.metadata.phase === 'COMPLETE' ? ' complete' : '');
+              if (badgeRow) badgeRow.style.display = '';
+              // If engagement completed, show 100% scan coverage (only if findings exist)
+              if (last.metadata.phase === 'COMPLETE' && _loadedFindingsCount > 0) {
+                updateScanCoverage(100);
+              } else if (_loadedFindingsCount > 0) {
+                updateScanCoverage();
               }
             }
           }
@@ -7859,6 +8372,7 @@
         if (result.ok) {
           if (currentEngagementId === eid) {
             currentEngagementId = null;
+            resetDashboardFindingWidgets();
           }
           loadEngagements();
           showToast('success', 'Deleted', 'Engagement deleted');
@@ -8109,6 +8623,8 @@
         }
         const data = await res.json();
         showToast('success', 'Findings Deleted', data.deleted + ' findings removed from ' + eid);
+        // Reset server-side runtime state (agents, events, credentials)
+        await fetch('/api/engagements/' + eid + '/reset-state', { method: 'POST' }).catch(() => {});
         await loadFindings();
         // Refresh dashboard widgets that show finding data
         resetDashboardFindingWidgets();
@@ -8117,6 +8633,32 @@
       } catch (e) {
         console.error('Failed to delete findings:', e);
         showToast('success', 'Error', 'Failed to delete findings: ' + e.message);
+      }
+    }
+
+    async function clearAllScans() {
+      const eid = currentEngagementId;
+      const confirmed = await showConfirmModal({
+        title: 'Delete All Scans',
+        message: 'Permanently delete all scan records' + (eid ? ' for <strong>' + escHtml(eid) + '</strong>' : '') + '? This cannot be undone.',
+        actionLabel: 'Delete Scans',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
+      try {
+        const url = eid ? '/api/scans?engagement=' + eid : '/api/scans';
+        const res = await fetch(url, { method: 'DELETE' });
+        if (!res.ok) { showToast('warning', 'Error', 'Server returned ' + res.status); return; }
+        const data = await res.json();
+        showToast('success', 'Scans Cleared', data.deleted + ' scan records deleted');
+        // Reset server-side runtime state (agents, events, credentials)
+        if (eid) await fetch('/api/engagements/' + eid + '/reset-state', { method: 'POST' }).catch(() => {});
+        loadScans();
+        // Also reset dashboard widgets since scans feed agent/coverage data
+        resetDashboardFindingWidgets();
+        await loadDashboardFromAPI();
+      } catch (e) {
+        showToast('warning', 'Error', 'Failed to delete scans: ' + e.message);
       }
     }
 
@@ -8270,9 +8812,14 @@
 
         // Update Scans nav badge
         const scansBadge = document.getElementById('nav-badge-scans');
-        if (scansBadge && counts.total > 0) {
-          scansBadge.textContent = counts.total;
-          scansBadge.style.display = '';
+        if (scansBadge) {
+          if (counts.total > 0) {
+            scansBadge.textContent = counts.total;
+            scansBadge.style.display = '';
+          } else {
+            scansBadge.textContent = '0';
+            scansBadge.style.display = 'none';
+          }
         }
 
         renderScans(allScans);
@@ -8289,6 +8836,60 @@
       const m = Math.floor(seconds / 60);
       const s = seconds % 60;
       return m + 'm ' + s + 's';
+    }
+
+    function formatScanOutput(raw) {
+      if (!raw) return '<span style="color: var(--zerok-text-dim);">No output available</span>';
+      // Strip ANSI color codes
+      let text = raw.replace(/\x1b\[[0-9;]*m/g, '').replace(/\[\d+m/g, '');
+      // Decode unicode escapes (\u003e → >)
+      try { text = text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16))); } catch(e) {}
+      // Try to detect and pretty-print JSON (newline-delimited or single object)
+      const trimmed = text.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          // Handle newline-delimited JSON (NDJSON) — common for Nuclei/Naabu/Httpx
+          const lines = trimmed.split('\n').filter(l => l.trim());
+          const isNDJSON = lines.length > 1 && lines.every(l => { try { JSON.parse(l); return true; } catch(e) { return false; } });
+          if (isNDJSON) {
+            const formatted = lines.map(l => {
+              const obj = JSON.parse(l);
+              // For Nuclei: show template, severity, matched-at
+              if (obj.info && obj['matched-at']) {
+                const sev = (obj.info.severity || '').toUpperCase();
+                const sevColor = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#eab308', LOW: '#22d3ee', INFO: '#94a3b8' }[sev] || 'var(--zerok-text)';
+                return `<div style="margin-bottom: 6px; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 3px solid ${sevColor};">`
+                  + `<span style="color: ${sevColor}; font-weight: 600;">[${sev}]</span> `
+                  + `<span style="color: var(--zerok-text);">${escHtml(obj.info.name || obj.template || '')}</span><br>`
+                  + `<span style="color: var(--zerok-text-dim); font-size: 11px;">Target: ${escHtml(obj['matched-at'] || '')}</span>`
+                  + (obj['matched-at'] && obj.matcher_name ? ` | Matcher: ${escHtml(obj.matcher_name)}` : '')
+                  + `</div>`;
+              }
+              // For Naabu: show ip:port
+              if (obj.ip && obj.port) {
+                return `<div style="margin-bottom: 2px;"><span style="color: var(--zerok-success);">●</span> <span style="color: var(--zerok-text);">${escHtml(obj.ip)}</span>:<span style="color: var(--zerok-primary); font-weight: 600;">${obj.port}</span>/${obj.protocol || 'tcp'}</div>`;
+              }
+              // For Httpx: show url + title + status
+              if (obj.url && obj.status_code !== undefined) {
+                const sc = obj.status_code;
+                const scColor = sc < 300 ? 'var(--zerok-success)' : sc < 400 ? 'var(--zerok-warning)' : 'var(--zerok-danger)';
+                return `<div style="margin-bottom: 4px;"><span style="color: ${scColor}; font-weight: 600;">[${sc}]</span> <span style="color: var(--zerok-primary);">${escHtml(obj.url)}</span>`
+                  + (obj.title ? ` — ${escHtml(obj.title)}` : '')
+                  + (obj.webserver ? ` <span style="color: var(--zerok-text-dim); font-size: 11px;">(${escHtml(obj.webserver)})</span>` : '')
+                  + `</div>`;
+              }
+              // Generic JSON — compact pretty print
+              return `<div style="margin-bottom: 4px; color: var(--zerok-text-dim); font-size: 11px;">${escHtml(JSON.stringify(obj, null, 2).substring(0, 200))}</div>`;
+            });
+            return formatted.join('');
+          }
+          // Single JSON object
+          const obj = JSON.parse(trimmed);
+          return `<pre style="margin: 0; white-space: pre-wrap; color: var(--zerok-text); font-size: 11px;">${escHtml(JSON.stringify(obj, null, 2))}</pre>`;
+        } catch(e) { /* not valid JSON, fall through */ }
+      }
+      // Plain text output (Nmap, Nikto, Gobuster, Metasploit, etc.) — preserve formatting
+      return `<pre style="margin: 0; white-space: pre-wrap; color: var(--zerok-text); font-size: 11px;">${escHtml(text)}</pre>`;
     }
 
     function renderScans(scans) {
@@ -8323,7 +8924,7 @@
                 </div>
               </div>
               <div class="scan-detail-label" style="margin-bottom: 8px;">Output Preview</div>
-              <div class="scan-output-block">${escHtml(s.output_preview || 'No output available')}</div>
+              <div class="scan-output-block">${formatScanOutput(s.output_preview)}</div>
             </div>
           </td>
         </tr>
@@ -8861,6 +9462,19 @@
       document.getElementById('graph-services-count').textContent = counts.service;
       document.getElementById('graph-vulns-count').textContent = counts.vulnerability;
       document.getElementById('graph-paths-count').textContent = paths;
+
+      // Update Attack Graph nav badge with total node count
+      const graphBadge = document.getElementById('nav-badge-attack-graph');
+      if (graphBadge) {
+        const totalNodes = data.nodes ? data.nodes.length : 0;
+        if (totalNodes > 0) {
+          graphBadge.textContent = totalNodes;
+          graphBadge.style.display = '';
+        } else {
+          graphBadge.textContent = '0';
+          graphBadge.style.display = 'none';
+        }
+      }
     }
 
     // ── Real-time Attack Graph Refresh ──
@@ -9182,7 +9796,7 @@
 
   <!-- Credential Detail Modal -->
   <div class="modal-overlay" id="credentialDetailModal">
-    <div class="modal" style="max-width: 560px;">
+    <div class="modal" style="max-width: 720px;">
       <div class="modal-header">
         <h3 class="modal-title" id="cred-modal-title">Credentials Harvested</h3>
         <button class="modal-close" onclick="closeCredentialModal()">&times;</button>

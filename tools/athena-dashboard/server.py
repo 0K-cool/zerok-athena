@@ -242,6 +242,8 @@ class DashboardState:
         self.approval_events: dict[str, dict] = {}  # approval_id → {event, approved}
         self.engagement_task: asyncio.Task | None = None
         self.engagement_stopped = False
+        self.engagement_pause_event = asyncio.Event()
+        self.engagement_pause_event.set()  # Not paused initially
 
     # Seed methods removed in Phase C — dashboard starts clean.
     # Demo mode (/api/demo/start) generates its own events independently.
@@ -452,6 +454,8 @@ async def websocket_endpoint(ws: WebSocket):
             }
             for e in state.events[-50:]
         ],
+        "engagement_active": state.engagement_task is not None and not state.engagement_task.done(),
+        "engagement_paused": not state.engagement_pause_event.is_set() if (state.engagement_task and not state.engagement_task.done()) else False,
         "timestamp": time.time(),
     }))
 
@@ -729,9 +733,11 @@ async def get_engagements(include_archived: bool = False):
             with neo4j_driver.session() as session:
                 query = """
                     MATCH (e:Engagement)
+                    OPTIONAL MATCH (e)<-[:BELONGS_TO]-(f:Finding)
                     RETURN e.id AS id, e.name AS name, e.client AS client,
                            e.scope AS scope, e.type AS type, e.status AS status,
-                           e.start_date AS start_date
+                           e.start_date AS start_date,
+                           count(DISTINCT f) AS findings_count
                     ORDER BY e.start_date DESC
                 """
                 result = session.run(query)
@@ -745,9 +751,11 @@ async def get_engagements(include_archived: bool = False):
                         "name": record["name"],
                         "client": record.get("client", "Unknown"),
                         "scope": record.get("scope", ""),
+                        "target": record.get("scope", ""),
                         "type": record.get("type", "external"),
                         "status": status,
                         "start_date": record.get("start_date", ""),
+                        "findings_count": record.get("findings_count", 0),
                     })
                 return {"engagements": engagements, "source": "neo4j"}
         except Exception as e:
@@ -1108,6 +1116,31 @@ async def get_engagement_findings(eid: str):
     } for f in results]
 
 
+@app.get("/api/engagements/{eid}/vuln-severity")
+async def get_vuln_severity(eid: str):
+    """Get Vulnerability node counts by severity for the donut chart."""
+    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    total = 0
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (v:Vulnerability)-[:AFFECTS]->(h:Host)-[:BELONGS_TO]->(e:Engagement {id: $eid})
+                    RETURN toLower(v.severity) AS severity, count(DISTINCT v) AS cnt
+                """, eid=eid)
+                for record in result:
+                    sev = (record["severity"] or "info").lower()
+                    cnt = record["cnt"]
+                    if sev in counts:
+                        counts[sev] += cnt
+                    else:
+                        counts["info"] += cnt
+                    total += cnt
+        except Exception as e:
+            print(f"Neo4j vuln-severity error: {e}")
+    return {"severity": counts, "total": total}
+
+
 @app.get("/api/engagements/{eid}/exploit-stats")
 async def get_exploit_stats(eid: str):
     """Get exploitation statistics: discovered vulns, confirmed exploits, MTTE."""
@@ -1243,31 +1276,39 @@ async def get_services_summary(eid: str):
 @app.get("/api/engagements/{eid}/credentials")
 async def get_engagement_credentials(eid: str):
     """Get harvested credentials for an engagement."""
-    credentials = getattr(state, '_credentials', {}).get(eid, [])
-    # Derive counts
+    raw_credentials = getattr(state, '_credentials', {}).get(eid, [])
+
+    # Filter out entries with "unknown" usernames — those are NOT real credentials
+    credentials = [
+        c for c in raw_credentials
+        if c.get("username") and c["username"].lower() not in ("unknown", "", "none")
+    ]
+
     total = len(credentials)
     default_weak = sum(1 for c in credentials if c.get("type") in ("default", "weak"))
-    unique_accounts = len(set(c.get("username", "") for c in credentials if c.get("username")))
+    unique_accounts = len(set(
+        c.get("username", "") for c in credentials
+    ))
 
-    # Heuristic: also count from findings mentioning credentials
-    cred_keywords = ['credential', 'password', 'default', 'brute force', 'smb access']
-    for f in state.findings:
-        if f.engagement != eid:
-            continue
-        text = ((f.title or '') + ' ' + (f.description or '')).lower()
-        if any(kw in text for kw in cred_keywords):
-            # Check if already counted
-            if not any(c.get("finding_id") == f.id for c in credentials):
-                total += 1
-                if 'default' in text or 'weak' in text:
-                    default_weak += 1
-                unique_accounts += 1
+    # Build per-host summary for the frontend
+    hosts_accessed = {}
+    for c in credentials:
+        h = c.get("host", "unknown")
+        if h not in hosts_accessed:
+            hosts_accessed[h] = {"host": h, "services": set(), "access_levels": set()}
+        hosts_accessed[h]["services"].add(c.get("service", ""))
+        hosts_accessed[h]["access_levels"].add(c.get("access_level", "user"))
+    # Convert sets to lists for JSON
+    for v in hosts_accessed.values():
+        v["services"] = list(v["services"])
+        v["access_levels"] = list(v["access_levels"])
 
     return {
         "credentials": credentials,
         "total": total,
         "default_weak": default_weak,
         "unique_accounts": unique_accounts,
+        "hosts_accessed": list(hosts_accessed.values()),
     }
 
 
@@ -1359,6 +1400,19 @@ async def get_scans(engagement: Optional[str] = None):
     if engagement:
         scans = [s for s in scans if s.get("engagement_id") == engagement]
     return scans
+
+
+@app.delete("/api/scans")
+async def delete_scans(engagement: Optional[str] = None):
+    """Delete scan records, optionally filtered by engagement."""
+    if engagement:
+        before = len(state.scans)
+        state.scans = [s for s in state.scans if s.get("engagement_id") != engagement]
+        deleted = before - len(state.scans)
+    else:
+        deleted = len(state.scans)
+        state.scans.clear()
+    return {"deleted": deleted}
 
 
 @app.get("/api/reports")
@@ -1484,7 +1538,42 @@ async def delete_engagement_graph(eid: str):
     # Clear in-memory findings for this engagement
     state.findings = [f for f in state.findings if f.engagement != eid]
 
+    # Also clear runtime state (agents, events, credentials) for this engagement
+    state.events = [e for e in state.events if (getattr(e, 'metadata', None) or {}).get('engagement_id') != eid]
+    state._credentials.pop(eid, None)
+    # Reset agent statuses to idle
+    for code in state.agent_statuses:
+        state.agent_statuses[code] = AgentStatus.IDLE
+    state.agent_tasks.clear()
+
     return {"deleted": deleted, "engagement": eid}
+
+
+@app.post("/api/engagements/{eid}/reset-state")
+async def reset_engagement_state(eid: str):
+    """Reset runtime state (agents, events, credentials) for an engagement without deleting graph data."""
+    # Reset agents to idle
+    for code in state.agent_statuses:
+        state.agent_statuses[code] = AgentStatus.IDLE
+    state.agent_tasks.clear()
+
+    # Clear events
+    state.events.clear()
+
+    # Clear credentials
+    state._credentials.pop(eid, None)
+
+    # Clear in-memory findings
+    state.findings = [f for f in state.findings if f.engagement != eid]
+
+    # Broadcast reset
+    await state.broadcast({
+        "type": "engagement_reset",
+        "engagement_id": eid,
+        "timestamp": time.time(),
+    })
+
+    return {"ok": True, "engagement": eid}
 
 
 @app.get("/api/status")
@@ -1578,6 +1667,25 @@ async def start_engagement(eid: str, backend: str = ""):
 
     state.active_engagement_id = eid
     state.engagement_stopped = False
+    state.engagement_pause_event.set()  # Ensure not paused from previous run
+
+    # Reset engagement status to active in Neo4j and broadcast (in case of re-run)
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run(
+                    "MATCH (e:Engagement {id: $eid}) SET e.status = 'active'",
+                    eid=eid,
+                )
+        except Exception:
+            pass
+    await state.broadcast({
+        "type": "engagement_status",
+        "engagement_id": eid,
+        "status": "active",
+        "timestamp": time.time(),
+    })
+
     state.engagement_task = asyncio.create_task(
         orchestrator.run_engagement(eid, backend_override=backend)
     )
@@ -1591,6 +1699,7 @@ async def start_engagement(eid: str, backend: str = ""):
 async def stop_engagement(eid: str):
     """Stop a running engagement and kill all active processes."""
     state.engagement_stopped = True
+    state.engagement_pause_event.set()  # Unblock if paused so task can exit
 
     # 1. Unblock any waiting HITL approvals so the task can exit
     for evt_data in state.approval_events.values():
@@ -1604,10 +1713,51 @@ async def stop_engagement(eid: str):
     # 3. Kill active processes on all Kali backends
     kill_results = await kali_client.kill_all()
 
-    # 4. Reset agent statuses
+    # 4. Cancel in-flight scans — broadcast tool_complete with cancelled status
+    cancelled_scans = []
+    for scan in state.scans:
+        if scan.get("status") == "running" and scan.get("engagement_id") == eid:
+            scan["status"] = "cancelled"
+            scan["completed_at"] = datetime.now(timezone.utc).isoformat()
+            cancelled_scans.append(scan)
+            # Broadcast tool_complete so frontend cleans up the running card
+            tool_id = scan["id"].replace("scan-", "")
+            await state.add_event(AgentEvent(
+                id=str(uuid.uuid4())[:8],
+                type="tool_complete",
+                agent=scan.get("agent", ""),
+                content="Cancelled by operator",
+                timestamp=time.time(),
+                metadata={"tool_id": tool_id, "cancelled": True, "elapsed_s": 0, "success": False},
+            ))
+            # Also update scan on Scans page
+            await state.broadcast({
+                "type": "scan_update",
+                "scan": scan,
+                "timestamp": time.time(),
+            })
+
+    # 5. Reset agent statuses
     for code in AGENT_NAMES:
         if state.agent_statuses[code] != AgentStatus.IDLE:
             await state.update_agent_status(code, AgentStatus.IDLE)
+
+    # 6. Set engagement status to completed in Neo4j + broadcast
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run(
+                    "MATCH (e:Engagement {id: $eid}) SET e.status = 'completed'",
+                    eid=eid,
+                )
+        except Exception:
+            pass
+    await state.broadcast({
+        "type": "engagement_status",
+        "engagement_id": eid,
+        "status": "completed",
+        "timestamp": time.time(),
+    })
 
     await state.broadcast({
         "type": "system",
@@ -1615,6 +1765,63 @@ async def stop_engagement(eid: str):
         "timestamp": time.time(),
     })
     return {"ok": True, "message": f"Engagement {eid} stopped", "kill_results": kill_results}
+
+
+@app.post("/api/engagement/{eid}/pause")
+async def pause_engagement(eid: str):
+    """Pause a running engagement. Kills in-flight Kali processes immediately."""
+    state.engagement_pause_event.clear()  # Block at next checkpoint
+
+    # Kill running processes on Kali backends so long-running tools (Nuclei, Nmap)
+    # actually stop instead of continuing for minutes until completion.
+    kill_results = {}
+    if kali_client:
+        try:
+            kill_results = await kali_client.kill_all()
+        except Exception:
+            pass
+
+    # Mark running scans as paused
+    for scan in state.scans:
+        if scan.get("status") == "running" and scan.get("engagement_id") == eid:
+            scan["status"] = "paused"
+            await state.broadcast({
+                "type": "scan_update", "scan": scan, "timestamp": time.time(),
+            })
+
+    # Mark running agents as waiting
+    for code in AGENT_NAMES:
+        if state.agent_statuses[code] == AgentStatus.RUNNING:
+            await state.update_agent_status(code, AgentStatus.WAITING, "Paused by operator")
+    await state.broadcast({
+        "type": "system",
+        "content": f"Engagement {eid} paused by operator",
+        "timestamp": time.time(),
+    })
+    return {"ok": True, "message": f"Engagement {eid} paused", "kill_results": kill_results}
+
+
+@app.post("/api/engagement/{eid}/resume")
+async def resume_engagement(eid: str):
+    """Resume a paused engagement. Paused scans will be re-run by the orchestrator."""
+    # Don't cancel paused scans — the orchestrator's run_tool() retry loop
+    # detects scan_record["status"] == "paused" and re-executes the tool.
+    # This ensures we don't miss vulns from interrupted scans.
+
+    # Restore operator-paused agents to RUNNING so chips turn red again
+    # Only restore agents that were paused by the operator (not genuinely HITL-waiting)
+    for code in AGENT_NAMES:
+        if (state.agent_statuses[code] == AgentStatus.WAITING
+                and state.agent_tasks.get(code) == "Paused by operator"):
+            await state.update_agent_status(code, AgentStatus.RUNNING, "Resumed")
+
+    state.engagement_pause_event.set()  # Unblock waiting agents
+    await state.broadcast({
+        "type": "system",
+        "content": f"Engagement {eid} resumed by operator",
+        "timestamp": time.time(),
+    })
+    return {"ok": True, "message": f"Engagement {eid} resumed"}
 
 
 @app.get("/api/backends")
