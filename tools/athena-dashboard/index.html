@@ -5598,6 +5598,10 @@
               <svg class="graph-legend-shape" viewBox="0 0 12 12"><polygon points="6,0 7.8,4.2 12,4.6 8.8,7.6 9.7,12 6,9.8 2.3,12 3.2,7.6 0,4.6 4.2,4.2" fill="#FF9800"/></svg>
               <span>Findings</span>
             </div>
+            <div class="graph-legend-item" data-node-type="attack_path" onclick="toggleGraphNodeType('attack_path')">
+              <svg class="graph-legend-shape" viewBox="0 0 12 12"><polygon points="6,0 11,3 11,9 6,12 1,9 1,3" fill="#e91e63"/></svg>
+              <span>Attack Paths</span>
+            </div>
             <div class="graph-legend-divider"></div>
             <div class="graph-legend-item" style="cursor: default;">
               <div class="graph-legend-line" style="background: #f44336;"></div>
@@ -7351,7 +7355,7 @@
 
       fetch(`/api/engagements/${eid}/credentials`)
         .then(r => r.json())
-        .then(data => {
+        .then(async (data) => {
           let creds = data.credentials || [];
           if (filter === 'weak') creds = creds.filter(c => c.type === 'default' || c.type === 'weak');
           if (filter === 'unique') {
@@ -7361,7 +7365,14 @@
               if (seen.has(key)) return false; seen.add(key); return true;
             });
           }
+          // Fallback: derive from findings when API has no explicit credentials
           if (creds.length === 0) {
+            const fRes = await fetch(`/api/engagements/${eid}/findings`);
+            const findings = await fRes.json();
+            if (Array.isArray(findings) && findings.length > 0) {
+              renderCredentialFromFindings(body, findings, filter);
+              return;
+            }
             body.innerHTML = '<div style="color: var(--zerok-text-muted); text-align: center; padding: 20px;">No credential data recorded yet.</div>';
             return;
           }
@@ -7445,6 +7456,98 @@
           return;
         }
       }
+    }
+
+    function renderCredentialFromFindings(body, findings, filter) {
+      const harvestKw = ['credential', 'password', 'token', 'jwt', 'session', 'auth bypass', 'authentication bypass', 'admin access'];
+      const weakKw = ['weak', 'default', 'algorithm confusion', 'no revocation', 'weak secret'];
+      const acctRe = /(?:admin|root|user|guest|operator)[@\w.-]*/gi;
+
+      // Classify findings into credential categories
+      const harvested = [], weak = [], accounts = [];
+      const seenAccounts = new Set();
+      findings.forEach(f => {
+        const text = ((f.title || '') + ' ' + (f.description || '')).toLowerCase();
+        const isHarvest = harvestKw.some(kw => text.includes(kw));
+        const isWeak = weakKw.some(kw => text.includes(kw));
+        const fullText = (f.title || '') + ' ' + (f.description || '');
+        const acctMatches = fullText.match(acctRe);
+        if (isHarvest) harvested.push(f);
+        if (isWeak) weak.push(f);
+        if (acctMatches) acctMatches.forEach(a => {
+          const lower = a.toLowerCase();
+          if (!seenAccounts.has(lower)) { seenAccounts.add(lower); accounts.push({ account: a, finding: f }); }
+        });
+      });
+
+      let items = [];
+      if (filter === 'all') items = harvested;
+      else if (filter === 'weak') items = weak;
+      else if (filter === 'unique') items = accounts;
+
+      if (items.length === 0) {
+        body.innerHTML = '<div style="color:var(--zerok-text-muted);text-align:center;padding:20px;">No credential evidence found for this filter.</div>';
+        return;
+      }
+
+      const sevColors = { critical: 'var(--zerok-critical)', high: 'var(--zerok-high)', medium: 'var(--zerok-medium)', low: 'var(--zerok-low)', info: 'var(--zerok-info)' };
+
+      // Header badge
+      const label = filter === 'all' ? 'Harvested Credentials' : filter === 'weak' ? 'Default / Weak' : 'Unique Accounts';
+      let html = '<div style="display:flex;gap:12px;padding:10px 12px;background:#1a1a1a;border-radius:6px;margin-bottom:12px;font-size:12px;align-items:center;">' +
+        '<span style="color:var(--zerok-text-muted);">' + escHtml(label) + ': <b style="color:var(--zerok-text);">' + items.length + '</b></span>' +
+        '<span style="margin-left:auto;font-size:10px;color:var(--zerok-text-dim);font-style:italic;">Derived from findings (no explicit credentials posted)</span>' +
+      '</div>';
+
+      if (filter === 'unique') {
+        // Unique accounts view
+        html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+        accounts.forEach(({ account, finding }) => {
+          const sev = (finding.severity || 'info').toLowerCase();
+          const sc = sevColors[sev] || sevColors.info;
+          const isAdmin = account.toLowerCase().startsWith('admin');
+          html += '<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:color-mix(in srgb, var(--zerok-card) 80%, transparent);border-radius:6px;border-left:3px solid ' + sc + ';">' +
+            '<span style="font-size:18px;">' + (isAdmin ? '⚠️' : '👤') + '</span>' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="font-size:13px;font-weight:700;color:var(--zerok-text);font-family:var(--zerok-font-mono);">' + escHtml(account) + '</div>' +
+              '<div style="font-size:11px;color:var(--zerok-text-dim);margin-top:2px;">From: ' + escHtml(finding.title || '') + '</div>' +
+            '</div>' +
+            '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + sc + '22;color:' + sc + ';font-weight:600;text-transform:uppercase;">' + escHtml(sev) + '</span>' +
+          '</div>';
+        });
+        html += '</div>';
+      } else {
+        // Harvested / Weak findings view
+        html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+        items.forEach(f => {
+          const sev = (f.severity || 'info').toLowerCase();
+          const sc = sevColors[sev] || sevColors.info;
+          const desc = (f.description || '').length > 200 ? f.description.substring(0, 200) + '...' : (f.description || '');
+          const hosts = (f.affected_hosts || []).join(', ');
+          // Extract key evidence snippets
+          const evidenceKw = filter === 'weak'
+            ? ['weak secret', 'algorithm confusion', 'no revocation', 'no token revocation', 'none algorithm', 'default']
+            : ['jwt', 'token', 'password', 'credential', 'auth bypass', 'admin'];
+          const descLower = (f.description || '').toLowerCase();
+          const matched = evidenceKw.filter(kw => descLower.includes(kw));
+
+          html += '<div style="padding:12px 14px;background:color-mix(in srgb, var(--zerok-card) 80%, transparent);border-radius:6px;border-left:3px solid ' + sc + ';">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+              '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + sc + '22;color:' + sc + ';font-weight:600;text-transform:uppercase;">' + escHtml(sev) + '</span>' +
+              '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:var(--zerok-border);color:var(--zerok-text-muted);font-weight:500;">' + escHtml(f.category || '') + '</span>' +
+              (f.cvss ? '<span style="font-size:10px;color:var(--zerok-text-dim);margin-left:auto;">CVSS ' + f.cvss + '</span>' : '') +
+            '</div>' +
+            '<div style="font-size:13px;font-weight:600;color:var(--zerok-text);margin-bottom:4px;">' + escHtml(f.title || '') + '</div>' +
+            '<div style="font-size:11px;color:var(--zerok-text-muted);line-height:1.5;margin-bottom:6px;">' + escHtml(desc) + '</div>' +
+            (matched.length > 0 ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">' +
+              matched.map(kw => '<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--zerok-primary);color:#fff;font-weight:500;">' + escHtml(kw) + '</span>').join('') +
+            '</div>' : '') +
+            (hosts ? '<div style="font-size:10px;color:var(--zerok-text-dim);font-family:var(--zerok-font-mono);">Target: ' + escHtml(hosts) + '</div>' : '') +
+          '</div>';
+        });
+        html += '</div>';
+      }
+      body.innerHTML = html;
     }
 
     function handleNewFinding(msg) {
@@ -8514,7 +8617,40 @@
       try {
         const credRes = await fetch(`/api/engagements/${currentEngagementId}/credentials`);
         const credData = await credRes.json();
-        updateCredentialTracker(credData);
+        // If API has explicit credentials, use them
+        if (credData.total > 0) {
+          updateCredentialTracker(credData);
+        } else if (_loadedFindingsCount > 0) {
+          // Derive from findings when AI agent didn't post to /api/credentials
+          const credFindings = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+          const credFData = await credFindings.json();
+          if (Array.isArray(credFData)) {
+            let harvested = 0, weak = 0, accounts = new Set();
+            const credKeywords = {
+              harvest: ['credential', 'password', 'token', 'jwt', 'session', 'auth bypass', 'authentication bypass', 'admin access'],
+              weak: ['weak', 'default', 'algorithm confusion', 'no revocation', 'weak secret'],
+              account: /(?:admin|root|user|guest|operator)[@\w.-]*/gi,
+            };
+            credFData.forEach(f => {
+              const text = ((f.title || '') + ' ' + (f.description || '')).toLowerCase();
+              // Count harvested credentials (auth bypass, token extraction)
+              if (credKeywords.harvest.some(kw => text.includes(kw))) harvested++;
+              // Count weak/default credentials
+              if (credKeywords.weak.some(kw => text.includes(kw))) weak++;
+              // Extract account names
+              const fullText = (f.title || '') + ' ' + (f.description || '');
+              const acctMatches = fullText.match(credKeywords.account);
+              if (acctMatches) acctMatches.forEach(a => accounts.add(a.toLowerCase()));
+            });
+            if (harvested > 0 || weak > 0 || accounts.size > 0) {
+              updateCredentialTracker({
+                total: harvested,
+                default_weak: weak,
+                unique_accounts: accounts.size,
+              });
+            }
+          }
+        }
       } catch (e) { console.warn('credentials:', e.message); }
 
       // ── Vulnerability Status Donut (from Vulnerability nodes, NOT findings) ──
@@ -10078,7 +10214,8 @@
       service: '#2196F3',
       vulnerability: '#f44336',
       credential: '#9C27B0',
-      finding: '#FF9800'
+      finding: '#FF9800',
+      attack_path: '#e91e63'
     };
 
     const NODE_SHAPES = {
@@ -10086,7 +10223,8 @@
       service: 'dot',
       vulnerability: 'diamond',
       credential: 'triangle',
-      finding: 'star'
+      finding: 'star',
+      attack_path: 'hexagon'
     };
 
     async function initAttackGraph() {
@@ -10266,12 +10404,14 @@
         }
       });
 
-      // Stabilization complete — disable physics, unfix restored nodes
+      // Stabilization complete — disable physics, unfix restored nodes, fit viewport
       graphNetwork.once('stabilizationIterationsDone', function() {
         graphNetwork.setOptions({ physics: { enabled: false } });
         // Unfix nodes that were pinned during stabilization for new-node physics
         const unfixed = graphNodes.getIds().map(id => ({ id, fixed: false }));
         graphNodes.update(unfixed);
+        // Fit viewport to show all nodes after layout settles
+        graphNetwork.fit({ animation: { duration: 300, easingFunction: 'easeInOutQuad' } });
       });
     }
 
@@ -10369,9 +10509,11 @@
     }
 
     function updateGraphStats(data) {
-      const counts = { host: 0, service: 0, vulnerability: 0, credential: 0, finding: 0 };
+      const counts = { host: 0, service: 0, vulnerability: 0, credential: 0, finding: 0, attack_path: 0 };
       data.nodes.forEach(n => { if (counts[n.type] !== undefined) counts[n.type]++; });
-      const paths = data.edges.filter(e => e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE' || e.type === 'CONFIRMED_BY' || e.type === 'EXPLOITED_BY').length;
+      // Count attack paths from both dedicated nodes and exploit edges
+      const edgePaths = data.edges.filter(e => e.type === 'EXPLOITS' || e.type === 'LATERAL_MOVE' || e.type === 'CONFIRMED_BY' || e.type === 'EXPLOITED_BY').length;
+      const paths = Math.max(counts.attack_path, edgePaths);
 
       document.getElementById('graph-hosts-count').textContent = counts.host;
       document.getElementById('graph-services-count').textContent = counts.service;
@@ -10627,52 +10769,22 @@
       const statusEl = document.getElementById('graphStatus');
       const placeholder = document.getElementById('graphPlaceholder');
 
-      try {
-        // Check if Neo4j has data for this engagement before rendering
-        const res = await fetch('/api/attack-graph');
-        const data = await res.json();
-        graphData = data;
+      // Fetch graph data via REST API (used by both NeoVis and vis.js fallback)
+      const res = await fetch('/api/attack-graph');
+      const data = await res.json();
+      graphData = data;
 
-        if (!data.nodes || data.nodes.length === 0) {
-          // Empty state — no engagement data yet
-          showAttackGraphEmpty(placeholder, statusEl);
-          updateGraphStats(data);
-          return;
-        }
-
-        const neovisConfig = {
-          containerId: "attack-graph",
-          neo4j: { serverUrl: config.uri, serverUser: config.user, serverPassword: config.password },
-          labels: {
-            Host: { label: "ip", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#4CAF50", shape: "box" } } },
-            Service: { label: "port", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#2196F3", shape: "dot" } } },
-            Vulnerability: { label: "name", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#f44336", shape: "diamond" } } },
-            Finding: { label: "title", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#FF9800", shape: "star" } } },
-            Credential: { label: "username", [NeoVis.NEOVIS_ADVANCED_CONFIG]: { static: { color: "#9C27B0", shape: "triangle" } } },
-          },
-          relationships: {
-            RUNS_ON: { label: "type" }, AFFECTS: { label: "type" }, BELONGS_TO: { label: "type" },
-            EVIDENCED_BY: { label: "type" }, EXPLOITS: { label: "type" },
-          },
-          initialCypher: `MATCH (n) WHERE n.engagement_id = '${currentEngagementId}' OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 100`
-        };
-
-        neovisInstance = new NeoVis(neovisConfig);
-        neovisInstance.render();
-        placeholder.style.display = 'none';
-      } catch (e) {
-        console.error('NeoVis failed, falling back to API:', e);
-        const res = await fetch('/api/attack-graph');
-        const data = await res.json();
-        graphData = data;
-        if (!data.nodes || data.nodes.length === 0) {
-          showAttackGraphEmpty(placeholder, statusEl);
-        } else {
-          renderVisGraph(data);
-          placeholder.style.display = 'none';
-        }
+      if (!data.nodes || data.nodes.length === 0) {
+        showAttackGraphEmpty(placeholder, statusEl);
         updateGraphStats(data);
+        return;
       }
+
+      // Always use vis.js custom renderer (supports custom colors, shapes, click handlers, layout controls)
+      // NeoVis library is available but lacks integration with ATHENA's custom graph features
+      renderVisGraph(data);
+      if (placeholder) placeholder.style.display = 'none';
+      updateGraphStats(data);
     }
 
     function showAttackGraphEmpty(placeholder, statusEl) {
