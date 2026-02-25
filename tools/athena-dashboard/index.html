@@ -7575,7 +7575,9 @@
         'broken access': 'A01', 'access control': 'A01',
         'cryptographic': 'A02', 'crypto': 'A02',
         'security misconfiguration': 'A05', 'misconfiguration': 'A05', 'web server': 'A05',
+        'information disclosure': 'A05', 'info disclosure': 'A05', 'exposed': 'A05',
         'vulnerable component': 'A06', 'outdated': 'A06',
+        'broken authentication': 'A07', 'authentication': 'A07', 'auth failure': 'A07',
         'web vulnerability': 'A03', 'validated exploit': 'A03',
         'xss': 'A03', 'ssrf': 'A10',
       };
@@ -8441,22 +8443,36 @@
           if (eng && (eng.status === 'completed' || eng.status === 'complete')) {
             updateScanCoverage(100);
           } else if (eng && eng.status === 'active') {
-            // Estimate coverage from scans
+            // Estimate coverage from scans, findings, and reports
             const scansRes2 = await fetch(`/api/scans?engagement=${currentEngagementId}`);
             const scans2 = await scansRes2.json();
             if (Array.isArray(scans2) && scans2.length > 0) {
               const phaseTools = {
-                'INTELLIGENCE GATHERING': ['naabu_scan', 'subfinder_scan', 'gau_discover'],
-                'THREAT MODELING': ['httpx_probe'],
-                'VULNERABILITY ANALYSIS': ['nmap_scan', 'gobuster_scan', 'nikto_scan', 'nuclei_scan'],
-                'EXPLOITATION': ['sqlmap_scan', 'metasploit_exploit', 'crackmapexec_scan', 'exploit_crafter'],
-                'POST-EXPLOITATION': ['responder_listen', 'crackmapexec_scan'],
-                'REPORTING': ['report_generator'],
+                'INTELLIGENCE GATHERING': ['nmap', 'naabu', 'subfinder', 'gau', 'httpx', 'amass'],
+                'THREAT MODELING': ['httpx'],
+                'VULNERABILITY ANALYSIS': ['nuclei', 'nikto', 'gobuster', 'kiterunner', 'openvas'],
+                'EXPLOITATION': ['sqlmap', 'metasploit', 'crackmapexec', 'chisel'],
+                'POST-EXPLOITATION': ['responder', 'crackmapexec', 'bloodhound', 'linpeas'],
+                'REPORTING': ['report'],
               };
               const coveredPhases = new Set();
               const toolNames = scans2.map(s => s.tool || '');
               for (const [phase, tools] of Object.entries(phaseTools)) {
                 if (tools.some(t => toolNames.includes(t))) coveredPhases.add(phase);
+              }
+              // Planning always runs if scans exist
+              coveredPhases.add('PLANNING');
+              // Exploitation if findings have evidence
+              const covFindings = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+              const covFData = await covFindings.json();
+              if (Array.isArray(covFData) && covFData.some(f => f.evidence_count > 0)) {
+                coveredPhases.add('EXPLOITATION');
+              }
+              // Reporting if reports exist
+              const covReports = await fetch(`/api/reports?engagement=${currentEngagementId}`);
+              const covRData = await covReports.json();
+              if (Array.isArray(covRData) && covRData.length > 0) {
+                coveredPhases.add('REPORTING');
               }
               const pct = Math.round((coveredPhases.size / _allPhases.length) * 100);
               updateScanCoverage(pct);
@@ -8552,6 +8568,41 @@
           }
         }
       } catch (e) { /* ignore agent restore failure */ }
+
+      // ── Restore PTES coverage from scans, findings, and reports ──
+      try {
+        const ptesScansRes = await fetch(`/api/scans?engagement=${currentEngagementId}`);
+        const ptesScans = await ptesScansRes.json();
+        if (Array.isArray(ptesScans) && ptesScans.length > 0) {
+          const covAgents = new Set();
+          ptesScans.filter(s => s.status === 'completed').forEach(s => {
+            if (s.agent) covAgents.add(s.agent);
+          });
+          // Planning always runs if engagement has activity
+          if (ptesScans.length > 0) covAgents.add('PL');
+          // CVE Researcher runs if we have findings with CVE or vuln analysis
+          if (_loadedFindingsCount > 0) covAgents.add('CV');
+          // Exploitation if any finding has evidence
+          const findingsRes2 = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+          const findings2 = await findingsRes2.json();
+          if (Array.isArray(findings2) && findings2.some(f => f.evidence_count > 0)) {
+            covAgents.add('EX');
+          }
+          // Post-Exploitation if attack chains or HITL approved
+          if (Array.isArray(findings2) && findings2.some(f =>
+            (f.category || '').toLowerCase().includes('authentication') ||
+            (f.title || '').toLowerCase().includes('post-exploitation')
+          )) {
+            covAgents.add('PE');
+          }
+          // Reporting if reports exist
+          const rptRes = await fetch(`/api/reports?engagement=${currentEngagementId}`);
+          const rpts = await rptRes.json();
+          if (Array.isArray(rpts) && rpts.length > 0) covAgents.add('RP');
+          // Apply to PTES matrix
+          covAgents.forEach(agent => updatePtesFromAgent(agent, 'complete'));
+        }
+      } catch (e) { /* ignore PTES restore failure */ }
 
       // ── Restore AI Timeline from server event history ──
       try {
