@@ -791,11 +791,23 @@ async def create_approval(payload: ApprovalPayload):
     """
     Create a HITL approval request. Dashboard shows popup to operator.
 
+    Only one approval can be PENDING at a time. If a pending approval exists,
+    returns 429 so the agent waits before requesting another.
+
     Example:
         curl -X POST http://localhost:8080/api/approvals \\
           -H 'Content-Type: application/json' \\
           -d '{"agent":"EX","action":"Run SQLMap","description":"SQL injection validation on login form","risk_level":"high","target":"https://target.com/login"}'
     """
+    # Enforce single pending approval — agents must wait for human decision
+    pending = [r for r in state.approval_requests.values() if r.status == ApprovalStatus.PENDING]
+    if pending:
+        return JSONResponse(status_code=429, content={
+            "error": "An approval is already pending. Wait for the operator to approve or reject it before requesting another.",
+            "pending_id": pending[0].id,
+            "pending_action": pending[0].action,
+        })
+
     req = ApprovalRequest(
         id=str(uuid.uuid4())[:8],
         agent=payload.agent,
@@ -1362,6 +1374,13 @@ async def get_engagement_summary(eid: str):
     # Count open ports from scan data
     eng_scans = [s for s in state.scans if s.get("engagement_id") == eid]
     total_ports = sum(s.get("findings_count", 0) for s in eng_scans if s.get("tool") in ("nmap_scan", "naabu_scan"))
+    # Fallback: parse port counts from nmap/naabu output if findings_count was 0
+    if total_ports == 0:
+        import re
+        for s in eng_scans:
+            if s.get("tool") in ("nmap_scan", "naabu_scan") and s.get("output_preview"):
+                port_matches = re.findall(r'PORT\s+\d+', s["output_preview"])
+                total_ports += len(port_matches)
     sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     exploits = 0
     for f in eng_findings:
@@ -3953,10 +3972,16 @@ PHASE 2 - VULNERABILITY ANALYSIS:
 - POST findings with severity levels
 
 PHASE 3 - EXPLOITATION (HITL REQUIRED):
-- For any exploitable vulnerabilities, POST approval request:
-  POST http://localhost:8080/api/approvals with action, description, risk_level
-- Poll GET http://localhost:8080/api/approvals/{{id}} until approved or rejected
-- Only execute exploitation tools if approved
+- CRITICAL: Only ONE approval request at a time. The server enforces this (429 if you try to queue another).
+- For EACH exploitable vulnerability, follow this EXACT sequence:
+  1. POST http://localhost:8080/api/approvals with agent, action, description, risk_level, target
+  2. Save the approval_id from the response
+  3. POLL GET http://localhost:8080/api/approvals/{{approval_id}} in a loop (sleep 5s between polls)
+  4. WAIT until "resolved": true in the response
+  5. If "approved": true → execute the exploitation tool
+  6. If "approved": false → skip this exploit and move to the next vulnerability
+  7. Only AFTER the current approval is resolved, proceed to the next vulnerability
+- NEVER fire multiple approval requests without waiting — the operator needs time to evaluate each one
 - Write ExploitResult and Credential nodes to Neo4j
 - POST credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
 
@@ -3970,6 +3995,7 @@ CRITICAL RULES:
 - Include REAL raw tool output in scan output_preview (never AI summaries)
 - POST agent status events to update dashboard LEDs in real-time
 - Write all findings to Neo4j with engagement_id: {eid}
+- HITL ENFORCEMENT: Only ONE pending approval at a time. POST approval → poll until resolved → then next. Server returns 429 if you violate this. The human operator MUST approve each exploit individually.
 """
 
     # Spawn Claude Code headlessly with streaming output
@@ -4668,22 +4694,41 @@ async def _run_demo_scenario():
 
 
 def _generate_command_response(cmd: str) -> str:
-    """Generate a contextual AI acknowledgment for operator commands (demo mode)."""
+    """Generate a contextual AI acknowledgment for operator commands with live stats."""
     cmd_lower = cmd.lower()
     if "pause" in cmd_lower or "stop" in cmd_lower or "halt" in cmd_lower:
-        return f"Acknowledged. Pausing active operations. Agents will hold current state until further instructions."
+        return "Acknowledged. Pausing active operations. Agents will hold current state until further instructions."
     elif "focus" in cmd_lower or "target" in cmd_lower or "prioritize" in cmd_lower:
-        return f"Understood. Redirecting agent focus as requested. Updating task queue and notifying active agents."
+        return "Understood. Redirecting agent focus as requested. Updating task queue and notifying active agents."
     elif "stealth" in cmd_lower or "slow" in cmd_lower or "reduce" in cmd_lower or "rate" in cmd_lower:
-        return f"Roger. Adjusting scan parameters to stealth profile. Rate limiting and timing randomization enabled."
+        return "Roger. Adjusting scan parameters to stealth profile. Rate limiting and timing randomization enabled."
     elif "skip" in cmd_lower or "exclude" in cmd_lower or "ignore" in cmd_lower:
-        return f"Confirmed. Adding exclusions to scope. Active agents will avoid specified targets."
-    elif "report" in cmd_lower or "status" in cmd_lower or "summary" in cmd_lower:
-        return f"Generating status update. Compiling findings from all active agents..."
+        return "Confirmed. Adding exclusions to scope. Active agents will avoid specified targets."
     elif "resume" in cmd_lower or "continue" in cmd_lower or "proceed" in cmd_lower:
-        return f"Resuming operations. All paused agents re-entering active state."
+        return "Resuming operations. All paused agents re-entering active state."
+    elif any(w in cmd_lower for w in ("report", "status", "summary", "how", "doing", "update", "progress", "sitrep", "what")):
+        # Generate live status from in-memory state
+        eid = state.active_engagement_id
+        findings = [f for f in state.findings if f.engagement == eid] if eid else []
+        scans = [s for s in state.scans if s.get("engagement_id") == eid] if eid else []
+        sev = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+        for f in findings:
+            s = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
+            if s in sev:
+                sev[s] += 1
+        active_agents = [a for a, s in state.agent_status.items() if s.lower() in ("running", "thinking")]
+        parts = [f"**Status:** {len(findings)} findings ({sev['critical']}C/{sev['high']}H/{sev['medium']}M/{sev['low']}L), {len(scans)} scans completed."]
+        if active_agents:
+            names = [AGENT_NAMES.get(a, a) for a in active_agents]
+            parts.append(f"**Active agents:** {', '.join(names)}.")
+        else:
+            parts.append("**All agents:** Idle — awaiting next phase or instructions.")
+        if findings:
+            latest = findings[-1]
+            parts.append(f"**Last finding:** [{latest.severity.value.upper() if hasattr(latest.severity, 'value') else latest.severity}] {latest.title}")
+        return " ".join(parts)
     else:
-        return f"Command received. Routing to relevant agents for execution."
+        return "Command received. Routing to relevant agents for execution."
 
 
 async def _emit(event_type: str, agent: str, content: str, metadata: dict = None):

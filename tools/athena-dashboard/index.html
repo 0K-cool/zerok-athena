@@ -8205,9 +8205,26 @@
 
     // ── Engagement Controls ──
     let _currentCtrlState = 'idle';
+    let _kpiPollInterval = null;
+
+    function startKpiPolling() {
+      stopKpiPolling();
+      _kpiPollInterval = setInterval(() => {
+        if (currentEngagementId) {
+          loadEngagementSummary(currentEngagementId);
+        }
+      }, 10000);
+    }
+    function stopKpiPolling() {
+      if (_kpiPollInterval) { clearInterval(_kpiPollInterval); _kpiPollInterval = null; }
+    }
+
     function setCtrlState(state) {
       // state: 'idle' | 'running' | 'paused'
       _currentCtrlState = state;
+      // Start/stop KPI polling based on engagement state
+      if (state === 'running') startKpiPolling();
+      else stopKpiPolling();
       const ctrlIdle = document.getElementById('ctrlIdle');
       const ctrlRunning = document.getElementById('ctrlRunning');
       const ctrlPaused = document.getElementById('ctrlPaused');
@@ -9106,11 +9123,12 @@
         // Main dashboard KPI cards
         const kpiHosts = document.getElementById('kpi-hosts');
         const kpiFindings = document.getElementById('kpi-findings');
-        const kpiServices = document.getElementById('kpi-services');
+        const kpiOpenPorts = document.getElementById('kpi-open-ports');
         const kpiCriticals = document.getElementById('kpi-criticals');
+        const kpiMtte = document.getElementById('kpi-mtte');
         if (kpiHosts) kpiHosts.textContent = summary.hosts || 0;
         if (kpiFindings) kpiFindings.textContent = summary.findings || 0;
-        if (kpiServices) kpiServices.textContent = summary.services || 0;
+        if (kpiOpenPorts) kpiOpenPorts.textContent = summary.services || 0;
 
         // Sync nav badge with API findings count
         const findingsBadge = document.getElementById('nav-badge-findings');
@@ -9123,6 +9141,10 @@
         // Update Confirmed Exploits KPI
         if (kpiCriticals) {
           kpiCriticals.textContent = summary.exploits !== undefined ? summary.exploits : (summary.severity ? summary.severity.critical || 0 : 0);
+        }
+        // Update MTTE if available
+        if (kpiMtte && summary.mtte !== undefined) {
+          kpiMtte.textContent = summary.mtte > 0 ? summary.mtte + 'm' : '—';
         }
 
         // Update severity breakdown if available
@@ -10689,7 +10711,8 @@
       if (statusEl) statusEl.textContent = 'Loading attack graph...';
 
       try {
-        const res = await fetch('/api/attack-graph');
+        const eidParam = currentEngagementId ? `?engagement=${currentEngagementId}` : '';
+        const res = await fetch('/api/attack-graph' + eidParam);
         const data = await res.json();
         graphData = data;
 
@@ -10976,7 +10999,8 @@
       if (_graphRefreshPending) return;
       _graphRefreshPending = true;
       try {
-        const res = await fetch('/api/attack-graph');
+        const eidParam = currentEngagementId ? `?engagement=${currentEngagementId}` : '';
+        const res = await fetch('/api/attack-graph' + eidParam);
         const data = await res.json();
         if (!data.nodes || data.nodes.length === 0) {
           _graphRefreshPending = false;
@@ -11203,7 +11227,8 @@
       const placeholder = document.getElementById('graphPlaceholder');
 
       // Fetch graph data via REST API (used by both NeoVis and vis.js fallback)
-      const res = await fetch('/api/attack-graph');
+      const eidParam = currentEngagementId ? `?engagement=${currentEngagementId}` : '';
+      const res = await fetch('/api/attack-graph' + eidParam);
       const data = await res.json();
       graphData = data;
 
