@@ -341,26 +341,35 @@ class AthenaAgentSession:
                 f"SDK query error: {str(e)[:500]}")
 
     async def _engagement_loop(self, initial_prompt: str):
-        """Main engagement loop: run initial query, then process command queue."""
+        """Main engagement loop: run initial query, then process command queue.
+
+        After the initial query completes, the loop stays alive waiting for
+        operator commands (up to 5 minutes idle). This allows the operator to
+        send follow-up instructions, re-direct the engagement, or ask questions.
+        """
         try:
             # Run the initial engagement query
             await self._emit("system", "OR",
                 "Starting AI engagement via Agent SDK...")
             await self._run_query(initial_prompt)
 
-            # After initial query completes, process any queued commands
+            # After initial query completes, wait for operator commands
+            # Stay alive for up to 5 minutes of inactivity to allow interaction
+            idle_timeout = 300.0  # 5 minutes
+            await self._emit("system", "OR",
+                "AI turn complete. Waiting for operator commands...",
+                {"control": "awaiting_commands"})
+
             while self.is_running and not self.is_paused:
                 try:
-                    # Wait for a command with a short timeout
                     cmd = await asyncio.wait_for(
-                        self._command_queue.get(), timeout=2.0
+                        self._command_queue.get(), timeout=idle_timeout
                     )
                 except asyncio.TimeoutError:
-                    # No commands queued — check if we should continue
-                    if self._command_queue.empty():
-                        # Engagement turn complete, no pending commands
-                        break
-                    continue
+                    # No commands for 5 minutes — end the engagement
+                    await self._emit("system", "OR",
+                        "No operator commands for 5 minutes. Ending session.")
+                    break
 
                 if not self.session_id:
                     await self._emit("system", "OR",
@@ -370,6 +379,10 @@ class AthenaAgentSession:
                 await self._emit("system", "OR",
                     f"Processing operator command: {cmd[:200]}")
                 await self._run_query(cmd, resume_id=self.session_id)
+                # After each command turn, notify operator we're ready
+                await self._emit("system", "OR",
+                    "Command processed. Waiting for next instruction...",
+                    {"control": "awaiting_commands"})
 
         except asyncio.CancelledError:
             pass

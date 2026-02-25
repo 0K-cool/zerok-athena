@@ -5246,8 +5246,22 @@ async def _handle_sdk_operator_command(cmd_text: str):
     The response flows through the SDK event stream → _sdk_event_to_dashboard
     → dashboard WebSocket. We also broadcast an operator_response event
     to confirm the command was received.
+
+    If the session ended (is_running=False), auto-resume it with the command.
     """
     try:
+        # If session ended but still has session_id, auto-resume
+        if not _active_sdk_session.is_running and _active_sdk_session.session_id:
+            await state.broadcast({
+                "type": "operator_response",
+                "agent": "OR",
+                "agentName": AGENT_NAMES.get("OR", "Orchestrator"),
+                "content": "Session idle — resuming with your command...",
+                "timestamp": time.time(),
+            })
+            await _active_sdk_session.resume(cmd_text)
+            return
+
         result = await _active_sdk_session.send_command(cmd_text)
         # The detailed AI response comes through the event stream.
         # Broadcast a brief acknowledgment so the operator sees immediate feedback.
