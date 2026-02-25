@@ -18,6 +18,28 @@ These rules apply to ALL Claude Code sessions in this project — interactive CL
 
 **Scope validation:** Before every tool call, verify the target matches the engagement scope. If uncertain, STOP and request clarification.
 
+**URL-based scope:** When the engagement target is a URL (e.g. `http://host:3030`), scope is LIMITED to that specific host:port combination. Do NOT scan all ports on the host. Use `-p <port>` with nmap, target the specific URL with web scanners. Other services on the same IP are OUT OF SCOPE.
+
+### 1b. Antsle Cloud Infrastructure (OFF-LIMITS)
+
+**The Antsle hypervisor is shared infrastructure, NOT a pentest target.**
+
+ATHENA's Kali backends and test targets run as VMs on the Antsle cloud. The hypervisor itself and other VMs are OFF-LIMITS.
+
+| Protected Asset | Identifiers |
+|----------------|-------------|
+| **Antsle Hypervisor** | `192.168.13.13`, `vkloud.lan`, `*.vkloud.antsle.us` (the hypervisor itself) |
+| **Kali External VM** | `kali.linux.vkloud.antsle.us` (port 5000 = Kali API, port 2222 = SSH) |
+| **Neo4j VM** | `kali.linux.vkloud.antsle.us:7687` / `:7474` |
+| **Other VMs** | Any port on `192.168.13.13` not explicitly in the engagement scope |
+
+**Rules:**
+- NEVER run broad port scans against `192.168.13.13` or `vkloud.lan` — this scans the entire cloud
+- When a target like `web01.vkloud.antsle.us:3030` resolves to the Antsle IP, only scan port 3030
+- Ports 22, 443, 3000, 3032, 6700-6799 on the Antsle IP are OTHER VMs — never touch them
+- The Kali backend (port 5000) and Neo4j (ports 7474/7687) are ATHENA infrastructure — never pentest them
+- If nmap discovers unexpected ports, do NOT enumerate them — they are other VMs on the shared hypervisor
+
 ### 2. Host Isolation (CRITICAL)
 
 **The ATHENA host machine is OFF-LIMITS for all offensive operations.**

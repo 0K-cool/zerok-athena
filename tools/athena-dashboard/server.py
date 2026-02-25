@@ -3933,6 +3933,13 @@ You can use ANY tool available on the Kali boxes. If a tool you need is not inst
 request HITL approval to install it (POST /api/approvals with action "install <package>"),
 then install via execute_command (e.g. apt install -y <package>).
 
+SCOPE ENFORCEMENT:
+Your target is EXACTLY: {target}
+- If the target is a URL with a port, ONLY scan that specific host:port
+- For nmap: use -p <port> to restrict scanning to the target port(s)
+- Do NOT scan all 65535 ports on the resolved IP — other services are OUT OF SCOPE
+- Read CLAUDE.md section "1b. Antsle Cloud Infrastructure" for protected assets
+
 Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
 Use kali_{backend} MCP tools for all offensive operations.
 Write all findings to Neo4j with engagement_id="{eid}".
@@ -3979,6 +3986,13 @@ TOOL INSTALLATION:
 You can use ANY tool available on the Kali boxes. If a tool you need is not installed,
 request HITL approval to install it (POST /api/approvals with action "install <package>"),
 then install via execute_command (e.g. apt install -y <package>).
+
+SCOPE ENFORCEMENT:
+Your target is EXACTLY: {target}
+- If the target is a URL with a port, ONLY scan that specific host:port
+- For nmap: use -p <port> to restrict scanning to the target port(s)
+- Do NOT scan all 65535 ports on the resolved IP — other services are OUT OF SCOPE
+- Read CLAUDE.md section "1b. Antsle Cloud Infrastructure" for protected assets
 
 Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
 Use kali_{backend} MCP tools for all offensive operations.
