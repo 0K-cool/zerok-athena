@@ -8579,6 +8579,21 @@
               }
               const pct = Math.round((coveredPhases.size / _allPhases.length) * 100);
               updateScanCoverage(pct);
+            } else {
+              // No scans but findings exist — derive coverage from findings alone
+              const coveredPhases2 = new Set(['PLANNING']);
+              const covFindings2 = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+              const covFData2 = await covFindings2.json();
+              if (Array.isArray(covFData2) && covFData2.length > 0) {
+                coveredPhases2.add('INTELLIGENCE GATHERING');
+                coveredPhases2.add('VULNERABILITY ANALYSIS');
+                if (covFData2.some(f => f.evidence_count > 0)) coveredPhases2.add('EXPLOITATION');
+              }
+              const covReports2 = await fetch(`/api/reports?engagement=${currentEngagementId}`);
+              const covRData2 = await covReports2.json();
+              if (Array.isArray(covRData2) && covRData2.length > 0) coveredPhases2.add('REPORTING');
+              const pct2 = Math.round((coveredPhases2.size / _allPhases.length) * 100);
+              updateScanCoverage(pct2);
             }
           }
         } catch (e) { /* ignore */ }
@@ -8737,12 +8752,30 @@
           if (Array.isArray(rpts) && rpts.length > 0) covAgents.add('RP');
           // Apply to PTES matrix
           covAgents.forEach(agent => updatePtesFromAgent(agent, 'complete'));
+        } else if (_loadedFindingsCount > 0) {
+          // No scans but findings exist — derive PTES coverage from findings
+          const ptesFallback = new Set(['PL', 'CV']);  // Planning + CVE Researcher always
+          const ptesFindings = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+          const ptesFF = await ptesFindings.json();
+          if (Array.isArray(ptesFF) && ptesFF.length > 0) {
+            ptesFallback.add('AR');  // Attack Researcher if findings exist
+            if (ptesFF.some(f => (f.category || '').toLowerCase().includes('web'))) ptesFallback.add('WV');
+            if (ptesFF.some(f => f.evidence_count > 0)) ptesFallback.add('EX');  // Exploitation
+            if (ptesFF.some(f =>
+              (f.category || '').toLowerCase().includes('authentication') ||
+              (f.title || '').toLowerCase().includes('post-exploitation')
+            )) ptesFallback.add('PE');
+          }
+          const ptesRpt = await fetch(`/api/reports?engagement=${currentEngagementId}`);
+          const ptesRD = await ptesRpt.json();
+          if (Array.isArray(ptesRD) && ptesRD.length > 0) ptesFallback.add('RP');
+          ptesFallback.forEach(agent => updatePtesFromAgent(agent, 'complete'));
         }
       } catch (e) { /* ignore PTES restore failure */ }
 
       // ── Restore AI Timeline from server event history ──
       try {
-        const evtRes = await fetch('/api/events?limit=200');
+        const evtRes = await fetch(`/api/events?limit=200&engagement=${currentEngagementId}`);
         const events = await evtRes.json();
         if (events && events.length > 0) {
           const timeline = document.getElementById('aiTimeline');
