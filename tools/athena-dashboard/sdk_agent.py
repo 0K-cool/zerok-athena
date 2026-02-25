@@ -138,17 +138,16 @@ def _extract_tool_output(raw: Any, max_len: int = 4000) -> str:
 
         # MCP Kali tool format: {"stdout": "...", "stderr": "..."}
         if isinstance(result, dict):
-            stdout = str(result.get("stdout", "")).strip()
-            stderr = str(result.get("stderr", "")).strip()
+            # Preserve leading whitespace (ASCII art banners) — only strip trailing
+            stdout = _strip_ansi(str(result.get("stdout", ""))).rstrip()
+            stderr = _strip_ansi(str(result.get("stderr", ""))).rstrip()
             rc = result.get("return_code")
 
             parts = []
-            if stdout:
-                parts.append(_strip_ansi(stdout))
-            if stderr:
-                cleaned = _strip_ansi(stderr)
-                if cleaned and cleaned != stdout:
-                    parts.append(cleaned)
+            if stdout.strip():
+                parts.append(stdout)
+            if stderr.strip() and stderr.strip() != stdout.strip():
+                parts.append(stderr)
             if rc and rc != 0 and not parts:
                 parts.append(f"Exit code: {rc}")
 
