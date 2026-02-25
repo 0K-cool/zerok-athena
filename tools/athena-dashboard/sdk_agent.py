@@ -59,12 +59,17 @@ def _strip_ansi(text: str) -> str:
 
 
 def _to_str(obj: Any) -> str:
-    """Convert SDK content objects to a plain string."""
+    """Convert SDK content objects to a plain string.
+
+    Handles: str, list[TextBlock], list[dict], dict, TextBlock, None.
+    Always returns a string suitable for json.loads() when the underlying
+    data is JSON.
+    """
     if obj is None:
         return ""
     if isinstance(obj, str):
         return obj
-    # ToolResultBlock.content can be a list of text blocks
+    # ToolResultBlock.content can be a list of text/content blocks
     if isinstance(obj, list):
         parts = []
         for item in obj:
@@ -72,8 +77,14 @@ def _to_str(obj: Any) -> str:
                 parts.append(item.text)
             elif isinstance(item, dict) and "text" in item:
                 parts.append(item["text"])
+            elif isinstance(item, dict):
+                # MCP result dict in a list — serialize as JSON
+                parts.append(json.dumps(item))
             else:
                 parts.append(str(item))
+        # If single item, return as-is (don't wrap in extra newlines)
+        if len(parts) == 1:
+            return parts[0]
         return "\n".join(parts)
     if isinstance(obj, dict):
         return json.dumps(obj)
@@ -82,13 +93,15 @@ def _to_str(obj: Any) -> str:
     return str(obj)
 
 
-def _extract_tool_output(raw: Any, max_len: int = 2000) -> str:
+def _extract_tool_output(raw: Any, max_len: int = 4000) -> str:
     """Extract human-readable output from SDK tool results.
 
     MCP tool results come as nested JSON like:
         {"result": {"stdout": "...", "stderr": "...", "return_code": 0}}
     or Neo4j results like:
         {"result": "{\"host\": \"192.168.13.13\", \"port\": 3030}"}
+    or tool references like:
+        [{"type": "tool_reference", "tool_name": "mcp__athena_neo4j__create_host"}]
     This extracts the meaningful parts and strips ANSI codes.
     """
     text = _to_str(raw)
@@ -100,6 +113,17 @@ def _extract_tool_output(raw: Any, max_len: int = 2000) -> str:
         data = json.loads(text)
     except (json.JSONDecodeError, TypeError):
         data = None
+
+    # Handle list results (tool_reference arrays, etc.)
+    if isinstance(data, list):
+        names = [
+            item.get("tool_name", "")
+            for item in data
+            if isinstance(item, dict) and "tool_name" in item
+        ]
+        if names:
+            return ", ".join(names)
+        return _strip_ansi(json.dumps(data, indent=2))[:max_len]
 
     if isinstance(data, dict):
         result = data.get("result", data)
@@ -131,8 +155,14 @@ def _extract_tool_output(raw: Any, max_len: int = 2000) -> str:
             if parts:
                 return "\n".join(parts)[:max_len]
 
-            # Dict with other keys (Neo4j, etc.) — pretty-print
-            return _strip_ansi(json.dumps(result, indent=2))[:max_len]
+            # Neo4j / other dict — pretty-print without noise
+            clean = {k: v for k, v in result.items()
+                     if k not in ("partial_results", "return_code", "stderr")}
+            # Single meaningful value — return it directly
+            vals = list(clean.values())
+            if len(vals) == 1 and isinstance(vals[0], str):
+                return vals[0][:max_len]
+            return _strip_ansi(json.dumps(clean, indent=2))[:max_len]
 
     # Fallback: strip ANSI from raw text
     return _strip_ansi(text)[:max_len]

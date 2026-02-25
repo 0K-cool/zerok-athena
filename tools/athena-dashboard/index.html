@@ -6987,8 +6987,8 @@
       }
 
       let bodyHtml = '';
-      if (thought) bodyHtml += '<div class="thinking-section"><div class="thinking-section-label">Thought</div><div class="thinking-section-text">' + escHtml(thought) + '</div></div>';
-      if (reasoning) bodyHtml += '<div class="thinking-section"><div class="thinking-section-label">Reasoning</div><div class="thinking-section-text">' + escHtml(reasoning) + '</div></div>';
+      if (thought) bodyHtml += '<div class="thinking-section"><div class="thinking-section-label">Thought</div><div class="thinking-section-text">' + renderMarkdown(thought) + '</div></div>';
+      if (reasoning) bodyHtml += '<div class="thinking-section"><div class="thinking-section-label">Reasoning</div><div class="thinking-section-text">' + renderMarkdown(reasoning) + '</div></div>';
       if (action) bodyHtml += '<div class="thinking-section"><div class="thinking-section-label">Action</div><span class="thinking-action-badge">' + escHtml(action) + '</span></div>';
 
       card.innerHTML =
@@ -7265,7 +7265,7 @@
 
       let contentHtml = '';
       if (msg.type === 'tool_start' && msg.metadata && msg.metadata.tool) {
-        contentHtml = '<span class="timeline-tool-badge">' + escHtml(msg.metadata.tool) + '</span> ' + escHtml(msg.content);
+        contentHtml = '<span class="timeline-tool-badge">' + escHtml(msg.metadata.tool) + '</span> ' + renderMarkdown(msg.content);
       } else if (msg.type === 'finding') {
         contentHtml = '<strong style="color:var(--zerok-critical)">' + escHtml(msg.severity || '').toUpperCase() + '</strong> ' + escHtml(msg.title || msg.content);
       } else if (msg.type === 'approval_request') {
@@ -7275,7 +7275,7 @@
         const label = msg.approved ? 'APPROVED' : 'REJECTED';
         contentHtml = '<strong style="color:' + color + '">' + label + '</strong>' + (msg.reason ? ' - ' + escHtml(msg.reason) : '');
       } else {
-        contentHtml = escHtml(msg.content || '');
+        contentHtml = renderMarkdown(msg.content || '');
       }
 
       const el = document.createElement('div');
@@ -7933,35 +7933,91 @@
     }
 
     function cleanToolOutput(s) {
-      // Parse MCP JSON output and extract human-readable text
+      // Parse MCP JSON / Python repr and extract human-readable text
       if (!s) return '';
       var text = stripAnsi(s);
-      try {
-        var data = JSON.parse(text);
-        if (data && typeof data === 'object') {
-          var result = data.result || data;
-          if (typeof result === 'string') {
-            try { result = JSON.parse(result); } catch(e) { return stripAnsi(result); }
+
+      // Try JSON parse FIRST (before any \n replacement — JSON.parse handles \n natively)
+      var data = null;
+      try { data = JSON.parse(text); } catch(e) {
+        // Try fixing Python repr (single quotes → double quotes) for simple cases
+        var fixed = text.replace(/'/g, '"').replace(/None/g, 'null').replace(/True/g, 'true').replace(/False/g, 'false');
+        try { data = JSON.parse(fixed); } catch(e2) { /* not parseable */ }
+      }
+
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        var result = data.result !== undefined ? data.result : data;
+
+        // Unwrap nested JSON strings (Neo4j returns "{\"key\":\"val\"}")
+        if (typeof result === 'string') {
+          try {
+            var inner = JSON.parse(result);
+            if (inner && typeof inner === 'object') result = inner;
+            else return stripAnsi(result).trim();
+          } catch(e) {
+            return stripAnsi(result).trim();
           }
-          if (result && typeof result === 'object') {
+        }
+
+        if (result && typeof result === 'object' && !Array.isArray(result)) {
+          // MCP Kali tool format: {stdout, stderr, return_code}
+          if ('stdout' in result || 'stderr' in result) {
             var stdout = (result.stdout || '').trim();
             var stderr = (result.stderr || '').trim();
             var parts = [];
             if (stdout) parts.push(stripAnsi(stdout));
             if (stderr && stderr !== stdout) parts.push(stripAnsi(stderr));
             if (parts.length) return parts.join('\n');
-            // Other dict (Neo4j, etc.)
-            return JSON.stringify(result, null, 2);
+            if (result.return_code && result.return_code !== 0) return 'Exit code: ' + result.return_code;
           }
+
+          // Neo4j / other structured results — pretty-print without noise
+          var clean = Object.assign({}, result);
+          delete clean.partial_results;
+          delete clean.return_code;
+          delete clean.stderr;
+          // If only one meaningful key, return its value
+          var keys = Object.keys(clean);
+          if (keys.length === 1 && typeof clean[keys[0]] === 'string') return clean[keys[0]];
+          return JSON.stringify(clean, null, 2);
         }
-      } catch(e) { /* not JSON, use as-is */ }
-      return text;
+      }
+
+      // Array at top level (tool_reference lists, Python repr)
+      if (Array.isArray(data)) {
+        var names = data.filter(function(r) { return r && r.tool_name; }).map(function(r) { return r.tool_name; });
+        if (names.length) return names.join(', ');
+        return JSON.stringify(data, null, 2);
+      }
+
+      // Last resort: convert literal \n to real newlines for non-JSON text
+      return text.replace(/\\n/g, '\n').replace(/\\t/g, '\t').trim();
     }
 
     function escHtml(s) {
       const d = document.createElement('div');
       d.textContent = stripAnsi(s || '');
       return d.innerHTML;
+    }
+
+    function renderMarkdown(s) {
+      // Lightweight markdown → HTML for system messages
+      if (!s) return '';
+      var html = escHtml(s);
+      // Headings: ## Title
+      html = html.replace(/^#{3,}\s+(.+)$/gm, '<strong style="color:var(--zerok-text);font-size:12px;">$1</strong>');
+      html = html.replace(/^##\s+(.+)$/gm, '<strong style="color:var(--zerok-primary);font-size:13px;display:block;margin:6px 0 2px;">$1</strong>');
+      // Bold: **text**
+      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      // Italic: *text*
+      html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+      // Inline code: `text`
+      html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;font-size:11px;">$1</code>');
+      // Horizontal rule: ---
+      html = html.replace(/^-{3,}$/gm, '<hr style="border:none;border-top:1px solid var(--zerok-border);margin:6px 0;">');
+      // Line breaks
+      html = html.replace(/\n/g, '<br>');
+      return html;
     }
 
     // ── HITL Approval Modal ──
