@@ -962,7 +962,7 @@ async def get_engagements(include_archived: bool = False):
             with neo4j_driver.session() as session:
                 query = """
                     MATCH (e:Engagement)
-                    OPTIONAL MATCH (e)<-[:BELONGS_TO]-(f:Finding)
+                    OPTIONAL MATCH (f:Finding {engagement_id: e.id})
                     RETURN e.id AS id, e.name AS name, e.client AS client,
                            e.scope AS scope, e.types AS type, e.status AS status,
                            e.start_date AS start_date,
@@ -1193,13 +1193,13 @@ async def get_engagement_summary(eid: str):
             with neo4j_driver.session() as session:
                 result = session.run("""
                     MATCH (e:Engagement {id: $eid})
-                    OPTIONAL MATCH (e)<-[:BELONGS_TO]-(h:Host)
-                    OPTIONAL MATCH (h)<-[:RUNS_ON]-(s:Service)
-                    OPTIONAL MATCH (h)<-[:AFFECTS]-(v:Vulnerability)
+                    OPTIONAL MATCH (h:Host {engagement_id: $eid})
+                    OPTIONAL MATCH (h)-[:HAS_SERVICE]->(s:Service)
+                    OPTIONAL MATCH (v:Vulnerability {engagement_id: $eid})
                     WITH e, count(DISTINCT h) AS hosts,
                          count(DISTINCT s) AS services,
                          count(DISTINCT v) AS vulns
-                    OPTIONAL MATCH (e)<-[:BELONGS_TO]-(f:Finding)
+                    OPTIONAL MATCH (f:Finding {engagement_id: $eid})
                     RETURN hosts, services, vulns,
                            count(DISTINCT f) AS findings,
                            count(DISTINCT CASE WHEN f.severity = 'critical' THEN f END) AS sev_critical,
@@ -1347,8 +1347,8 @@ async def get_engagement_findings(eid: str):
         try:
             with neo4j_driver.session() as session:
                 result = session.run("""
-                    MATCH (f:Finding)-[:BELONGS_TO]->(e:Engagement {id: $eid})
-                    OPTIONAL MATCH (f)-[:AFFECTS]->(h:Host)
+                    MATCH (f:Finding {engagement_id: $eid})
+                    OPTIONAL MATCH (f)-[:FOUND_ON]->(h:Host)
                     WITH f, collect(DISTINCT h.ip) AS affected_hosts
                     OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
                     RETURN f.id AS id, f.title AS title, f.severity AS severity,
@@ -1412,7 +1412,7 @@ async def get_vuln_severity(eid: str):
         try:
             with neo4j_driver.session() as session:
                 result = session.run("""
-                    MATCH (v:Vulnerability)-[:AFFECTS]->(h:Host)-[:BELONGS_TO]->(e:Engagement {id: $eid})
+                    MATCH (v:Vulnerability {engagement_id: $eid})
                     RETURN toLower(v.severity) AS severity, count(DISTINCT v) AS cnt
                 """, eid=eid)
                 for record in result:
@@ -1454,7 +1454,7 @@ async def get_exploit_stats(eid: str):
             with neo4j_driver.session() as session:
                 result = session.run("""
                     MATCH (e:Engagement {id: $eid})
-                    OPTIONAL MATCH (e)<-[:BELONGS_TO]-(f:Finding)
+                    OPTIONAL MATCH (f:Finding {engagement_id: $eid})
                     WITH e, collect(f) AS all_findings
                     RETURN size(all_findings) AS total_findings,
                            size([x IN all_findings WHERE x.category IN
@@ -1538,7 +1538,8 @@ async def get_services_summary(eid: str):
         try:
             with neo4j_driver.session() as session:
                 result = session.run("""
-                    MATCH (s:Service)-[:RUNS_ON]->(h:Host)-[:BELONGS_TO]->(e:Engagement {id: $eid})
+                    MATCH (s:Service {engagement_id: $eid})
+                    OPTIONAL MATCH (s)<-[:HAS_SERVICE]-(h:Host)
                     RETURN s.port AS port, s.name AS name,
                            count(DISTINCT h) AS host_count,
                            collect(DISTINCT s.version)[..3] AS versions
@@ -1765,7 +1766,7 @@ async def clear_engagement_findings(eid: str):
             with neo4j_driver.session() as session:
                 # Count first
                 result = session.run("""
-                    MATCH (f:Finding)-[:BELONGS_TO]->(e:Engagement {id: $eid})
+                    MATCH (f:Finding {engagement_id: $eid})
                     RETURN count(f) AS cnt
                 """, eid=eid)
                 record = result.single()
@@ -1773,12 +1774,12 @@ async def clear_engagement_findings(eid: str):
 
                 # Delete evidence packages then findings
                 session.run("""
-                    MATCH (f:Finding)-[:BELONGS_TO]->(e:Engagement {id: $eid})
+                    MATCH (f:Finding {engagement_id: $eid})
                     OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
                     DETACH DELETE ep
                 """, eid=eid)
                 session.run("""
-                    MATCH (f:Finding)-[:BELONGS_TO]->(e:Engagement {id: $eid})
+                    MATCH (f:Finding {engagement_id: $eid})
                     DETACH DELETE f
                 """, eid=eid)
         except Exception as e:
@@ -1837,11 +1838,36 @@ async def get_finding_evidence(eid: str, fid: str):
 
 @app.get("/api/scans")
 async def get_scans(engagement: Optional[str] = None):
-    """Get scan history from tool executions during engagements."""
-    scans = state.scans
+    """Get scan history from Neo4j + in-memory state."""
+    # Merge Neo4j persisted scans with in-memory (dedup by id)
+    seen_ids = {s["id"] for s in state.scans}
+    merged = list(state.scans)
+
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                query = "MATCH (s:Scan) "
+                if engagement:
+                    query += "WHERE s.engagement_id = $eid "
+                query += """RETURN s.id AS id, s.tool AS tool, s.tool_display AS tool_display,
+                       s.target AS target, s.agent AS agent, s.status AS status,
+                       s.duration_s AS duration_s, s.findings_count AS findings_count,
+                       s.started_at AS started_at, s.completed_at AS completed_at,
+                       s.engagement_id AS engagement_id, s.output_preview AS output_preview,
+                       s.command AS command ORDER BY s.started_at DESC"""
+                params = {"eid": engagement} if engagement else {}
+                result = session.run(query, **params)
+                for record in result:
+                    sid = record["id"]
+                    if sid not in seen_ids:
+                        merged.append({k: record[k] for k in record.keys()})
+                        seen_ids.add(sid)
+        except Exception as e:
+            print(f"Neo4j scans query error: {e}")
+
     if engagement:
-        scans = [s for s in scans if s.get("engagement_id") == engagement]
-    return scans
+        merged = [s for s in merged if s.get("engagement_id") == engagement]
+    return merged
 
 
 @app.post("/api/scans")
@@ -1879,6 +1905,23 @@ async def create_scan(request: dict):
     }
     state.scans.append(scan_record)
 
+    # Persist to Neo4j
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run("""
+                    CREATE (s:Scan {
+                        id: $id, tool: $tool, tool_display: $tool_display,
+                        target: $target, agent: $agent, status: $status,
+                        duration_s: $duration_s, findings_count: $findings_count,
+                        started_at: $started_at, completed_at: $completed_at,
+                        engagement_id: $engagement_id, output_preview: $output_preview,
+                        command: $command
+                    })
+                """, **scan_record)
+        except Exception as e:
+            print(f"Neo4j scan write error: {e}")
+
     # Broadcast so Scans page updates in real-time
     await state.broadcast({
         "type": "scan_update",
@@ -1907,6 +1950,24 @@ async def update_scan(scan_id: str, request: dict):
     if request.get("status") in ("completed", "error") and not scan.get("completed_at"):
         scan["completed_at"] = datetime.now(timezone.utc).isoformat()
 
+    # Persist update to Neo4j
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run("""
+                    MATCH (s:Scan {id: $id})
+                    SET s.status = $status, s.duration_s = $duration_s,
+                        s.findings_count = $findings_count,
+                        s.output_preview = $output_preview,
+                        s.completed_at = $completed_at
+                """, id=scan_id, status=scan.get("status"),
+                     duration_s=scan.get("duration_s", 0),
+                     findings_count=scan.get("findings_count", 0),
+                     output_preview=scan.get("output_preview", ""),
+                     completed_at=scan.get("completed_at"))
+        except Exception as e:
+            print(f"Neo4j scan update error: {e}")
+
     # Broadcast update
     event_type = "scan_complete" if scan["status"] in ("completed", "error") else "scan_update"
     await state.broadcast({
@@ -1928,6 +1989,18 @@ async def delete_scans(engagement: Optional[str] = None):
     else:
         deleted = len(state.scans)
         state.scans.clear()
+
+    # Delete from Neo4j too
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                if engagement:
+                    session.run("MATCH (s:Scan {engagement_id: $eid}) DETACH DELETE s", eid=engagement)
+                else:
+                    session.run("MATCH (s:Scan) DETACH DELETE s")
+        except Exception as e:
+            print(f"Neo4j scan delete error: {e}")
+
     return {"deleted": deleted}
 
 
