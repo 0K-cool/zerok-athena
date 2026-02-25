@@ -289,6 +289,23 @@ class DashboardState:
             # Keep last 500 events in memory
             if len(self.events) > 500:
                 self.events = self.events[-500:]
+        # Persist event to Neo4j for cross-restart durability
+        if neo4j_available and neo4j_driver:
+            try:
+                with neo4j_driver.session() as session:
+                    session.run("""
+                        CREATE (ev:Event {
+                            id: $id, type: $type, agent: $agent,
+                            content: $content, timestamp: $timestamp,
+                            engagement_id: $engagement_id,
+                            metadata_json: $metadata_json
+                        })
+                    """, id=event.id, type=event.type, agent=event.agent,
+                         content=event.content, timestamp=event.timestamp,
+                         engagement_id=event.metadata.get("engagement", "") if event.metadata else "",
+                         metadata_json=json.dumps(event.metadata) if event.metadata else "{}")
+            except Exception as e:
+                print(f"Neo4j event write error: {e}")
         await self.broadcast({
             "type": event.type,
             "id": event.id,
@@ -391,6 +408,49 @@ class DashboardState:
 # ──────────────────────────────────────────────
 
 state = DashboardState()
+
+
+def restore_state_from_neo4j():
+    """Restore agent statuses and active engagement from Neo4j on server start."""
+    if not (neo4j_available and neo4j_driver):
+        return
+    try:
+        with neo4j_driver.session() as session:
+            # Find most recent active engagement
+            result = session.run("""
+                MATCH (e:Engagement {status: 'active'})
+                RETURN e.id AS id ORDER BY e.start_date DESC LIMIT 1
+            """)
+            record = result.single()
+            if record:
+                state.active_engagement_id = record["id"]
+
+            # Restore agent statuses from latest events per agent
+            if state.active_engagement_id:
+                result = session.run("""
+                    MATCH (ev:Event {engagement_id: $eid})
+                    WHERE ev.type IN ['agent_status', 'scan_complete', 'finding', 'phase_change']
+                    WITH ev ORDER BY ev.timestamp DESC
+                    WITH ev.agent AS agent, collect(ev)[0] AS latest
+                    RETURN agent, latest.type AS type, latest.content AS content
+                """, eid=state.active_engagement_id)
+                for record in result:
+                    agent_code = record["agent"]
+                    if agent_code in state.agent_statuses:
+                        evt_type = record["type"]
+                        content = record.get("content", "")
+                        if evt_type == "agent_status" and "complete" in (content or "").lower():
+                            state.agent_statuses[agent_code] = AgentStatus.COMPLETED
+                        elif evt_type in ("scan_complete", "finding"):
+                            state.agent_statuses[agent_code] = AgentStatus.COMPLETED
+                        if content:
+                            state.agent_tasks[agent_code] = content
+    except Exception as e:
+        print(f"State restore from Neo4j error: {e}")
+
+
+# Run on module load to recover state across restarts
+restore_state_from_neo4j()
 
 # Initialize Kali client + orchestrator
 kali_client = KaliClient.from_env()
@@ -1511,6 +1571,35 @@ async def get_exploit_stats(eid: str):
         if per_finding_times:
             mtte_seconds = int(sum(t["time_s"] for t in per_finding_times) / len(per_finding_times))
 
+    # MTTE: compute from Neo4j finding timestamps when in-memory is empty
+    if not per_finding_times and neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (f:Finding {engagement_id: $eid})
+                    WHERE f.timestamp IS NOT NULL
+                    RETURN f.title AS title, f.timestamp AS ts, f.category AS category,
+                           f.evidence AS evidence
+                    ORDER BY f.timestamp ASC
+                """, eid=eid)
+                all_ts = []
+                exploit_cats_neo = {'validated exploit', 'exploitation', 'injection',
+                                    'authentication bypass', 'lateral movement'}
+                neo4j_exploit_findings = []
+                for record in result:
+                    all_ts.append(record["ts"])
+                    cat = (record["category"] or "").lower()
+                    if any(ec in cat for ec in exploit_cats_neo) or record.get("evidence"):
+                        neo4j_exploit_findings.append({"title": record["title"], "ts": record["ts"]})
+                if all_ts and neo4j_exploit_findings:
+                    start_ts = all_ts[0]
+                    for ef in neo4j_exploit_findings:
+                        delta = int(ef["ts"] - start_ts)
+                        per_finding_times.append({"title": ef["title"], "time_s": max(0, delta)})
+                    mtte_seconds = int(sum(t["time_s"] for t in per_finding_times) / len(per_finding_times))
+        except Exception as e:
+            print(f"Neo4j MTTE query error: {e}")
+
     # Format MTTE display
     if mtte_seconds > 0:
         mins, secs = divmod(mtte_seconds, 60)
@@ -1705,6 +1794,26 @@ async def get_attack_chains(eid: str):
                 chains = list(chain_map.values())
         except Exception as e:
             logger.warning("Neo4j attack chain query error: %s", e)
+
+    # Fallback: query AttackPath nodes when no LEADS_TO relationships exist
+    if not chains and neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (ap:AttackPath {engagement_id: $eid})
+                    RETURN ap.id AS id, ap.title AS title, ap.description AS description,
+                           ap.severity AS severity, ap.impact AS impact
+                """, eid=eid)
+                for record in result:
+                    chains.append({
+                        "id": record["id"],
+                        "name": record["title"],
+                        "severity": record.get("severity") or "critical",
+                        "impact": record.get("impact") or record.get("description") or "",
+                        "steps": [],
+                    })
+        except Exception as e:
+            logger.warning("Neo4j AttackPath query error: %s", e)
 
     return {
         "chains": chains,
@@ -2284,11 +2393,39 @@ async def get_approvals(status: Optional[str] = None):
 
 
 @app.get("/api/events")
-async def get_events(limit: int = 50, agent: Optional[str] = None):
-    """Get recent events."""
-    results = state.events
+async def get_events(limit: int = 50, agent: Optional[str] = None, engagement: Optional[str] = None):
+    """Get recent events from in-memory + Neo4j."""
+    seen_ids = {e.id for e in state.events}
+    results = list(state.events)
+
+    eid = engagement or state.active_engagement_id
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                query = "MATCH (ev:Event) "
+                params: dict = {}
+                if eid:
+                    query += "WHERE ev.engagement_id = $eid "
+                    params["eid"] = eid
+                query += "RETURN ev ORDER BY ev.timestamp DESC LIMIT $limit"
+                params["limit"] = limit
+                result = session.run(query, **params)
+                for record in result:
+                    ev = record["ev"]
+                    if ev["id"] not in seen_ids:
+                        metadata = json.loads(ev.get("metadata_json", "{}")) if ev.get("metadata_json") else {}
+                        results.append(AgentEvent(
+                            id=ev["id"], type=ev["type"], agent=ev["agent"],
+                            content=ev["content"], timestamp=ev["timestamp"],
+                            metadata=metadata
+                        ))
+                        seen_ids.add(ev["id"])
+        except Exception as e:
+            print(f"Neo4j events query error: {e}")
+
     if agent:
         results = [e for e in results if e.agent == agent]
+    results.sort(key=lambda e: e.timestamp)
     return [e.model_dump() for e in results[-limit:]]
 
 
