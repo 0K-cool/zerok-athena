@@ -1,9 +1,10 @@
 // neo4j/schema.cypher — ATHENA v2.0 Knowledge Graph Schema
 
 // Constraints (unique identifiers)
-CREATE CONSTRAINT host_ip IF NOT EXISTS FOR (h:Host) REQUIRE h.ip IS UNIQUE;
-CREATE CONSTRAINT domain_name IF NOT EXISTS FOR (d:Domain) REQUIRE d.name IS UNIQUE;
-CREATE CONSTRAINT subdomain_name IF NOT EXISTS FOR (s:Subdomain) REQUIRE s.name IS UNIQUE;
+// Composite constraints: same IP/name can exist in different engagements
+CREATE CONSTRAINT host_ip_eid IF NOT EXISTS FOR (h:Host) REQUIRE (h.ip, h.engagement_id) IS UNIQUE;
+CREATE CONSTRAINT domain_name_eid IF NOT EXISTS FOR (d:Domain) REQUIRE (d.name, d.engagement_id) IS UNIQUE;
+CREATE CONSTRAINT subdomain_name_eid IF NOT EXISTS FOR (s:Subdomain) REQUIRE (s.name, s.engagement_id) IS UNIQUE;
 CREATE CONSTRAINT vuln_id IF NOT EXISTS FOR (v:Vulnerability) REQUIRE v.id IS UNIQUE;
 CREATE CONSTRAINT finding_id IF NOT EXISTS FOR (f:Finding) REQUIRE f.id IS UNIQUE;
 CREATE CONSTRAINT engagement_id IF NOT EXISTS FOR (e:Engagement) REQUIRE e.id IS UNIQUE;
