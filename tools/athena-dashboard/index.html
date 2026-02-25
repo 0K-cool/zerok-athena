@@ -2638,6 +2638,11 @@
       color: var(--zerok-critical);
     }
 
+    .scan-status-badge.failed {
+      background: color-mix(in srgb, var(--zerok-critical) 20%, transparent);
+      color: var(--zerok-critical);
+    }
+
     @keyframes scan-pulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.6; }
@@ -3698,7 +3703,8 @@
     }
 
     .timeline-card.expanded .timeline-card-body {
-      max-height: 600px;
+      max-height: 2000px;
+      overflow-y: auto;
       border-top: 1px solid color-mix(in srgb, var(--zerok-border) 40%, transparent);
     }
 
@@ -6253,15 +6259,28 @@
               ctx.fillStyle = colors[i] || '#666';
               ctx.fill();
 
-              // Label text
-              ctx.textAlign = dir >= 0 ? 'left' : 'right';
+              // Label text + count
               const textX = x3 + dir * 4;
-              ctx.fillStyle = '#a0a0a0';
-              ctx.fillText(labels[i], textX, y3);
-              // Count value (bold, white)
-              const labelWidth = ctx.measureText(labels[i]).width;
-              ctx.fillStyle = colors[i] || '#fff';
-              ctx.fillText(' ' + dataset.data[i], textX + (dir >= 0 ? labelWidth : -labelWidth), y3);
+              if (dir >= 0) {
+                // Right side: "Label Count"
+                ctx.textAlign = 'left';
+                ctx.fillStyle = '#a0a0a0';
+                ctx.fillText(labels[i], textX, y3);
+                const labelWidth = ctx.measureText(labels[i] + ' ').width;
+                ctx.fillStyle = colors[i] || '#fff';
+                ctx.fillText(dataset.data[i], textX + labelWidth, y3);
+              } else {
+                // Left side: "Count Label" (right-aligned from leader line end)
+                ctx.textAlign = 'right';
+                const countStr = dataset.data[i] + '';
+                const countWidth = ctx.measureText(countStr).width;
+                ctx.fillStyle = '#a0a0a0';
+                ctx.fillText(labels[i], textX, y3);
+                const labelWidth = ctx.measureText(labels[i]).width;
+                ctx.fillStyle = colors[i] || '#fff';
+                ctx.textAlign = 'right';
+                ctx.fillText(countStr, textX - labelWidth - 4, y3);
+              }
             });
             ctx.restore();
           }
@@ -7155,6 +7174,10 @@
 
         // Remove running state from card
         tool.el.classList.remove('running');
+
+        // Auto-scroll timeline when tool output is populated
+        const timeline = document.getElementById('aiTimeline');
+        smartScroll(timeline);
 
         delete runningTools[toolId];
       } else {
@@ -8248,12 +8271,56 @@
       else if (control === 'engagement_resumed') setCtrlState('running');
       else if (control === 'engagement_ended' || control === 'engagement_stopped') {
         setCtrlState('idle');
+        // BUG-001: Reset Active Engagements KPI
+        const kpiActive = document.getElementById('kpi-engagements');
+        if (kpiActive) kpiActive.textContent = '0';
         // Final KPI refresh after engagement ends — capture all Neo4j writes
         if (currentEngagementId) {
           loadEngagementSummary(currentEngagementId);
           loadDashboardFromAPI();
         }
+        // BUG-017: Auto-generate engagement summary when AI didn't reach report phase
+        setTimeout(() => {
+            // Fetch final engagement summary and display it in the timeline
+            if (currentEngagementId) {
+                fetch(`/api/engagements/${currentEngagementId}/summary`)
+                    .then(r => r.json())
+                    .then(summary => {
+                        const timeline = document.getElementById('aiTimeline');
+                        if (!timeline) return;
+                        const now = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        const el = document.createElement('div');
+                        el.className = 'timeline-event';
+                        el.setAttribute('data-agent', 'RP');
+                        const sevCounts = summary.severity || {};
+                        const summaryText = `**Engagement Summary (Auto-Generated)**\n\n` +
+                            `- **Hosts:** ${summary.hosts || 0}\n` +
+                            `- **Services:** ${summary.services || 0}\n` +
+                            `- **Vulnerabilities:** ${summary.vulnerabilities || 0}\n` +
+                            `- **Findings:** ${summary.findings || 0}\n` +
+                            `- **Exploits Confirmed:** ${summary.exploits || 0}\n\n` +
+                            `**Severity Breakdown:** ` +
+                            `${sevCounts.critical || 0} Critical, ` +
+                            `${sevCounts.high || 0} High, ` +
+                            `${sevCounts.medium || 0} Medium, ` +
+                            `${sevCounts.low || 0} Low`;
+                        el.innerHTML =
+                            '<span class="event-icon" style="background:var(--zerok-info);">&#x1F4CA;</span>' +
+                            '<div class="event-body">' +
+                                '<div class="event-header">' +
+                                    '<span><strong>Report</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-info) 20%,transparent);color:var(--zerok-info);">SUMMARY</span></span>' +
+                                    '<span class="event-time">' + now + '</span>' +
+                                '</div>' +
+                                '<div class="event-detail" style="color:var(--zerok-text-muted);">' + renderMarkdown(summaryText) + '</div>' +
+                            '</div>';
+                        timeline.appendChild(el);
+                        smartScroll(timeline);
+                    })
+                    .catch(() => {});  // Silent fail — non-critical
+            }
+        }, 2000);  // 2s delay to allow final Neo4j sync
       }
+      else if (control === 'awaiting_commands') setCtrlState('idle');
 
       const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
 
@@ -10259,9 +10326,14 @@
       const bar = document.getElementById('evidence-stats-bar');
       if (!bar) return;
       const sizeMB = ((stats.total_size_bytes || 0) / (1024 * 1024)).toFixed(1);
+      const findingsTotal = stats.coverage?.findings_total || 0;
+      const findingsWithEvidence = stats.coverage?.findings_with_evidence || 0;
+      const coverageStat = findingsTotal > 0
+        ? `<div><strong>${stats.coverage?.percent || 0}%</strong> <span style="color: var(--zerok-text-muted);">coverage</span> (${findingsWithEvidence}/${findingsTotal})</div>`
+        : '';
       bar.innerHTML = `
         <div><strong>${stats.total_artifacts || 0}</strong> <span style="color: var(--zerok-text-muted);">artifacts</span></div>
-        <div><strong>${stats.coverage?.percent || 0}%</strong> <span style="color: var(--zerok-text-muted);">coverage</span> (${stats.coverage?.findings_with_evidence || 0}/${stats.coverage?.findings_total || 0})</div>
+        ${coverageStat}
         <div><strong>${sizeMB}</strong> <span style="color: var(--zerok-text-muted);">MB</span></div>
         <div style="margin-left: auto; display: flex; gap: 8px;">
           ${Object.entries(stats.by_type || {}).map(([t, c]) => `<span style="color: var(--zerok-text-dim);">${t}: ${c}</span>`).join('')}

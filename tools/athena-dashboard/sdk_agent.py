@@ -266,8 +266,19 @@ class AthenaAgentSession:
                 "timestamp": time.time(),
             })
 
-    def _build_options(self, resume_id: str | None = None) -> ClaudeAgentOptions:
-        """Build SDK options for a query call."""
+    def _build_options(
+        self,
+        resume_id: str | None = None,
+        max_turns: int = 15,
+    ) -> ClaudeAgentOptions:
+        """Build SDK options for a query call.
+
+        Args:
+            resume_id: Session ID to resume an existing conversation.
+            max_turns: Maximum tool-call turns per query chunk. Defaults to 15
+                (~1-2 minutes), which keeps each chunk short enough that
+                operator commands are picked up promptly between chunks.
+        """
         opts = ClaudeAgentOptions(
             model="sonnet",
             cwd=str(self.athena_root),
@@ -289,6 +300,7 @@ class AthenaAgentSession:
         )
         if resume_id:
             opts.resume = resume_id
+        opts.max_turns = max_turns
         return opts
 
     # ── Query Execution ───────────────────────
@@ -321,7 +333,7 @@ class AthenaAgentSession:
                         self._total_cost_usd += msg.total_cost_usd
                     result_text = msg.result or "Turn complete"
                     await self._emit("system", "OR",
-                        f"AI turn complete: {result_text[:500]}", {
+                        f"AI turn complete: {result_text}", {
                             "session_id": msg.session_id,
                             "cost_usd": msg.total_cost_usd,
                             "duration_ms": msg.duration_ms,
@@ -341,48 +353,64 @@ class AthenaAgentSession:
                 f"SDK query error: {str(e)[:500]}")
 
     async def _engagement_loop(self, initial_prompt: str):
-        """Main engagement loop: run initial query, then process command queue.
+        """Main engagement loop: chunked query execution with operator command injection.
 
-        After the initial query completes, the loop stays alive waiting for
-        operator commands (up to 5 minutes idle). This allows the operator to
-        send follow-up instructions, re-direct the engagement, or ask questions.
+        Uses max_turns to limit each query to ~15 tool calls, then checks the
+        command queue before auto-continuing. This ensures operator commands
+        are picked up within ~1-2 minutes instead of waiting for the entire
+        engagement turn to complete (which could be 30+ minutes).
         """
         try:
-            # Run the initial engagement query
             await self._emit("system", "OR",
                 "Starting AI engagement via Agent SDK...")
-            await self._run_query(initial_prompt)
 
-            # After initial query completes, wait for operator commands
-            # Stay alive for up to 5 minutes of inactivity to allow interaction
-            idle_timeout = 300.0  # 5 minutes
-            await self._emit("system", "OR",
-                "AI turn complete. Waiting for operator commands...",
-                {"control": "awaiting_commands"})
+            prompt = initial_prompt
+            resume_id = None
 
             while self.is_running and not self.is_paused:
-                try:
-                    cmd = await asyncio.wait_for(
-                        self._command_queue.get(), timeout=idle_timeout
-                    )
-                except asyncio.TimeoutError:
-                    # No commands for 5 minutes — end the engagement
-                    await self._emit("system", "OR",
-                        "No operator commands for 5 minutes. Ending session.")
+                # Track tool count to detect when AI finishes (no tools used)
+                tools_before = self._tool_count
+
+                # Run a bounded query chunk (max_turns limits duration)
+                await self._run_query(prompt, resume_id)
+
+                if not self.is_running or self.is_paused:
                     break
 
-                if not self.session_id:
-                    await self._emit("system", "OR",
-                        "Cannot process command — no session_id available.")
-                    continue
+                tools_used = self._tool_count - tools_before
+                resume_id = self.session_id
 
-                await self._emit("system", "OR",
-                    f"Processing operator command: {cmd[:200]}")
-                await self._run_query(cmd, resume_id=self.session_id)
-                # After each command turn, notify operator we're ready
-                await self._emit("system", "OR",
-                    "Command processed. Waiting for next instruction...",
-                    {"control": "awaiting_commands"})
+                if tools_used == 0:
+                    # AI didn't use any tools — likely done or waiting for input
+                    # Enter idle mode with long timeout
+                    await self._emit("system", "OR",
+                        "AI turn complete. Waiting for operator commands...",
+                        {"control": "awaiting_commands"})
+                    try:
+                        cmd = await asyncio.wait_for(
+                            self._command_queue.get(), timeout=300.0)
+                        await self._emit("system", "OR",
+                            f"Processing operator command: {cmd[:200]}")
+                        prompt = cmd
+                    except asyncio.TimeoutError:
+                        await self._emit("system", "OR",
+                            "No operator commands for 5 minutes. Ending session.")
+                        break
+                else:
+                    # AI is still actively working — briefly check for operator commands
+                    try:
+                        cmd = await asyncio.wait_for(
+                            self._command_queue.get(), timeout=1.0)
+                        # Operator command takes priority over auto-continue
+                        await self._emit("system", "OR",
+                            f"Processing operator command: {cmd[:200]}")
+                        prompt = cmd
+                    except asyncio.TimeoutError:
+                        # No commands — auto-continue the engagement
+                        if resume_id:
+                            prompt = "Continue with the next step of the penetration test."
+                        else:
+                            break
 
         except asyncio.CancelledError:
             pass
@@ -396,7 +424,6 @@ class AthenaAgentSession:
                 f"AI engagement session ended. "
                 f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} total cost.",
                 {"control": "engagement_ended"})
-            # Clean up orphaned scans that were dispatched but never completed
             await self._cleanup_orphan_scans()
 
     async def _cleanup_orphan_scans(self):
@@ -442,7 +469,7 @@ class AthenaAgentSession:
         await self._command_queue.put(command)
 
         if self.session_id:
-            return "Command queued — will execute after current turn completes."
+            return "Command queued — will execute within ~1-2 minutes."
         else:
             return "Command queued — waiting for session to initialize."
 

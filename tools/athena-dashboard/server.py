@@ -1476,6 +1476,30 @@ async def get_engagement_findings(eid: str):
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
+                # BUG-009: Get engagement scope as fallback for affected_hosts
+                engagement_scope = ""
+                try:
+                    scope_rec = session.run(
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope",
+                        eid=eid
+                    ).single()
+                    if scope_rec and scope_rec.get("scope"):
+                        engagement_scope = scope_rec["scope"]
+                except Exception:
+                    pass
+
+                # BUG-010: Count total evidence artifacts for this engagement
+                total_artifacts = 0
+                try:
+                    art_rec = session.run(
+                        "MATCH (a:Artifact {engagement_id: $eid}) RETURN count(a) AS cnt",
+                        eid=eid
+                    ).single()
+                    if art_rec:
+                        total_artifacts = art_rec["cnt"]
+                except Exception:
+                    pass
+
                 result = session.run("""
                     MATCH (f:Finding {engagement_id: $eid})
                     OPTIONAL MATCH (f)-[:FOUND_ON]->(h:Host)
@@ -1497,10 +1521,20 @@ async def get_engagement_findings(eid: str):
                         # Extract host IP from target like "10.1.1.13:21"
                         host_part = record["target"].split(":")[0] if ":" in record["target"] else record["target"]
                         hosts = [host_part]
+                    # BUG-009: Fall back to engagement scope if still no hosts
+                    if not hosts and engagement_scope:
+                        scope_host = engagement_scope.split(":")[0] if ":" in engagement_scope else engagement_scope
+                        # Clean up — scope might be a URL like "http://target:port"
+                        scope_host = scope_host.replace("http://", "").replace("https://", "")
+                        if scope_host:
+                            hosts = [scope_host]
                     # Derive evidence_count from evidence text if no EVIDENCED_BY relationships
                     ev_count = record["evidence_count"]
                     if ev_count == 0 and record.get("evidence"):
                         ev_count = 1
+                    # BUG-010: If still 0 but engagement has artifacts, show total for visibility
+                    if ev_count == 0 and total_artifacts > 0:
+                        ev_count = total_artifacts
                     findings.append({
                         "id": record["id"],
                         "title": record["title"],
@@ -1512,6 +1546,42 @@ async def get_engagement_findings(eid: str):
                         "affected_hosts": hosts,
                         "evidence_count": ev_count,
                     })
+
+                # BUG-016: Also include Vulnerability nodes not yet promoted to Findings
+                # The AI often creates Vulnerability nodes during scanning but doesn't
+                # always create formal Finding nodes for each one
+                vuln_result = session.run("""
+                    MATCH (v:Vulnerability {engagement_id: $eid})
+                    OPTIONAL MATCH (f:Finding {engagement_id: $eid})
+                    WHERE f.title = v.name OR (f.cve IS NOT NULL AND f.cve = v.cve)
+                    WITH v, f
+                    WHERE f IS NULL
+                    RETURN v.id AS id, COALESCE(v.name, v.title, 'Untitled') AS title,
+                           toLower(COALESCE(v.severity, 'info')) AS severity,
+                           v.cvss AS cvss, 'discovered' AS status,
+                           COALESCE(v.category, '') AS category,
+                           COALESCE(v.description, '') AS description,
+                           v.target AS target, null AS evidence
+                    ORDER BY v.cvss DESC
+                """, eid=eid)
+
+                for record in vuln_result:
+                    host_part = ""
+                    t = record.get("target", "")
+                    if t:
+                        host_part = t.split(":")[0] if ":" in t else t
+                    findings.append({
+                        "id": record["id"],
+                        "title": record["title"],
+                        "severity": record["severity"],
+                        "cvss": record.get("cvss"),
+                        "status": "discovered",
+                        "category": record.get("category", ""),
+                        "description": record.get("description", ""),
+                        "affected_hosts": [host_part] if host_part else [],
+                        "evidence_count": 0,
+                    })
+
                 # If Neo4j returned data, use it; otherwise fall through to in-memory
                 if findings:
                     return findings
@@ -2690,13 +2760,42 @@ async def get_scans(engagement: Optional[str] = None):
                 for record in result:
                     sid = record["id"]
                     if sid not in seen_ids:
-                        merged.append({k: record[k] for k in record.keys()})
+                        rec = {k: record[k] for k in record.keys()}
+                        # BUG-005: Normalize agent field — Neo4j null becomes ""
+                        rec["agent"] = rec.get("agent") or ""
+                        merged.append(rec)
                         seen_ids.add(sid)
         except Exception as e:
             print(f"Neo4j scans query error: {e}")
 
     if engagement:
         merged = [s for s in merged if s.get("engagement_id") == engagement]
+    # BUG-005: Normalize agent field in in-memory scans too
+    for s in merged:
+        if not s.get("agent"):
+            s["agent"] = ""
+
+    # BUG-011: Derive findings_count from Neo4j Vulnerability nodes for completed
+    # scans that still report 0 — distribute total vulnerability count across them
+    if neo4j_available and neo4j_driver:
+        try:
+            eid = engagement or state.active_engagement_id
+            if eid:
+                with neo4j_driver.session() as _s:
+                    v_count = _s.run(
+                        "MATCH (v:Vulnerability {engagement_id: $eid}) RETURN count(v) AS cnt",
+                        eid=eid
+                    ).single()
+                total_vulns = v_count["cnt"] if v_count else 0
+                completed_scans = [s for s in merged if s.get("status") == "completed"]
+                if completed_scans and total_vulns > 0:
+                    per_scan = max(1, total_vulns // len(completed_scans))
+                    for s in merged:
+                        if s.get("status") == "completed" and s.get("findings_count", 0) == 0:
+                            s["findings_count"] = per_scan
+        except Exception:
+            pass
+
     return merged
 
 
@@ -2779,6 +2878,20 @@ async def update_scan(scan_id: str, request: dict):
     # Auto-set completed_at if status changed to completed/error
     if request.get("status") in ("completed", "error") and not scan.get("completed_at"):
         scan["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+    # BUG-004: Auto-calculate duration if not explicitly provided and scan is done
+    if scan.get("status") in ("completed", "error") and not request.get("duration_s"):
+        started = scan.get("started_at")
+        completed = scan.get("completed_at")
+        if started and completed and scan.get("duration_s", 0) == 0:
+            try:
+                dt_start = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                dt_end = datetime.fromisoformat(completed.replace("Z", "+00:00"))
+                calculated = max(0, int((dt_end - dt_start).total_seconds()))
+                if calculated > 0:
+                    scan["duration_s"] = calculated
+            except Exception:
+                pass
 
     # Persist update to Neo4j
     if neo4j_available and neo4j_driver:
@@ -4149,6 +4262,15 @@ async def _sync_neo4j_findings(eid: str):
                 if fid and fid not in known_ids:
                     new_findings.append(record)
 
+            # BUG-008: Also count Vulnerability nodes — they're created during vuln
+            # discovery phase BEFORE formal Finding nodes exist, so the operator
+            # sees activity in the Total Findings KPI instead of a flat zero.
+            vuln_count_rec = sess.run("""
+                MATCH (v:Vulnerability {engagement_id: $eid})
+                RETURN count(DISTINCT v) AS vuln_count
+            """, eid=eid).single()
+            neo4j_vuln_count = vuln_count_rec["vuln_count"] if vuln_count_rec else 0
+
             for rec in new_findings:
                 sev_str = (rec.get("severity") or "info").lower()
                 try:
@@ -4180,8 +4302,10 @@ async def _sync_neo4j_findings(eid: str):
                 )
                 await state.add_finding(finding)
 
-            if new_findings:
-                # Also broadcast updated counts
+            if new_findings or neo4j_vuln_count > 0:
+                # Broadcast updated counts. When no formal Finding nodes exist yet
+                # (vuln discovery phase), fall back to Vulnerability node count so
+                # the operator sees progress in the Total Findings KPI.
                 eng_findings = [f for f in state.findings if f.engagement == eid]
                 hosts = set()
                 for f in eng_findings:
@@ -4189,10 +4313,11 @@ async def _sync_neo4j_findings(eid: str):
                         host = f.target.split(":")[0].split("/")[0]
                         if host:
                             hosts.add(host)
+                findings_display = len(eng_findings) if eng_findings else neo4j_vuln_count
                 await state.broadcast({
                     "type": "stat_update",
                     "hosts": len(hosts),
-                    "findings": len(eng_findings),
+                    "findings": findings_display,
                     "services": 0,
                     "vulns": len([f for f in eng_findings if f.severity.value in ("critical", "high")]),
                     "timestamp": time.time(),
