@@ -3928,6 +3928,11 @@ HITL approvals (exploitation phase):
   Poll GET http://localhost:8080/api/approvals/{{approval_id}} every 5s until resolved
   Only ONE pending approval at a time (server returns 429 otherwise)
 
+TOOL INSTALLATION:
+You can use ANY tool available on the Kali boxes. If a tool you need is not installed,
+request HITL approval to install it (POST /api/approvals with action "install <package>"),
+then install via execute_command (e.g. apt install -y <package>).
+
 Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
 Use kali_{backend} MCP tools for all offensive operations.
 Write all findings to Neo4j with engagement_id="{eid}".
@@ -3969,6 +3974,11 @@ HITL approvals (exploitation phase):
   POST http://localhost:8080/api/approvals → get approval_id
   Poll GET http://localhost:8080/api/approvals/{{approval_id}} every 5s until resolved
   Only ONE pending approval at a time (server returns 429 otherwise)
+
+TOOL INSTALLATION:
+You can use ANY tool available on the Kali boxes. If a tool you need is not installed,
+request HITL approval to install it (POST /api/approvals with action "install <package>"),
+then install via execute_command (e.g. apt install -y <package>).
 
 Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
 Use kali_{backend} MCP tools for all offensive operations.
