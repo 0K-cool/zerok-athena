@@ -69,6 +69,14 @@ except ImportError:
 from kali_client import KaliClient
 from orchestrator import Orchestrator
 
+# Phase F: Claude Agent SDK wrapper (optional — falls back to subprocess if unavailable)
+try:
+    from sdk_agent import AthenaAgentSession
+    SDK_AVAILABLE = True
+except ImportError:
+    SDK_AVAILABLE = False
+    AthenaAgentSession = None
+
 
 # ──────────────────────────────────────────────
 # Models
@@ -567,7 +575,7 @@ async def websocket_endpoint(ws: WebSocket):
             }
             for e in state.events[-50:]
         ],
-        "engagement_active": (state.engagement_task is not None and not state.engagement_task.done()) or (_ai_process is not None and _ai_process.poll() is None),
+        "engagement_active": (state.engagement_task is not None and not state.engagement_task.done()) or (_ai_process is not None and _ai_process.poll() is None) or (_active_sdk_session is not None and _active_sdk_session.is_running),
         "engagement_paused": not state.engagement_pause_event.is_set() if (state.engagement_task and not state.engagement_task.done()) else False,
         "active_engagement_id": state.active_engagement_id,
         "timestamp": time.time(),
@@ -619,16 +627,20 @@ async def websocket_endpoint(ws: WebSocket):
                         "content": cmd_text,
                         "timestamp": time.time(),
                     })
-                    # Generate an AI acknowledgment response
-                    await asyncio.sleep(0.8)
-                    response = _generate_command_response(cmd_text)
-                    await state.broadcast({
-                        "type": "operator_response",
-                        "agent": "OR",
-                        "agentName": AGENT_NAMES.get("OR", "Orchestrator"),
-                        "content": response,
-                        "timestamp": time.time(),
-                    })
+                    # Phase F: Forward to SDK session for real AI response
+                    if _active_sdk_session and _active_sdk_session.session_id:
+                        asyncio.create_task(_handle_sdk_operator_command(cmd_text))
+                    else:
+                        # Fallback: canned response if no SDK session
+                        await asyncio.sleep(0.8)
+                        response = _generate_command_response(cmd_text)
+                        await state.broadcast({
+                            "type": "operator_response",
+                            "agent": "OR",
+                            "agentName": AGENT_NAMES.get("OR", "Orchestrator"),
+                            "content": response,
+                            "timestamp": time.time(),
+                        })
 
             elif msg_type == "ping":
                 await ws.send_text(json.dumps({
@@ -3756,6 +3768,7 @@ async def start_engagement(eid: str, backend: str = ""):
 # ──────────────────────────────────────────────
 
 _ai_process: subprocess.Popen | None = None
+_active_sdk_session: "AthenaAgentSession | None" = None  # Phase F: SDK session
 
 
 async def _stream_ai_output(eid: str, process: subprocess.Popen):
@@ -3880,73 +3893,86 @@ async def _stream_ai_output(eid: str, process: subprocess.Popen):
     ))
 
 
-@app.post("/api/engagement/{eid}/start-ai")
-async def start_engagement_ai(eid: str, backend: str = "external", target: str = ""):
-    """Start an AI-powered PTES engagement using Claude Code.
+def _build_sdk_prompt(eid: str, target: str, backend: str) -> str:
+    """Build the engagement prompt for the Agent SDK.
 
-    Spawns a headless Claude Code process that orchestrates the full
-    PTES methodology, streaming events back to the dashboard in real-time.
-
-    Works both from the dashboard GUI and from CLI (/athena-engage).
+    Uses REST-based HITL polling (same as legacy) since the SDK's
+    can_use_tool callback is unreliable with bypassPermissions mode.
+    The SDK adds: operator commands via session resume, event streaming,
+    and multi-turn conversation context.
     """
-    global _ai_process
+    return f"""You are the ATHENA AI pentesting orchestrator for engagement {eid}.
 
-    if not target:
-        # Try to get target from in-memory engagement data
-        eng = next((e for e in state.engagements if e.id == eid), None)
-        if eng:
-            target = eng.target
-        # Fallback: check Neo4j
-        if not target and neo4j_available and neo4j_driver:
-            try:
-                with neo4j_driver.session() as session:
-                    result = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope",
-                        eid=eid,
-                    )
-                    record = result.single()
-                    if record and record.get("scope"):
-                        target = record["scope"]
-            except Exception:
-                pass
-        if not target:
-            return JSONResponse(status_code=400, content={
-                "error": "Target scope required. Pass ?target=<ip/cidr/url>"
-            })
+TARGET: {target}
+DASHBOARD: http://localhost:8080
+ENGAGEMENT ID: {eid}
+BACKEND: Use kali_{backend} MCP tools
+AUTHORIZATION: This is an authorized penetration test.
 
-    # Kill any existing AI process
-    if _ai_process and _ai_process.poll() is None:
-        _ai_process.terminate()
-        try:
-            _ai_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            _ai_process.kill()
+Execute a full PTES penetration test following these phases:
 
-    # Set engagement active
-    state.active_engagement_id = eid
-    state.engagement_stopped = False
+PHASE 1 - RECONNAISSANCE:
+- Update agent LEDs: POST http://localhost:8080/api/events with {{"type":"agent_status","agent":"PO","status":"running"}}
+- Run nmap scan via kali_{backend} MCP tools against {target}
+- Run httpx probe if web ports found
+- Register each scan: POST http://localhost:8080/api/scans with tool name, status, output
+- Write Host and Service nodes to Neo4j via athena_neo4j MCP (use athena-neo4j or athena_neo4j tools)
+- POST findings to http://localhost:8080/api/engagements/{eid}/findings
 
-    # Broadcast AI mode system event
-    await state.add_event(AgentEvent(
-        id=str(uuid.uuid4())[:8],
-        type="system",
-        agent="OR",
-        content=f"AI Mode activated. Claude Code will execute PTES phases 1-7 against {target}. HITL approval required for exploitation.",
-        timestamp=time.time(),
-    ))
+PHASE 2 - VULNERABILITY ANALYSIS:
+- Update agent LEDs for CV, WV, AP
+- Run nuclei scan against discovered web services
+- Run nikto scan
+- Write Vulnerability nodes to Neo4j
+- POST findings with severity levels
 
-    # Broadcast engagement_active so dashboard shows running badge
-    await state.broadcast({
-        "type": "engagement_started",
-        "engagement_id": eid,
-        "mode": "ai",
-        "engagement_active": True,
-        "timestamp": time.time(),
-    })
+PHASE 3 - EXPLOITATION (HITL REQUIRED):
+- CRITICAL: Only ONE approval request at a time. The server enforces this (429 if you try to queue another).
+- For EACH exploitable vulnerability, follow this EXACT sequence:
+  1. POST http://localhost:8080/api/approvals with agent, action, description, risk_level, target
+  2. Save the approval_id from the response
+  3. POLL GET http://localhost:8080/api/approvals/{{approval_id}} in a loop (sleep 5s between polls)
+  4. WAIT until "resolved": true in the response
+  5. If "approved": true → execute the exploitation tool
+  6. If "approved": false → skip this exploit and move to the next vulnerability
+  7. Only AFTER the current approval is resolved, proceed to the next vulnerability
+- NEVER fire multiple approval requests without waiting — the operator needs time to evaluate each one
+- Write ExploitResult and Credential nodes to Neo4j
+- POST credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
 
-    # Build comprehensive orchestration prompt
-    athena_dir = str(Path(__file__).resolve().parent.parent.parent)
-    prompt = f"""You are the ATHENA AI pentesting orchestrator for engagement {eid}.
+PHASE 4 - VERIFICATION:
+- Re-verify exploited vulnerabilities independently
+- Confirm findings are reproducible
+
+PHASE 5 - POST-EXPLOITATION:
+- Enumerate internal access from compromised hosts
+- Document lateral movement possibilities
+
+PHASE 6 - CLEANUP:
+- Remove any artifacts left on target
+- Document cleanup actions
+
+PHASE 7 - REPORTING:
+- Summarize all findings with severity, evidence, remediation
+- POST final engagement status
+
+CRITICAL RULES:
+- Register EVERY tool execution as a scan via POST /api/scans BEFORE running and PATCH /api/scans/{{id}} AFTER
+- Include REAL raw tool output in scan output_preview (never AI summaries)
+- POST agent status events to update dashboard LEDs in real-time
+- Write all findings to Neo4j with engagement_id: {eid}
+- HITL ENFORCEMENT: Only ONE pending approval at a time. POST approval → poll until resolved → then next. Server returns 429 if you violate this. The human operator MUST approve each exploit individually.
+- When the operator sends you a message, respond directly and helpfully
+"""
+
+
+def _build_legacy_prompt(eid: str, target: str, backend: str) -> str:
+    """Build the engagement prompt for the legacy subprocess mode.
+
+    Includes REST-based HITL polling instructions since subprocess
+    doesn't support native tool approval callbacks.
+    """
+    return f"""You are the ATHENA AI pentesting orchestrator for engagement {eid}.
 
 TARGET: {target}
 DASHBOARD: http://localhost:8080
@@ -3998,8 +4024,135 @@ CRITICAL RULES:
 - HITL ENFORCEMENT: Only ONE pending approval at a time. POST approval → poll until resolved → then next. Server returns 429 if you violate this. The human operator MUST approve each exploit individually.
 """
 
-    # Spawn Claude Code headlessly with streaming output
-    # Use absolute path — shell functions not available in subprocess
+
+async def _sdk_event_to_dashboard(event: dict, eid: str):
+    """Bridge SDK events to the dashboard state + WebSocket broadcast."""
+    agent_code = event.get("agent", "OR")
+    await state.add_event(AgentEvent(
+        id=str(uuid.uuid4())[:8],
+        type=event["type"],
+        agent=agent_code,
+        content=event.get("content", ""),
+        timestamp=event.get("timestamp", time.time()),
+        metadata=event.get("metadata"),
+    ))
+
+
+@app.post("/api/engagement/{eid}/start-ai")
+async def start_engagement_ai(
+    eid: str,
+    backend: str = "external",
+    target: str = "",
+    mode: str = "sdk",
+):
+    """Start an AI-powered PTES engagement.
+
+    Modes:
+        - sdk (default): Uses Claude Agent SDK for interactive multi-turn control.
+          Operator commands reach the AI via session resume. HITL approvals use
+          REST-based polling (proven reliable). Events stream to dashboard in real-time.
+        - legacy: Spawns Claude CLI as subprocess (Phase E behavior).
+
+    Works from dashboard GUI and CLI (/athena-engage).
+    """
+    global _ai_process, _active_sdk_session
+
+    if not target:
+        eng = next((e for e in state.engagements if e.id == eid), None)
+        if eng:
+            target = eng.target
+        if not target and neo4j_available and neo4j_driver:
+            try:
+                with neo4j_driver.session() as session:
+                    result = session.run(
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope",
+                        eid=eid,
+                    )
+                    record = result.single()
+                    if record and record.get("scope"):
+                        target = record["scope"]
+            except Exception:
+                pass
+        if not target:
+            return JSONResponse(status_code=400, content={
+                "error": "Target scope required. Pass ?target=<ip/cidr/url>"
+            })
+
+    # Stop any existing session/process
+    if _active_sdk_session and _active_sdk_session.is_running:
+        await _active_sdk_session.stop()
+        _active_sdk_session = None
+    if _ai_process and _ai_process.poll() is None:
+        _ai_process.terminate()
+        try:
+            _ai_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _ai_process.kill()
+        _ai_process = None
+
+    # Set engagement active
+    state.active_engagement_id = eid
+    state.engagement_stopped = False
+
+    # Broadcast AI mode system event
+    use_sdk = (mode == "sdk" and SDK_AVAILABLE)
+    mode_label = "Agent SDK" if use_sdk else "subprocess (legacy)"
+    await state.add_event(AgentEvent(
+        id=str(uuid.uuid4())[:8],
+        type="system",
+        agent="OR",
+        content=f"AI Mode activated ({mode_label}). Executing PTES phases 1-7 against {target}. HITL required for exploitation.",
+        timestamp=time.time(),
+    ))
+
+    await state.broadcast({
+        "type": "engagement_started",
+        "engagement_id": eid,
+        "mode": "ai-sdk" if use_sdk else "ai",
+        "engagement_active": True,
+        "timestamp": time.time(),
+    })
+
+    athena_dir = str(Path(__file__).resolve().parent.parent.parent)
+
+    # ── SDK Mode (Phase F) ──────────────────────
+    if use_sdk:
+        prompt = _build_sdk_prompt(eid, target, backend)
+        _active_sdk_session = AthenaAgentSession(
+            engagement_id=eid,
+            target=target,
+            backend=backend,
+            athena_root=athena_dir,
+        )
+        _active_sdk_session.set_event_callback(
+            lambda evt: _sdk_event_to_dashboard(evt, eid)
+        )
+
+        try:
+            await _active_sdk_session.start(prompt)
+        except Exception as e:
+            _active_sdk_session = None
+            return JSONResponse(status_code=500, content={
+                "error": f"SDK session failed to start: {str(e)[:300]}"
+            })
+
+        await state.add_event(AgentEvent(
+            id=str(uuid.uuid4())[:8],
+            type="system",
+            agent="OR",
+            content=f"Agent SDK session started. Streaming events to dashboard...",
+            timestamp=time.time(),
+        ))
+
+        return {
+            "ok": True,
+            "engagement_id": eid,
+            "mode": "ai-sdk",
+            "message": f"AI engagement started (Agent SDK) against {target}",
+        }
+
+    # ── Legacy Subprocess Mode (Phase E fallback) ──
+    prompt = _build_legacy_prompt(eid, target, backend)
     claude_bin = os.environ.get("CLAUDE_BIN", os.path.expanduser("~/.local/bin/claude"))
     cmd = [
         claude_bin,
@@ -4017,8 +4170,6 @@ CRITICAL RULES:
     ]
 
     try:
-        # Filter CLAUDECODE to avoid "nested session" error when spawned
-        # from inside a running Claude Code session (official Anthropic bypass)
         clean_env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
         _ai_process = subprocess.Popen(
             cmd,
@@ -4039,7 +4190,6 @@ CRITICAL RULES:
             "error": "Claude CLI not found. Ensure 'claude' is in PATH."
         })
 
-    # Start background task to stream output to dashboard
     asyncio.create_task(_stream_ai_output(eid, _ai_process))
 
     await state.add_event(AgentEvent(
@@ -4062,11 +4212,16 @@ CRITICAL RULES:
 @app.post("/api/engagement/{eid}/stop")
 async def stop_engagement(eid: str):
     """Stop a running engagement and kill all active processes."""
-    global _ai_process
+    global _ai_process, _active_sdk_session
     state.engagement_stopped = True
     state.engagement_pause_event.set()  # Unblock if paused so task can exit
 
-    # 0. Kill AI mode process if running
+    # 0a. Stop SDK session if running (Phase F)
+    if _active_sdk_session and _active_sdk_session.is_running:
+        await _active_sdk_session.stop()
+        _active_sdk_session = None
+
+    # 0b. Kill legacy subprocess if running (Phase E)
     if _ai_process and _ai_process.poll() is None:
         _ai_process.terminate()
         try:
@@ -4144,6 +4299,10 @@ async def stop_engagement(eid: str):
 @app.post("/api/engagement/{eid}/pause")
 async def pause_engagement(eid: str):
     """Pause a running engagement. Kills in-flight Kali processes immediately."""
+    # Phase F: Pause SDK session
+    if _active_sdk_session and _active_sdk_session.is_running:
+        await _active_sdk_session.pause()
+
     state.engagement_pause_event.clear()  # Block at next checkpoint
 
     # Kill running processes on Kali backends so long-running tools (Nuclei, Nmap)
@@ -4178,12 +4337,11 @@ async def pause_engagement(eid: str):
 @app.post("/api/engagement/{eid}/resume")
 async def resume_engagement(eid: str):
     """Resume a paused engagement. Paused scans will be re-run by the orchestrator."""
-    # Don't cancel paused scans — the orchestrator's run_tool() retry loop
-    # detects scan_record["status"] == "paused" and re-executes the tool.
-    # This ensures we don't miss vulns from interrupted scans.
+    # Phase F: Resume SDK session
+    if _active_sdk_session and _active_sdk_session.is_paused:
+        await _active_sdk_session.resume()
 
     # Restore operator-paused agents to RUNNING so chips turn red again
-    # Only restore agents that were paused by the operator (not genuinely HITL-waiting)
     for code in AGENT_NAMES:
         if (state.agent_statuses[code] == AgentStatus.WAITING
                 and state.agent_tasks.get(code) == "Paused by operator"):
@@ -4693,8 +4851,36 @@ async def _run_demo_scenario():
     await _emit("system", "OR", "Acme Corp External engagement completed. All 13 agents finished. Report ready for review.")
 
 
+async def _handle_sdk_operator_command(cmd_text: str):
+    """Forward an operator command to the active SDK session.
+
+    The response flows through the SDK event stream → _sdk_event_to_dashboard
+    → dashboard WebSocket. We also broadcast an operator_response event
+    to confirm the command was received.
+    """
+    try:
+        result = await _active_sdk_session.send_command(cmd_text)
+        # The detailed AI response comes through the event stream.
+        # Broadcast a brief acknowledgment so the operator sees immediate feedback.
+        await state.broadcast({
+            "type": "operator_response",
+            "agent": "OR",
+            "agentName": AGENT_NAMES.get("OR", "Orchestrator"),
+            "content": result or "Command forwarded to AI team.",
+            "timestamp": time.time(),
+        })
+    except Exception as e:
+        await state.broadcast({
+            "type": "operator_response",
+            "agent": "OR",
+            "agentName": AGENT_NAMES.get("OR", "Orchestrator"),
+            "content": f"Error forwarding command: {str(e)[:200]}",
+            "timestamp": time.time(),
+        })
+
+
 def _generate_command_response(cmd: str) -> str:
-    """Generate a contextual AI acknowledgment for operator commands with live stats."""
+    """Generate a contextual AI acknowledgment for operator commands with live stats (legacy fallback)."""
     cmd_lower = cmd.lower()
     if "pause" in cmd_lower or "stop" in cmd_lower or "halt" in cmd_lower:
         return "Acknowledged. Pausing active operations. Agents will hold current state until further instructions."

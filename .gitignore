@@ -28,6 +28,7 @@ case-files/
 # Engagement Folders (NEVER COMMIT CLIENT DATA)
 engagements/active/
 engagements/archive/
+engagements/archived/
 
 # Network Captures & Logs
 *.pcap
