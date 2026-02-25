@@ -2392,9 +2392,140 @@ async def get_approvals(status: Optional[str] = None):
     return [r.model_dump() for r in results]
 
 
+def _synthesize_events_from_neo4j(eid: str) -> list[AgentEvent]:
+    """Synthesize timeline events from Neo4j findings/scans/credentials when no raw events exist."""
+    events = []
+    if not (neo4j_available and neo4j_driver):
+        return events
+
+    # Map finding categories to agent codes
+    cat_to_agent = {
+        'injection': 'EX', 'sql injection': 'EX', 'command injection': 'EX',
+        'broken authentication': 'AT', 'authentication': 'AT',
+        'information disclosure': 'AR', 'directory listing': 'AR',
+        'security misconfiguration': 'WV', 'misconfiguration': 'WV',
+        'vulnerable component': 'CV', 'outdated': 'CV',
+        'xss': 'WV', 'cross-site': 'WV', 'cors': 'WV',
+        'path traversal': 'WV', 'file inclusion': 'WV',
+    }
+
+    try:
+        with neo4j_driver.session() as session:
+            # Engagement start event
+            result = session.run(
+                "MATCH (e:Engagement {id: $eid}) RETURN e.name AS name, e.start_date AS sd, e.scope AS scope",
+                eid=eid)
+            rec = result.single()
+            if rec:
+                # Use start_date or a default timestamp
+                import datetime
+                sd = rec.get("sd")
+                if hasattr(sd, 'to_native'):
+                    sd = sd.to_native()
+                if isinstance(sd, (datetime.datetime, datetime.date)):
+                    start_ts = datetime.datetime.combine(sd, datetime.time()) if isinstance(sd, datetime.date) else sd
+                    start_ts = start_ts.timestamp()
+                else:
+                    start_ts = time.time() - 3600  # fallback: 1hr ago
+                events.append(AgentEvent(
+                    id=f"synth-eng-{eid[:8]}", type="system", agent="OR",
+                    content=f"Engagement started: {rec.get('name', eid)} — Target: {rec.get('scope', 'N/A')}",
+                    timestamp=start_ts,
+                    metadata={"engagement": eid, "synthesized": True}
+                ))
+                # Planning agent event
+                events.append(AgentEvent(
+                    id=f"synth-pl-{eid[:8]}", type="agent_status", agent="PL",
+                    content="Authorization validated, scope confirmed",
+                    timestamp=start_ts + 1,
+                    metadata={"engagement": eid, "synthesized": True}
+                ))
+
+            # Finding events
+            result = session.run("""
+                MATCH (f:Finding {engagement_id: $eid})
+                RETURN f.id AS id, f.title AS title, f.severity AS severity,
+                       f.category AS category, f.agent AS agent, f.timestamp AS ts,
+                       f.evidence AS evidence, f.cvss AS cvss
+                ORDER BY f.timestamp ASC
+            """, eid=eid)
+            for rec in result:
+                ts = rec.get("ts") or (time.time() - 1800)
+                cat = (rec.get("category") or "").lower()
+                # Determine agent from finding or category mapping
+                agent_code = rec.get("agent") or "AR"
+                if agent_code in ("", "system", "unknown"):
+                    for cat_key, mapped_agent in cat_to_agent.items():
+                        if cat_key in cat:
+                            agent_code = mapped_agent
+                            break
+                severity = (rec.get("severity") or "info").upper()
+                title = rec.get("title") or "Finding"
+                events.append(AgentEvent(
+                    id=f"synth-f-{rec.get('id', '')[:8]}", type="finding", agent=agent_code,
+                    content=f"[{severity}] {title}",
+                    timestamp=ts,
+                    metadata={"engagement": eid, "severity": severity.lower(), "synthesized": True}
+                ))
+
+            # Scan events
+            result = session.run("""
+                MATCH (s:Scan {engagement_id: $eid})
+                RETURN s.id AS id, s.tool AS tool, s.status AS status,
+                       s.agent AS agent, s.started_at AS started, s.completed_at AS completed
+                ORDER BY s.started_at ASC
+            """, eid=eid)
+            for rec in result:
+                ts = rec.get("completed") or rec.get("started") or time.time()
+                agent_code = rec.get("agent") or "AR"
+                tool = rec.get("tool") or "scan"
+                status = rec.get("status") or "completed"
+                events.append(AgentEvent(
+                    id=f"synth-s-{rec.get('id', '')[:8]}", type="scan_complete", agent=agent_code,
+                    content=f"{tool} scan {status}",
+                    timestamp=ts,
+                    metadata={"engagement": eid, "tool": tool, "synthesized": True}
+                ))
+
+            # Credential events
+            result = session.run("""
+                MATCH (c:Credential {engagement_id: $eid})
+                RETURN c.username AS user, c.source AS source, c.timestamp AS ts
+                ORDER BY c.timestamp ASC
+            """, eid=eid)
+            for rec in result:
+                ts = rec.get("ts") or time.time()
+                events.append(AgentEvent(
+                    id=f"synth-cred-{rec.get('user', 'x')[:8]}", type="credential_harvested", agent="EX",
+                    content=f"Credential harvested: {rec.get('user', '???')} (source: {rec.get('source', 'unknown')})",
+                    timestamp=ts,
+                    metadata={"engagement": eid, "synthesized": True}
+                ))
+
+            # Attack chain events
+            result = session.run("""
+                MATCH (ap:AttackPath {engagement_id: $eid})
+                RETURN ap.id AS id, ap.title AS title, ap.severity AS severity, ap.timestamp AS ts
+            """, eid=eid)
+            for rec in result:
+                ts = rec.get("ts") or time.time()
+                events.append(AgentEvent(
+                    id=f"synth-ap-{rec.get('id', '')[:8]}", type="attack_chain", agent="AP",
+                    content=f"Attack chain identified: {rec.get('title', 'Unknown')}",
+                    timestamp=ts,
+                    metadata={"engagement": eid, "severity": rec.get("severity", "critical"), "synthesized": True}
+                ))
+
+    except Exception as e:
+        print(f"Neo4j event synthesis error: {e}")
+
+    events.sort(key=lambda e: e.timestamp)
+    return events
+
+
 @app.get("/api/events")
 async def get_events(limit: int = 50, agent: Optional[str] = None, engagement: Optional[str] = None):
-    """Get recent events from in-memory + Neo4j."""
+    """Get recent events from in-memory + Neo4j. Synthesizes from findings if none exist."""
     seen_ids = {e.id for e in state.events}
     results = list(state.events)
 
@@ -2422,6 +2553,10 @@ async def get_events(limit: int = 50, agent: Optional[str] = None, engagement: O
                         seen_ids.add(ev["id"])
         except Exception as e:
             print(f"Neo4j events query error: {e}")
+
+    # Fallback: synthesize timeline from findings/scans/credentials when no events exist
+    if not results and eid:
+        results = _synthesize_events_from_neo4j(eid)
 
     if agent:
         results = [e for e in results if e.agent == agent]

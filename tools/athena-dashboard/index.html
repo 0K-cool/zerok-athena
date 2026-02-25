@@ -4926,7 +4926,7 @@
         </div>
 
         <!-- Advanced Charts Row -->
-        <div class="widget-grid" style="grid-template-columns: 1fr 1.2fr 0.8fr;">
+        <div class="widget-grid" style="grid-template-columns: 1fr 1fr 1fr;">
           <!-- Area Chart with Gradient -->
           <div class="widget">
             <div class="widget-header">
@@ -8754,18 +8754,43 @@
           covAgents.forEach(agent => updatePtesFromAgent(agent, 'complete'));
         } else if (_loadedFindingsCount > 0) {
           // No scans but findings exist — derive PTES coverage from findings
-          const ptesFallback = new Set(['PL', 'CV']);  // Planning + CVE Researcher always
+          const ptesFallback = new Set(['PL']);  // Planning always
           const ptesFindings = await fetch(`/api/engagements/${currentEngagementId}/findings`);
           const ptesFF = await ptesFindings.json();
           if (Array.isArray(ptesFF) && ptesFF.length > 0) {
-            ptesFallback.add('AR');  // Attack Researcher if findings exist
-            if (ptesFF.some(f => (f.category || '').toLowerCase().includes('web'))) ptesFallback.add('WV');
-            if (ptesFF.some(f => f.evidence_count > 0)) ptesFallback.add('EX');  // Exploitation
-            if (ptesFF.some(f =>
-              (f.category || '').toLowerCase().includes('authentication') ||
-              (f.title || '').toLowerCase().includes('post-exploitation')
-            )) ptesFallback.add('PE');
+            // Intel Gathering: findings imply recon was done
+            ptesFallback.add('AR');  // Attack Researcher
+            ptesFallback.add('CV');  // CVE Researcher
+            // Port Scanner: check if services/ports were discovered
+            try {
+              const poSvc = await fetch(`/api/engagements/${currentEngagementId}/services-summary`);
+              const poData = await poSvc.json();
+              if (Array.isArray(poData) && poData.length > 0) ptesFallback.add('PO');
+            } catch (e) { /* ignore */ }
+            // Web Vuln Scanner: any web-related finding category
+            const webCats = ['injection', 'xss', 'cross-site', 'misconfiguration', 'cors',
+              'header', 'security misconfiguration', 'vulnerable component', 'broken',
+              'information disclosure', 'directory', 'ftp', 'api', 'endpoint'];
+            if (ptesFF.some(f => {
+              const blob = ((f.category || '') + ' ' + (f.title || '')).toLowerCase();
+              return webCats.some(kw => blob.includes(kw));
+            })) ptesFallback.add('WV');
+            // App Security: API or application-level findings
+            const appCats = ['api', 'endpoint', 'metrics', 'prometheus', 'graphql', 'rest', 'swagger'];
+            if (ptesFF.some(f => {
+              const blob = ((f.category || '') + ' ' + (f.title || '')).toLowerCase();
+              return appCats.some(kw => blob.includes(kw));
+            })) ptesFallback.add('AP');
+            // Exploitation: findings with evidence of successful exploit
+            if (ptesFF.some(f => f.evidence_count > 0)) ptesFallback.add('EX');
+            // Post-Exploitation: auth bypass, lateral movement, or post-exploit findings
+            if (ptesFF.some(f => {
+              const blob = ((f.category || '') + ' ' + (f.title || '')).toLowerCase();
+              return blob.includes('authentication') || blob.includes('post-exploitation') ||
+                     blob.includes('lateral') || blob.includes('privilege') || blob.includes('jwt');
+            })) ptesFallback.add('PE');
           }
+          // Reporting: check if reports exist
           const ptesRpt = await fetch(`/api/reports?engagement=${currentEngagementId}`);
           const ptesRD = await ptesRpt.json();
           if (Array.isArray(ptesRD) && ptesRD.length > 0) ptesFallback.add('RP');
@@ -9002,20 +9027,32 @@
 
         const sevColors = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#22c55e', info: '#6b7280' };
         let html = '';
-        data.chains.forEach(chain => {
+        data.chains.forEach((chain, idx) => {
           const color = sevColors[chain.severity] || sevColors.medium;
-          html += `<div style="margin-bottom: 10px; padding: 8px; border-radius: 6px; border: 1px solid ${color}33; background: ${color}08;">`;
-          html += `<div style="font-size: 11px; font-weight: 600; color: ${color}; margin-bottom: 6px; text-transform: uppercase;">${chain.severity} Chain</div>`;
-          html += '<div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">';
-          chain.steps.forEach((step, i) => {
-            html += `<span style="font-size: 11px; padding: 2px 6px; border-radius: 3px; background: var(--zerok-bg-secondary); color: var(--zerok-text-muted);" title="${step.description || ''}">${step.agent}</span>`;
-            if (i < chain.steps.length - 1) {
-              html += '<span style="color: var(--zerok-text-dim); font-size: 10px;">→</span>';
-            }
-          });
+          const isMultiple = data.chains.length > 1;
+          const spacing = isMultiple ? '6px' : '10px';
+          const padding = isMultiple ? '6px 8px' : '8px';
+          html += `<div style="margin-bottom: ${spacing}; padding: ${padding}; border-radius: 6px; border: 1px solid ${color}33; background: ${color}08;">`;
+          html += `<div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">`;
+          html += `<span style="font-size: 10px; font-weight: 600; color: ${color}; text-transform: uppercase; white-space: nowrap;">${chain.severity}</span>`;
+          if (chain.name) {
+            html += `<span style="font-size: 11px; color: var(--zerok-text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${(chain.name || '').replace(/"/g, '&quot;')}">${chain.name}</span>`;
+          }
           html += '</div>';
+          if (chain.steps && chain.steps.length > 0) {
+            html += '<div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 4px;">';
+            chain.steps.forEach((step, i) => {
+              html += `<span style="font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--zerok-bg-secondary); color: var(--zerok-text-muted);" title="${step.description || ''}">${step.agent}</span>`;
+              if (i < chain.steps.length - 1) {
+                html += '<span style="color: var(--zerok-text-dim); font-size: 9px;">→</span>';
+              }
+            });
+            html += '</div>';
+          }
           if (chain.impact) {
-            html += `<div style="font-size: 10px; color: var(--zerok-text-dim); margin-top: 4px;">${chain.impact}</div>`;
+            const maxLen = isMultiple ? 120 : 200;
+            const truncated = chain.impact.length > maxLen ? chain.impact.slice(0, maxLen) + '…' : chain.impact;
+            html += `<div style="font-size: 10px; color: var(--zerok-text-dim); line-height: 1.3;" title="${(chain.impact || '').replace(/"/g, '&quot;')}">${truncated}</div>`;
           }
           html += '</div>';
         });
