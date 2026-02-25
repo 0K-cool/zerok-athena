@@ -4395,6 +4395,56 @@ async def stop_engagement(eid: str):
     return {"ok": True, "message": f"Engagement {eid} stopped", "kill_results": kill_results}
 
 
+@app.post("/api/engagement/{eid}/cleanup-orphans")
+async def cleanup_orphan_scans(eid: str):
+    """Mark any running scans as aborted for an engagement that ended unexpectedly.
+
+    Called by the SDK agent in its finally block to clean up scans that were
+    dispatched to Kali backends but never completed because the agent session
+    crashed or ended prematurely.
+    """
+    cleaned = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Clean in-memory scans
+    for scan in state.scans:
+        if scan.get("status") == "running" and scan.get("engagement_id") == eid:
+            scan["status"] = "aborted"
+            scan["completed_at"] = now_iso
+            cleaned.append(scan["id"])
+            await state.broadcast({
+                "type": "scan_complete",
+                "scan": scan,
+                "timestamp": time.time(),
+            })
+
+    # Clean Neo4j scans
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (s:Scan {engagement_id: $eid})
+                    WHERE s.status = 'running'
+                    SET s.status = 'aborted', s.completed_at = $now
+                    RETURN s.id AS id
+                """, eid=eid, now=now_iso)
+                for record in result:
+                    sid = record["id"]
+                    if sid not in cleaned:
+                        cleaned.append(sid)
+        except Exception as e:
+            print(f"Neo4j orphan cleanup error: {e}")
+
+    if cleaned:
+        await state.broadcast({
+            "type": "system",
+            "content": f"Cleaned up {len(cleaned)} orphaned scan(s): {', '.join(cleaned)}",
+            "timestamp": time.time(),
+        })
+
+    return {"ok": True, "cleaned": cleaned}
+
+
 @app.post("/api/engagement/{eid}/pause")
 async def pause_engagement(eid: str):
     """Pause a running engagement. Kills in-flight Kali processes immediately."""

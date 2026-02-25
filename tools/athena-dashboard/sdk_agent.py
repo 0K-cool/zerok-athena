@@ -382,10 +382,29 @@ class AthenaAgentSession:
             await self._emit("system", "OR",
                 f"AI engagement session ended. "
                 f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} total cost.")
+            # Clean up orphaned scans that were dispatched but never completed
+            await self._cleanup_orphan_scans()
+
+    async def _cleanup_orphan_scans(self):
+        """Mark any running scans as aborted when the session ends unexpectedly."""
+        import urllib.request
+        try:
+            url = f"http://localhost:8080/api/engagement/{self.engagement_id}/cleanup-orphans"
+            req = urllib.request.Request(url, data=b"", method="POST",
+                                        headers={"Content-Type": "application/json"})
+            loop = asyncio.get_event_loop()
+            resp = await loop.run_in_executor(
+                None, lambda: urllib.request.urlopen(req, timeout=5))
+            data = json.loads(resp.read())
+            if data.get("cleaned"):
+                logger.info("Cleaned %d orphaned scans: %s",
+                            len(data["cleaned"]), data["cleaned"])
+        except Exception as e:
+            logger.warning("Orphan scan cleanup failed: %s", e)
 
     # ── Lifecycle ─────────────────────────────
 
-    async def start(self, prompt: str):
+    async def start(self, prompt_text: str):
         """Start the engagement with the given system prompt.
 
         Launches the engagement query as a background asyncio task.
@@ -393,7 +412,7 @@ class AthenaAgentSession:
         """
         self.is_running = True
         self.is_paused = False
-        self._query_task = asyncio.create_task(self._engagement_loop(prompt))
+        self._query_task = asyncio.create_task(self._engagement_loop(prompt_text))
         logger.info("SDK engagement started for %s", self.engagement_id)
 
     async def send_command(self, command: str) -> str:
