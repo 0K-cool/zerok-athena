@@ -21,7 +21,9 @@ Event Translation:
 """
 
 import asyncio
+import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -41,6 +43,99 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import StreamEvent
 
 logger = logging.getLogger("athena.sdk_agent")
+
+# ANSI escape code patterns (both real escape chars and literal \u001b strings)
+_ANSI_RE = re.compile(
+    r"\x1b\[[0-9;]*[A-Za-z]"    # Real ESC [ ... m sequences
+    r"|\x1b\].*?\x07"            # Real ESC ] ... BEL sequences
+    r"|\\u001b\[[0-9;]*[A-Za-z]" # Literal \u001b[...m strings
+    r"|\[(\d+;)*\d*m"            # Bare [31m style remnants
+)
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text (both real and literal)."""
+    return _ANSI_RE.sub("", text)
+
+
+def _to_str(obj: Any) -> str:
+    """Convert SDK content objects to a plain string."""
+    if obj is None:
+        return ""
+    if isinstance(obj, str):
+        return obj
+    # ToolResultBlock.content can be a list of text blocks
+    if isinstance(obj, list):
+        parts = []
+        for item in obj:
+            if hasattr(item, "text"):
+                parts.append(item.text)
+            elif isinstance(item, dict) and "text" in item:
+                parts.append(item["text"])
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+    if isinstance(obj, dict):
+        return json.dumps(obj)
+    if hasattr(obj, "text"):
+        return obj.text
+    return str(obj)
+
+
+def _extract_tool_output(raw: Any, max_len: int = 2000) -> str:
+    """Extract human-readable output from SDK tool results.
+
+    MCP tool results come as nested JSON like:
+        {"result": {"stdout": "...", "stderr": "...", "return_code": 0}}
+    or Neo4j results like:
+        {"result": "{\"host\": \"your-hypervisor\", \"port\": 3030}"}
+    This extracts the meaningful parts and strips ANSI codes.
+    """
+    text = _to_str(raw)
+    if not text:
+        return ""
+
+    # Try to parse as JSON and extract structured output
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        data = None
+
+    if isinstance(data, dict):
+        result = data.get("result", data)
+
+        # If result is a JSON string, try to parse it too
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (json.JSONDecodeError, TypeError):
+                # Neo4j / simple MCP results — return the string
+                return _strip_ansi(result)[:max_len]
+
+        # MCP Kali tool format: {"stdout": "...", "stderr": "..."}
+        if isinstance(result, dict):
+            stdout = str(result.get("stdout", "")).strip()
+            stderr = str(result.get("stderr", "")).strip()
+            rc = result.get("return_code")
+
+            parts = []
+            if stdout:
+                parts.append(_strip_ansi(stdout))
+            if stderr:
+                cleaned = _strip_ansi(stderr)
+                if cleaned and cleaned != stdout:
+                    parts.append(cleaned)
+            if rc and rc != 0 and not parts:
+                parts.append(f"Exit code: {rc}")
+
+            if parts:
+                return "\n".join(parts)[:max_len]
+
+            # Dict with other keys (Neo4j, etc.) — pretty-print
+            return _strip_ansi(json.dumps(result, indent=2))[:max_len]
+
+    # Fallback: strip ANSI from raw text
+    return _strip_ansi(text)[:max_len]
 
 
 # ──────────────────────────────────────────────
@@ -416,18 +511,19 @@ class AthenaAgentSession:
         if isinstance(msg.content, list):
             for block in msg.content:
                 if isinstance(block, ToolResultBlock):
-                    content_str = str(block.content)[:500] if block.content else ""
+                    output = _extract_tool_output(block.content)
                     await self._emit("tool_complete", self._current_agent,
-                        content_str, {
+                        output, {
                             "tool_id": block.tool_use_id,
                             "success": not block.is_error,
-                            "output": content_str,
+                            "output": output,
                         })
         elif msg.tool_use_result:
-            content_str = str(msg.tool_use_result.get("content", ""))[:500]
+            raw = msg.tool_use_result.get("content", "")
+            output = _extract_tool_output(raw)
             await self._emit("tool_complete", self._current_agent,
-                content_str, {
+                output, {
                     "tool_id": msg.tool_use_result.get("tool_use_id", ""),
                     "success": not msg.tool_use_result.get("is_error", False),
-                    "output": content_str,
+                    "output": output,
                 })

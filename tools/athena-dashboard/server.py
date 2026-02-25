@@ -3896,145 +3896,128 @@ async def _stream_ai_output(eid: str, process: subprocess.Popen):
 def _build_sdk_prompt(eid: str, target: str, backend: str) -> str:
     """Build the engagement prompt for the Agent SDK.
 
-    Uses REST-based HITL polling (same as legacy) since the SDK's
-    can_use_tool callback is unreliable with bypassPermissions mode.
-    The SDK adds: operator commands via session resume, event streaming,
-    and multi-turn conversation context.
+    Minimal prompt — relies on CLAUDE.md (auto-loaded from cwd) for platform
+    context, security constraints, PTES methodology, tool docs, and HITL flow.
+    Only provides engagement-specific parameters and dashboard API formats.
     """
-    return f"""You are the ATHENA AI pentesting orchestrator for engagement {eid}.
+    return f"""ENGAGEMENT PARAMETERS:
+- Engagement ID: {eid}
+- Target: {target}
+- Backend: kali_{backend}
+- Dashboard: http://localhost:8080
+- Authorization: This is an authorized penetration test.
 
-TARGET: {target}
-DASHBOARD: http://localhost:8080
-ENGAGEMENT ID: {eid}
-BACKEND: Use kali_{backend} MCP tools
-AUTHORIZATION: This is an authorized penetration test.
+NEO4J CONSTRAINT:
+Engagement "{eid}" ALREADY EXISTS. Do NOT call create_engagement.
+Pass engagement_id="{eid}" to every Neo4j MCP tool call.
 
-Execute a full PTES penetration test following these phases:
+DASHBOARD API FORMATS:
+Agent LED updates: POST http://localhost:8080/api/events
+  Body: {{"type":"agent_status","agent":"<CODE>","status":"running|idle","content":"<description>"}}
+  Agent codes: PO (recon), AR (active recon), WV (vuln scan), EX (exploit), PE (post-exploit), CV (verify), RP (report)
 
-PHASE 1 - RECONNAISSANCE:
-- Update agent LEDs: POST http://localhost:8080/api/events with {{"type":"agent_status","agent":"PO","status":"running"}}
-- Run nmap scan via kali_{backend} MCP tools against {target}
-- Run httpx probe if web ports found
-- Register each scan: POST http://localhost:8080/api/scans with tool name, status, output
-- Write Host and Service nodes to Neo4j via athena_neo4j MCP (use athena-neo4j or athena_neo4j tools)
-- POST findings to http://localhost:8080/api/engagements/{eid}/findings
+Scan registration: POST http://localhost:8080/api/scans
+  Body: {{"tool":"<name>","status":"running","target":"{target}","engagement_id":"{eid}"}}
+  After completion: PATCH http://localhost:8080/api/scans/{{id}} with output_preview and status
 
-PHASE 2 - VULNERABILITY ANALYSIS:
-- Update agent LEDs for CV, WV, AP
-- Run nuclei scan against discovered web services
-- Run nikto scan
-- Write Vulnerability nodes to Neo4j
-- POST findings with severity levels
+Findings: POST http://localhost:8080/api/engagements/{eid}/findings
+Credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
 
-PHASE 3 - EXPLOITATION (HITL REQUIRED):
-- CRITICAL: Only ONE approval request at a time. The server enforces this (429 if you try to queue another).
-- For EACH exploitable vulnerability, follow this EXACT sequence:
-  1. POST http://localhost:8080/api/approvals with agent, action, description, risk_level, target
-  2. Save the approval_id from the response
-  3. POLL GET http://localhost:8080/api/approvals/{{approval_id}} in a loop (sleep 5s between polls)
-  4. WAIT until "resolved": true in the response
-  5. If "approved": true → execute the exploitation tool
-  6. If "approved": false → skip this exploit and move to the next vulnerability
-  7. Only AFTER the current approval is resolved, proceed to the next vulnerability
-- NEVER fire multiple approval requests without waiting — the operator needs time to evaluate each one
-- Write ExploitResult and Credential nodes to Neo4j
-- POST credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
+HITL approvals (exploitation phase):
+  POST http://localhost:8080/api/approvals → get approval_id
+  Poll GET http://localhost:8080/api/approvals/{{approval_id}} every 5s until resolved
+  Only ONE pending approval at a time (server returns 429 otherwise)
 
-PHASE 4 - VERIFICATION:
-- Re-verify exploited vulnerabilities independently
-- Confirm findings are reproducible
-
-PHASE 5 - POST-EXPLOITATION:
-- Enumerate internal access from compromised hosts
-- Document lateral movement possibilities
-
-PHASE 6 - CLEANUP:
-- Remove any artifacts left on target
-- Document cleanup actions
-
-PHASE 7 - REPORTING:
-- Summarize all findings with severity, evidence, remediation
-- POST final engagement status
-
-CRITICAL RULES:
-- Register EVERY tool execution as a scan via POST /api/scans BEFORE running and PATCH /api/scans/{{id}} AFTER
-- Include REAL raw tool output in scan output_preview (never AI summaries)
-- POST agent status events to update dashboard LEDs in real-time
-- Write all findings to Neo4j with engagement_id: {eid}
-- HITL ENFORCEMENT: Only ONE pending approval at a time. POST approval → poll until resolved → then next. Server returns 429 if you violate this. The human operator MUST approve each exploit individually.
-- When the operator sends you a message, respond directly and helpfully
+Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
+Use kali_{backend} MCP tools for all offensive operations.
+Write all findings to Neo4j with engagement_id="{eid}".
+When the operator sends you a message, respond directly and helpfully.
 """
 
 
 def _build_legacy_prompt(eid: str, target: str, backend: str) -> str:
     """Build the engagement prompt for the legacy subprocess mode.
 
-    Includes REST-based HITL polling instructions since subprocess
-    doesn't support native tool approval callbacks.
+    Minimal prompt — relies on CLAUDE.md (auto-loaded from cwd) for platform
+    context, security constraints, PTES methodology, tool docs, and HITL flow.
+    Only provides engagement-specific parameters and dashboard API formats.
     """
-    return f"""You are the ATHENA AI pentesting orchestrator for engagement {eid}.
+    return f"""ENGAGEMENT PARAMETERS:
+- Engagement ID: {eid}
+- Target: {target}
+- Backend: kali_{backend}
+- Dashboard: http://localhost:8080
+- Authorization: This is an authorized penetration test.
 
-TARGET: {target}
-DASHBOARD: http://localhost:8080
-ENGAGEMENT ID: {eid}
-BACKEND: Use kali_{backend} MCP tools
-AUTHORIZATION: This is an authorized penetration test.
+NEO4J CONSTRAINT:
+Engagement "{eid}" ALREADY EXISTS. Do NOT call create_engagement.
+Pass engagement_id="{eid}" to every Neo4j MCP tool call.
 
-Execute a full PTES penetration test following these phases:
+DASHBOARD API FORMATS:
+Agent LED updates: POST http://localhost:8080/api/events
+  Body: {{"type":"agent_status","agent":"<CODE>","status":"running|idle","content":"<description>"}}
+  Agent codes: PO (recon), AR (active recon), WV (vuln scan), EX (exploit), PE (post-exploit), CV (verify), RP (report)
 
-PHASE 1 - RECONNAISSANCE:
-- Update agent LEDs: POST http://localhost:8080/api/events with {{"type":"agent_status","agent":"PO","status":"running"}}
-- Run nmap scan via kali_{backend} MCP tools against {target}
-- Run httpx probe if web ports found
-- Register each scan: POST http://localhost:8080/api/scans with tool name, status, output
-- Write Host and Service nodes to Neo4j via athena_neo4j MCP
-- POST findings to http://localhost:8080/api/engagements/{eid}/findings
+Scan registration: POST http://localhost:8080/api/scans
+  Body: {{"tool":"<name>","status":"running","target":"{target}","engagement_id":"{eid}"}}
+  After completion: PATCH http://localhost:8080/api/scans/{{id}} with output_preview and status
 
-PHASE 2 - VULNERABILITY ANALYSIS:
-- Update agent LEDs for CV, WV, AP
-- Run nuclei scan against discovered web services
-- Run nikto scan
-- Write Vulnerability nodes to Neo4j
-- POST findings with severity levels
+Findings: POST http://localhost:8080/api/engagements/{eid}/findings
+Credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
 
-PHASE 3 - EXPLOITATION (HITL REQUIRED):
-- CRITICAL: Only ONE approval request at a time. The server enforces this (429 if you try to queue another).
-- For EACH exploitable vulnerability, follow this EXACT sequence:
-  1. POST http://localhost:8080/api/approvals with agent, action, description, risk_level, target
-  2. Save the approval_id from the response
-  3. POLL GET http://localhost:8080/api/approvals/{{approval_id}} in a loop (sleep 5s between polls)
-  4. WAIT until "resolved": true in the response
-  5. If "approved": true → execute the exploitation tool
-  6. If "approved": false → skip this exploit and move to the next vulnerability
-  7. Only AFTER the current approval is resolved, proceed to the next vulnerability
-- NEVER fire multiple approval requests without waiting — the operator needs time to evaluate each one
-- Write ExploitResult and Credential nodes to Neo4j
-- POST credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
+HITL approvals (exploitation phase):
+  POST http://localhost:8080/api/approvals → get approval_id
+  Poll GET http://localhost:8080/api/approvals/{{approval_id}} every 5s until resolved
+  Only ONE pending approval at a time (server returns 429 otherwise)
 
-PHASE 4-7 - VERIFICATION, POST-EXPLOIT, CLEANUP, REPORTING:
-- Verify findings independently
-- Document all results
-- Mark engagement complete
-
-CRITICAL RULES:
-- Register EVERY tool execution as a scan via POST /api/scans BEFORE running and PATCH /api/scans/{{id}} AFTER
-- Include REAL raw tool output in scan output_preview (never AI summaries)
-- POST agent status events to update dashboard LEDs in real-time
-- Write all findings to Neo4j with engagement_id: {eid}
-- HITL ENFORCEMENT: Only ONE pending approval at a time. POST approval → poll until resolved → then next. Server returns 429 if you violate this. The human operator MUST approve each exploit individually.
+Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
+Use kali_{backend} MCP tools for all offensive operations.
+Write all findings to Neo4j with engagement_id="{eid}".
 """
 
 
 async def _sdk_event_to_dashboard(event: dict, eid: str):
-    """Bridge SDK events to the dashboard state + WebSocket broadcast."""
+    """Bridge SDK events to the dashboard state + WebSocket broadcast.
+
+    Handles both the event stream (timeline) AND agent status updates
+    (LED chips) so the dashboard stays in sync with SDK activity.
+    """
     agent_code = event.get("agent", "OR")
+    event_type = event["type"]
+    metadata = event.get("metadata") or {}
+
+    # Update agent LED status for agent_status events
+    if event_type == "agent_status":
+        status_str = metadata.get("status", event.get("content", "idle"))
+        try:
+            agent_status = AgentStatus(status_str)
+        except ValueError:
+            agent_status = AgentStatus.RUNNING if status_str == "running" else AgentStatus.IDLE
+        await state.update_agent_status(agent_code, agent_status)
+
+    # Also update LED on tool_start (agent is actively working)
+    elif event_type == "tool_start":
+        await state.update_agent_status(agent_code, AgentStatus.RUNNING,
+            metadata.get("tool", ""))
+
+    # On tool_complete for Neo4j writes, trigger a KPI refresh
+    elif event_type == "tool_complete":
+        tool_name = metadata.get("tool", "")
+        if "neo4j" in tool_name or "create_" in tool_name:
+            await state.broadcast({
+                "type": "kpi_refresh",
+                "engagement_id": eid,
+                "timestamp": time.time(),
+            })
+
+    # Add to event timeline
     await state.add_event(AgentEvent(
         id=str(uuid.uuid4())[:8],
-        type=event["type"],
+        type=event_type,
         agent=agent_code,
         content=event.get("content", ""),
         timestamp=event.get("timestamp", time.time()),
-        metadata=event.get("metadata"),
+        metadata=metadata,
     ))
 
 

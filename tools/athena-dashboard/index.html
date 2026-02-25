@@ -3794,12 +3794,13 @@
       padding: 10px 12px;
       font-family: var(--zerok-font-mono);
       font-size: 11px;
-      line-height: 1.6;
+      line-height: 1.5;
       color: var(--zerok-low);
-      max-height: 300px;
+      max-height: 400px;
       overflow-y: auto;
       white-space: pre-wrap;
-      word-break: break-all;
+      word-break: break-word;
+      overflow-wrap: break-word;
       margin-top: 6px;
       box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4);
     }
@@ -6648,6 +6649,12 @@
         return;
       }
 
+      // KPI refresh trigger from SDK bridge (after Neo4j writes)
+      if (type === 'kpi_refresh') {
+        if (currentEngagementId) loadEngagementSummary(currentEngagementId);
+        return;
+      }
+
       if (type === 'engagement_started') {
         // AI mode or automation started — auto-select engagement and show running badge
         if (msg.engagement_id) {
@@ -7063,7 +7070,7 @@
       // Remove cursor, append text, re-add cursor
       const cursor = outputEl.querySelector('.streaming-cursor');
       if (cursor) cursor.remove();
-      outputEl.appendChild(document.createTextNode(msg.chunk));
+      outputEl.appendChild(document.createTextNode(stripAnsi(msg.chunk)));
       const newCursor = document.createElement('span');
       newCursor.className = 'streaming-cursor';
       outputEl.appendChild(newCursor);
@@ -7115,7 +7122,7 @@
 
           // If metadata has full output (AI agents send output all at once, not streaming)
           if (msg.metadata && msg.metadata.output && !outputEl.textContent.trim()) {
-            outputEl.textContent = msg.metadata.output;
+            outputEl.textContent = cleanToolOutput(msg.metadata.output);
           }
 
           // Show placeholder if still no output
@@ -7152,7 +7159,7 @@
       const toolName = (msg.metadata && msg.metadata.tool) || 'tool';
       const toolId = msg.metadata && msg.metadata.tool_id || ('tool-' + Date.now());
       const duration = (msg.metadata && msg.metadata.duration_s) || '—';
-      const output = (msg.metadata && msg.metadata.output) || msg.content || '';
+      const output = cleanToolOutput((msg.metadata && msg.metadata.output) || msg.content || '');
 
       const card = document.createElement('div');
       card.className = 'timeline-card';
@@ -7915,9 +7922,45 @@
       });
     }
 
+    function stripAnsi(s) {
+      // Strip ANSI escape codes — both real escape chars and literal \u001b strings
+      return (s || '')
+        .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')     // Real ESC[...m
+        .replace(/\x1b\].*?\x07/g, '')              // Real ESC]...BEL
+        .replace(/\\u001b\[[0-9;]*[A-Za-z]/g, '')   // Literal \u001b[...m
+        .replace(/\u001b\[[0-9;]*[A-Za-z]/g, '')    // Unicode \u001b[...m
+        .replace(/\[(\d+;)*\d*m/g, '');             // Bare [31m remnants
+    }
+
+    function cleanToolOutput(s) {
+      // Parse MCP JSON output and extract human-readable text
+      if (!s) return '';
+      var text = stripAnsi(s);
+      try {
+        var data = JSON.parse(text);
+        if (data && typeof data === 'object') {
+          var result = data.result || data;
+          if (typeof result === 'string') {
+            try { result = JSON.parse(result); } catch(e) { return stripAnsi(result); }
+          }
+          if (result && typeof result === 'object') {
+            var stdout = (result.stdout || '').trim();
+            var stderr = (result.stderr || '').trim();
+            var parts = [];
+            if (stdout) parts.push(stripAnsi(stdout));
+            if (stderr && stderr !== stdout) parts.push(stripAnsi(stderr));
+            if (parts.length) return parts.join('\n');
+            // Other dict (Neo4j, etc.)
+            return JSON.stringify(result, null, 2);
+          }
+        }
+      } catch(e) { /* not JSON, use as-is */ }
+      return text;
+    }
+
     function escHtml(s) {
       const d = document.createElement('div');
-      d.textContent = s || '';
+      d.textContent = stripAnsi(s || '');
       return d.innerHTML;
     }
 
