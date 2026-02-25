@@ -395,6 +395,72 @@ Confidence is assigned strictly by count of independent evidence types. Do not o
 
 ---
 
+## Evidence Artifact Capture
+
+After creating an EvidencePackage for each verified finding, capture supporting artifacts and upload them to the dashboard server.
+
+### Screenshot Capture
+
+For **web-based findings** (XSS, SQLi, IDOR, misconfig):
+1. Use Playwright MCP `browser_navigate` to visit the target URL
+2. Use `browser_take_screenshot` to capture baseline state → save as baseline.png
+3. If exploitable mode: replay the vulnerability (inject payload, bypass auth), capture result screenshot
+4. If observable mode: capture the visible condition (error page, version string, missing headers) WITHOUT triggering
+
+For **CLI-based findings** (nmap, testssl, nuclei):
+1. Run the tool command and save full output to a text file
+2. The command output itself IS the evidence
+
+### Upload Each Artifact to Dashboard
+
+For each piece of evidence, POST to the dashboard API:
+
+```bash
+curl -s -X POST http://localhost:8080/api/artifacts \
+  -F "file=@/path/to/evidence-file" \
+  -F "finding_id=${finding_id}" \
+  -F "engagement_id=${engagement_id}" \
+  -F "type=screenshot" \
+  -F "caption=Description of what the screenshot shows" \
+  -F "agent=athena-verify" \
+  -F "backend=${backend}" \
+  -F "capture_mode=${capture_mode}"
+```
+
+Artifact types to upload:
+- `screenshot` — PNG/JPEG visual evidence (baseline + exploit/observation)
+- `http_pair` — Save HTTP request as .txt, response as separate .txt
+- `command_output` — Terminal output from tools as .txt
+- `tool_log` — Raw tool output files (nmap XML, nikto JSON, sqlmap log)
+- `response_diff` — Text diff between baseline and exploit responses
+
+### Capture Mode Selection
+
+Read the engagement's evidence mode from Neo4j:
+```cypher
+MATCH (e:Engagement {id: $eid}) RETURN e.evidence_mode AS mode
+```
+
+- `exploitable` (default): Replay exploit, capture proof of success (shell output, data exfiltration, auth bypass)
+- `observable`: Document the vulnerable condition WITHOUT triggering it. For healthcare, production, critical infrastructure.
+
+Observable mode examples:
+- Weak TLS → screenshot of testssl.sh output showing TLSv1.0
+- Missing headers → screenshot of response headers
+- Exposed admin panel → screenshot of accessible URL (do NOT log in)
+- Default creds page → screenshot showing login page exists
+- Open DICOM/HL7 port → screenshot of nmap service detection
+
+### Evidence Checklist Per Finding
+
+For HIGH confidence, capture 3+ evidence types:
+- [ ] At least 1 screenshot (baseline or condition observation)
+- [ ] HTTP request/response pair (for web findings)
+- [ ] Command output or tool log
+- [ ] Response diff (baseline vs exploit, if applicable)
+
+---
+
 ## EvidencePackage Neo4j Schema
 
 Write this BEFORE updating ExploitResult status (atomicity):
@@ -437,7 +503,7 @@ SET f.title = $title,
     f.confidence = $confidence,
     f.confirmed_by = 'athena-verify',
     f.confirmed_at = timestamp()
-MERGE (ep:EvidencePackage {id: $pkg_id})-[:SUPPORTS]->(f)
+MERGE (f:Finding {id: $finding_id})-[:EVIDENCED_BY]->(ep:EvidencePackage {id: $pkg_id})
 ```
 
 **Severity mapping from technique to finding severity:**

@@ -34,22 +34,27 @@ Event Types (client → server):
 """
 
 import asyncio
+import hashlib
 import json
+import mimetypes
 import os
 import re
 import shutil
 import subprocess
 import time
 import uuid
+import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from enum import Enum
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image
 from pydantic import BaseModel
 
 # Neo4j imports (optional dependency)
@@ -204,6 +209,11 @@ NEO4J_PASS = os.environ.get("NEO4J_PASS", "$NEO4J_PASS")
 
 # Evidence directory structure
 EVIDENCE_SUBFOLDERS = ["screenshots", "screenshots/thumbnails", "http-pairs", "command-output", "tool-logs", "response-diffs"]
+
+ALLOWED_ARTIFACT_TYPES = {"screenshot", "http_pair", "command_output", "tool_log", "response_diff"}
+MAX_ARTIFACT_SIZE = 2 * 1024 * 1024  # 2MB
+THUMBNAIL_WIDTH = 300
+THUMBNAIL_QUALITY = 75
 
 def ensure_evidence_dirs(engagement_id: str) -> Path:
     """Create evidence directory structure for an engagement. Returns the evidence root."""
@@ -1437,11 +1447,12 @@ async def get_engagement_findings(eid: str):
                     OPTIONAL MATCH (f)-[:FOUND_ON]->(h:Host)
                     WITH f, collect(DISTINCT h.ip) AS affected_hosts
                     OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
+                    OPTIONAL MATCH (f)-[:HAS_ARTIFACT]->(art:Artifact)
                     RETURN f.id AS id, f.title AS title, f.severity AS severity,
                            f.cvss AS cvss, f.status AS status, f.category AS category,
                            f.description AS description, f.target AS target,
                            f.evidence AS evidence, affected_hosts,
-                           count(DISTINCT ep) AS evidence_count
+                           count(DISTINCT ep) + count(DISTINCT art) AS evidence_count
                     ORDER BY f.cvss DESC
                 """, eid=eid)
                 findings = []
@@ -1930,45 +1941,695 @@ async def clear_engagement_findings(eid: str):
 
 @app.get("/api/engagements/{eid}/findings/{fid}/evidence")
 async def get_finding_evidence(eid: str, fid: str):
-    """Get evidence packages for a finding from Neo4j or fallback."""
+    """Get evidence packages AND artifacts for a finding from Neo4j or fallback.
+
+    Queries both EVIDENCED_BY and SUPPORTS relationships for EvidencePackages
+    (handling agent inconsistency), plus HAS_ARTIFACT for Artifact nodes.
+    """
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
-                result = session.run("""
-                    MATCH (f:Finding {id: $fid})-[:EVIDENCED_BY]->(ep:EvidencePackage)
+                # Query EvidencePackages via both relationship names (agent inconsistency)
+                ep_result = session.run("""
+                    MATCH (f:Finding {id: $fid})
+                    OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep1:EvidencePackage)
+                    OPTIONAL MATCH (f)-[:SUPPORTS]->(ep2:EvidencePackage)
+                    WITH collect(DISTINCT ep1) + collect(DISTINCT ep2) AS all_eps
+                    UNWIND all_eps AS ep
+                    WHERE ep IS NOT NULL
                     RETURN ep.id AS id, ep.type AS type, ep.timestamp AS timestamp,
-                           ep.request AS request, ep.response AS response,
-                           ep.screenshot AS screenshot, ep.notes AS notes
+                           ep.http_pairs AS http_pairs,
+                           ep.output_evidence AS output_evidence,
+                           ep.response_diff AS response_diff,
+                           ep.timing_baseline_ms AS timing_baseline_ms,
+                           ep.timing_exploit_ms AS timing_exploit_ms,
+                           ep.confidence AS confidence,
+                           ep.status AS status,
+                           ep.verified_by AS verified_by,
+                           ep.request AS request,
+                           ep.response AS response,
+                           ep.screenshot AS screenshot,
+                           ep.notes AS notes
                     ORDER BY ep.timestamp DESC
                 """, fid=fid)
-                evidence = []
-                for record in result:
-                    evidence.append({
+                evidence_packages = []
+                for record in ep_result:
+                    evidence_packages.append({
                         "id": record["id"],
-                        "type": record["type"],
-                        "timestamp": record["timestamp"],
+                        "type": record.get("type"),
+                        "timestamp": record.get("timestamp"),
+                        "http_pairs": record.get("http_pairs"),
+                        "output_evidence": record.get("output_evidence"),
+                        "response_diff": record.get("response_diff"),
+                        "timing_baseline_ms": record.get("timing_baseline_ms"),
+                        "timing_exploit_ms": record.get("timing_exploit_ms"),
+                        "confidence": record.get("confidence"),
+                        "status": record.get("status"),
+                        "verified_by": record.get("verified_by"),
                         "request": record.get("request"),
                         "response": record.get("response"),
                         "screenshot": record.get("screenshot"),
                         "notes": record.get("notes"),
                     })
-                return evidence
+
+                # Query Artifacts via HAS_ARTIFACT
+                art_result = session.run("""
+                    MATCH (f:Finding {id: $fid})-[:HAS_ARTIFACT]->(a:Artifact)
+                    RETURN a.id AS id, a.type AS type, a.timestamp AS timestamp,
+                           a.file_path AS file_path, a.file_hash AS file_hash,
+                           a.file_size AS file_size, a.mime_type AS mime_type,
+                           a.caption AS caption, a.agent AS agent, a.backend AS backend,
+                           a.capture_mode AS capture_mode, a.thumbnail_path AS thumbnail_path,
+                           a.engagement_id AS engagement_id, a.finding_id AS finding_id
+                    ORDER BY a.timestamp DESC
+                """, fid=fid)
+                artifacts = []
+                for record in art_result:
+                    artifacts.append({
+                        "id": record["id"],
+                        "type": record.get("type"),
+                        "timestamp": record.get("timestamp"),
+                        "file_path": record.get("file_path"),
+                        "file_hash": record.get("file_hash"),
+                        "file_size": record.get("file_size"),
+                        "mime_type": record.get("mime_type"),
+                        "caption": record.get("caption"),
+                        "agent": record.get("agent"),
+                        "backend": record.get("backend"),
+                        "capture_mode": record.get("capture_mode"),
+                        "thumbnail_path": record.get("thumbnail_path"),
+                        "engagement_id": record.get("engagement_id"),
+                        "finding_id": record.get("finding_id"),
+                        "file_url": f"/api/artifacts/{record['id']}/file",
+                        "thumbnail_url": f"/api/artifacts/{record['id']}/thumbnail" if record.get("thumbnail_path") else None,
+                    })
+
+                return {
+                    "evidence_packages": evidence_packages,
+                    "artifacts": artifacts,
+                    "source": "neo4j",
+                }
         except Exception as e:
             print(f"Neo4j evidence query error: {e}")
             # Fall through to mock
 
     # Fallback: return mock evidence
-    return [
-        {
-            "id": "ev-001",
-            "type": "http",
-            "timestamp": time.time() - 300,
-            "request": "POST /login HTTP/1.1\nHost: portal.acme.com\n\nusername=admin' OR 1=1--&password=test",
-            "response": "HTTP/1.1 200 OK\n\n{\"status\":\"success\",\"user\":\"admin\"}",
-            "screenshot": None,
-            "notes": "Boolean-based blind SQL injection confirmed",
-        }
-    ]
+    return {
+        "evidence_packages": [
+            {
+                "id": "ev-001",
+                "type": "http",
+                "timestamp": time.time() - 300,
+                "request": "POST /login HTTP/1.1\nHost: portal.acme.com\n\nusername=admin' OR 1=1--&password=test",
+                "response": "HTTP/1.1 200 OK\n\n{\"status\":\"success\",\"user\":\"admin\"}",
+                "screenshot": None,
+                "notes": "Boolean-based blind SQL injection confirmed",
+                "http_pairs": None,
+                "output_evidence": None,
+                "response_diff": None,
+                "timing_baseline_ms": None,
+                "timing_exploit_ms": None,
+                "confidence": None,
+                "status": "open",
+                "verified_by": None,
+            }
+        ],
+        "artifacts": [],
+        "source": "mock",
+    }
+
+
+# ──────────────────────────────────────────────
+# REST API — Artifact Upload & Management (Task 2)
+# ──────────────────────────────────────────────
+
+@app.post("/api/artifacts")
+async def upload_artifact(
+    file: UploadFile = File(...),
+    finding_id: str = Form(...),
+    engagement_id: str = Form(...),
+    type: str = Form(...),
+    caption: str = Form(""),
+    agent: str = Form(""),
+    backend: str = Form(""),
+    capture_mode: str = Form("manual"),
+    evidence_package_id: Optional[str] = Form(None),
+):
+    """Upload a binary artifact (screenshot, HTTP pair, command output, etc.) for a finding.
+
+    Saves to the engagement's 08-evidence directory, generates thumbnails for
+    screenshots, stores metadata in Neo4j, and links to the Finding node.
+    """
+    # Validate artifact type
+    if type not in ALLOWED_ARTIFACT_TYPES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Invalid artifact type '{type}'. Allowed: {sorted(ALLOWED_ARTIFACT_TYPES)}"},
+        )
+
+    # Read file content and check size
+    content = await file.read()
+    if len(content) > MAX_ARTIFACT_SIZE:
+        return JSONResponse(
+            status_code=413,
+            content={"error": f"File too large ({len(content)} bytes). Max {MAX_ARTIFACT_SIZE} bytes."},
+        )
+
+    # Compute SHA-256 hash
+    file_hash = hashlib.sha256(content).hexdigest()
+
+    # Detect MIME type
+    mime_type = file.content_type or "application/octet-stream"
+    ext = Path(file.filename or "artifact").suffix.lower() or ".bin"
+    if not ext or ext == ".bin":
+        guessed = mimetypes.guess_extension(mime_type)
+        if guessed:
+            ext = guessed
+
+    # Build safe caption for filename (alphanumeric + dashes, max 32 chars)
+    safe_caption = re.sub(r"[^a-zA-Z0-9-]", "-", caption)[:32].strip("-") or "artifact"
+
+    # Query Finding severity and category for filename context
+    finding_severity = "unknown"
+    finding_category = "uncategorized"
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run(
+                    "MATCH (f:Finding {id: $fid}) RETURN f.severity AS severity, f.category AS category",
+                    fid=finding_id,
+                )
+                record = result.single()
+                if record:
+                    finding_severity = (record.get("severity") or "unknown").lower()
+                    finding_category = re.sub(r"[^a-zA-Z0-9-]", "-", record.get("category") or "uncategorized").lower()[:24]
+        except Exception as e:
+            print(f"Neo4j finding lookup error: {e}")
+
+    # Generate artifact ID and timestamp
+    artifact_id = uuid.uuid4().hex[:8]
+    timestamp = time.time()
+    ts_str = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+
+    # Build filename
+    filename = f"{artifact_id}-{finding_severity}-{finding_category}-{safe_caption}-{ts_str}{ext}"
+
+    # Determine subdirectory based on type
+    type_to_subdir = {
+        "screenshot": "screenshots",
+        "http_pair": "http-pairs",
+        "command_output": "command-output",
+        "tool_log": "tool-logs",
+        "response_diff": "response-diffs",
+    }
+    subdir = type_to_subdir.get(type, "command-output")
+
+    # Ensure evidence directories exist and get root
+    evidence_root = ensure_evidence_dirs(engagement_id)
+    dest_path = evidence_root / subdir / filename
+
+    # Write file to disk
+    dest_path.write_bytes(content)
+
+    # Compute relative path (relative to athena_dir = 3 levels up from server.py)
+    athena_dir = Path(__file__).parent.parent.parent
+    try:
+        rel_path = str(dest_path.relative_to(athena_dir))
+    except ValueError:
+        rel_path = str(dest_path)
+
+    # Generate thumbnail for screenshots (Pillow, 300px wide, JPEG 75%)
+    thumbnail_path = None
+    thumbnail_rel = None
+    if type == "screenshot":
+        try:
+            img = Image.open(BytesIO(content))
+            ratio = THUMBNAIL_WIDTH / img.width
+            new_height = int(img.height * ratio)
+            thumb = img.resize((THUMBNAIL_WIDTH, new_height), Image.LANCZOS)
+            thumb_filename = f"{artifact_id}-thumb.jpg"
+            thumb_dest = evidence_root / "screenshots" / "thumbnails" / thumb_filename
+            thumb_bytes = BytesIO()
+            thumb.convert("RGB").save(thumb_bytes, format="JPEG", quality=THUMBNAIL_QUALITY)
+            thumb_dest.write_bytes(thumb_bytes.getvalue())
+            try:
+                thumbnail_rel = str(thumb_dest.relative_to(athena_dir))
+            except ValueError:
+                thumbnail_rel = str(thumb_dest)
+            thumbnail_path = thumbnail_rel
+        except Exception as e:
+            print(f"Thumbnail generation error: {e}")
+
+    # Persist to Neo4j
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                # Create Artifact node
+                session.run("""
+                    CREATE (a:Artifact {
+                        id: $id,
+                        engagement_id: $engagement_id,
+                        finding_id: $finding_id,
+                        evidence_package_id: $evidence_package_id,
+                        type: $type,
+                        file_path: $file_path,
+                        file_hash: $file_hash,
+                        file_size: $file_size,
+                        mime_type: $mime_type,
+                        caption: $caption,
+                        agent: $agent,
+                        backend: $backend,
+                        capture_mode: $capture_mode,
+                        thumbnail_path: $thumbnail_path,
+                        timestamp: $timestamp
+                    })
+                """,
+                id=artifact_id,
+                engagement_id=engagement_id,
+                finding_id=finding_id,
+                evidence_package_id=evidence_package_id,
+                type=type,
+                file_path=rel_path,
+                file_hash=file_hash,
+                file_size=len(content),
+                mime_type=mime_type,
+                caption=caption,
+                agent=agent,
+                backend=backend,
+                capture_mode=capture_mode,
+                thumbnail_path=thumbnail_path,
+                timestamp=timestamp,
+                )
+
+                # Link Finding -> Artifact
+                session.run("""
+                    MATCH (f:Finding {id: $fid}), (a:Artifact {id: $aid})
+                    MERGE (f)-[:HAS_ARTIFACT]->(a)
+                """, fid=finding_id, aid=artifact_id)
+
+                # Link EvidencePackage -> Artifact if provided
+                if evidence_package_id:
+                    session.run("""
+                        MATCH (ep:EvidencePackage {id: $epid}), (a:Artifact {id: $aid})
+                        MERGE (ep)-[:HAS_ARTIFACT]->(a)
+                    """, epid=evidence_package_id, aid=artifact_id)
+
+        except Exception as e:
+            print(f"Neo4j artifact write error: {e}")
+
+    return {
+        "ok": True,
+        "artifact_id": artifact_id,
+        "file_path": rel_path,
+        "file_hash": f"sha256:{file_hash}",
+        "file_size": len(content),
+        "mime_type": mime_type,
+        "thumbnail_path": thumbnail_path,
+        "file_url": f"/api/artifacts/{artifact_id}/file",
+        "thumbnail_url": f"/api/artifacts/{artifact_id}/thumbnail" if thumbnail_path else None,
+        "timestamp": timestamp,
+    }
+
+
+# ──────────────────────────────────────────────
+# REST API — Artifact Query + File Serving (Task 3)
+# ──────────────────────────────────────────────
+
+@app.get("/api/artifacts")
+async def list_artifacts(
+    engagement_id: Optional[str] = None,
+    finding_id: Optional[str] = None,
+    type: Optional[str] = None,
+    backend: Optional[str] = None,
+    capture_mode: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List artifacts with optional filters."""
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                conditions = []
+                params: dict = {"limit": limit, "offset": offset}
+                if engagement_id:
+                    conditions.append("a.engagement_id = $engagement_id")
+                    params["engagement_id"] = engagement_id
+                if finding_id:
+                    conditions.append("a.finding_id = $finding_id")
+                    params["finding_id"] = finding_id
+                if type:
+                    conditions.append("a.type = $type")
+                    params["type"] = type
+                if backend:
+                    conditions.append("a.backend = $backend")
+                    params["backend"] = backend
+                if capture_mode:
+                    conditions.append("a.capture_mode = $capture_mode")
+                    params["capture_mode"] = capture_mode
+
+                where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+                query = f"""
+                    MATCH (a:Artifact) {where_clause}
+                    OPTIONAL MATCH (f:Finding {{id: a.finding_id}})
+                    RETURN a.id AS id, a.type AS type, a.timestamp AS timestamp,
+                           a.file_path AS file_path, a.file_hash AS file_hash,
+                           a.file_size AS file_size, a.mime_type AS mime_type,
+                           a.caption AS caption, a.agent AS agent, a.backend AS backend,
+                           a.capture_mode AS capture_mode, a.thumbnail_path AS thumbnail_path,
+                           a.engagement_id AS engagement_id, a.finding_id AS finding_id,
+                           f.severity AS finding_severity
+                    ORDER BY a.timestamp DESC
+                    SKIP $offset LIMIT $limit
+                """
+                result = session.run(query, **params)
+                artifacts = []
+                for record in result:
+                    artifacts.append({
+                        "id": record["id"],
+                        "type": record.get("type"),
+                        "timestamp": record.get("timestamp"),
+                        "file_path": record.get("file_path"),
+                        "file_hash": record.get("file_hash"),
+                        "file_size": record.get("file_size"),
+                        "mime_type": record.get("mime_type"),
+                        "caption": record.get("caption"),
+                        "agent": record.get("agent"),
+                        "backend": record.get("backend"),
+                        "capture_mode": record.get("capture_mode"),
+                        "thumbnail_path": record.get("thumbnail_path"),
+                        "engagement_id": record.get("engagement_id"),
+                        "finding_id": record.get("finding_id"),
+                        "finding_severity": record.get("finding_severity"),
+                        "file_url": f"/api/artifacts/{record['id']}/file",
+                        "thumbnail_url": f"/api/artifacts/{record['id']}/thumbnail" if record.get("thumbnail_path") else None,
+                    })
+                return {"artifacts": artifacts, "total": len(artifacts), "source": "neo4j"}
+        except Exception as e:
+            print(f"Neo4j artifact list error: {e}")
+
+    return {"artifacts": [], "total": 0, "source": "mock"}
+
+
+@app.get("/api/artifacts/{artifact_id}/file")
+async def serve_artifact_file(artifact_id: str):
+    """Serve the binary artifact file from disk."""
+    if not (neo4j_available and neo4j_driver):
+        return JSONResponse(status_code=503, content={"error": "Neo4j unavailable"})
+    try:
+        with neo4j_driver.session() as session:
+            result = session.run(
+                "MATCH (a:Artifact {id: $id}) RETURN a.file_path AS file_path, a.mime_type AS mime_type",
+                id=artifact_id,
+            )
+            record = result.single()
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    if not record or not record.get("file_path"):
+        return JSONResponse(status_code=404, content={"error": "Artifact not found"})
+
+    athena_dir = Path(__file__).parent.parent.parent
+    file_path = athena_dir / record["file_path"]
+    if not file_path.exists():
+        return JSONResponse(status_code=404, content={"error": "Artifact file not found on disk"})
+
+    return FileResponse(
+        str(file_path),
+        media_type=record.get("mime_type") or "application/octet-stream",
+        filename=file_path.name,
+    )
+
+
+@app.get("/api/artifacts/{artifact_id}/thumbnail")
+async def serve_artifact_thumbnail(artifact_id: str):
+    """Serve thumbnail JPEG. Falls back to full file if no thumbnail."""
+    if not (neo4j_available and neo4j_driver):
+        return JSONResponse(status_code=503, content={"error": "Neo4j unavailable"})
+    try:
+        with neo4j_driver.session() as session:
+            result = session.run(
+                "MATCH (a:Artifact {id: $id}) RETURN a.thumbnail_path AS thumbnail_path, a.file_path AS file_path",
+                id=artifact_id,
+            )
+            record = result.single()
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    if not record:
+        return JSONResponse(status_code=404, content={"error": "Artifact not found"})
+
+    athena_dir = Path(__file__).parent.parent.parent
+
+    # Try thumbnail first
+    thumb_rel = record.get("thumbnail_path")
+    if thumb_rel:
+        thumb_path = athena_dir / thumb_rel
+        if thumb_path.exists():
+            return FileResponse(str(thumb_path), media_type="image/jpeg", filename=thumb_path.name)
+
+    # Fall back to full file
+    file_rel = record.get("file_path")
+    if file_rel:
+        file_path = athena_dir / file_rel
+        if file_path.exists():
+            return FileResponse(str(file_path), media_type="image/jpeg", filename=file_path.name)
+
+    return JSONResponse(status_code=404, content={"error": "Thumbnail and file not found on disk"})
+
+
+@app.delete("/api/artifacts/{artifact_id}")
+async def delete_artifact(artifact_id: str):
+    """Delete an artifact from Neo4j and disk (file + thumbnail)."""
+    file_path_rel = None
+    thumbnail_path_rel = None
+
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run(
+                    "MATCH (a:Artifact {id: $id}) RETURN a.file_path AS file_path, a.thumbnail_path AS thumbnail_path",
+                    id=artifact_id,
+                )
+                record = result.single()
+                if record:
+                    file_path_rel = record.get("file_path")
+                    thumbnail_path_rel = record.get("thumbnail_path")
+
+                # Delete from Neo4j
+                session.run("MATCH (a:Artifact {id: $id}) DETACH DELETE a", id=artifact_id)
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)})
+    else:
+        return JSONResponse(status_code=503, content={"error": "Neo4j unavailable"})
+
+    athena_dir = Path(__file__).parent.parent.parent
+    deleted_files = []
+
+    # Delete file from disk
+    if file_path_rel:
+        fp = athena_dir / file_path_rel
+        if fp.exists():
+            fp.unlink()
+            deleted_files.append(str(fp))
+
+    # Delete thumbnail from disk
+    if thumbnail_path_rel:
+        tp = athena_dir / thumbnail_path_rel
+        if tp.exists():
+            tp.unlink()
+            deleted_files.append(str(tp))
+
+    return {"ok": True, "artifact_id": artifact_id, "deleted_files": deleted_files}
+
+
+# ──────────────────────────────────────────────
+# REST API — Evidence Stats, Manifest & ZIP Packaging (Task 4)
+# ──────────────────────────────────────────────
+
+@app.get("/api/evidence/stats")
+async def get_evidence_stats(engagement_id: str):
+    """Return evidence coverage statistics for an engagement."""
+    stats = {
+        "total_artifacts": 0,
+        "total_size_bytes": 0,
+        "by_type": {},
+        "by_severity": {},
+        "by_backend": {},
+        "by_mode": {},
+        "coverage": {
+            "findings_with_evidence": 0,
+            "findings_total": 0,
+            "percent": 0.0,
+        },
+    }
+
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                # Artifact aggregations
+                result = session.run("""
+                    MATCH (a:Artifact {engagement_id: $eid})
+                    RETURN a.type AS type, a.backend AS backend, a.capture_mode AS mode,
+                           a.file_size AS size
+                """, eid=engagement_id)
+                for record in result:
+                    stats["total_artifacts"] += 1
+                    stats["total_size_bytes"] += record.get("size") or 0
+                    t = record.get("type") or "unknown"
+                    stats["by_type"][t] = stats["by_type"].get(t, 0) + 1
+                    b = record.get("backend") or "unknown"
+                    stats["by_backend"][b] = stats["by_backend"].get(b, 0) + 1
+                    m = record.get("mode") or "unknown"
+                    stats["by_mode"][m] = stats["by_mode"].get(m, 0) + 1
+
+                # Severity breakdown via findings
+                sev_result = session.run("""
+                    MATCH (f:Finding {engagement_id: $eid})-[:HAS_ARTIFACT]->(a:Artifact)
+                    RETURN f.severity AS severity, count(DISTINCT a) AS cnt
+                """, eid=engagement_id)
+                for record in sev_result:
+                    sev = record.get("severity") or "unknown"
+                    stats["by_severity"][sev] = stats["by_severity"].get(sev, 0) + record["cnt"]
+
+                # Coverage: findings with at least one artifact or evidence package
+                cov_result = session.run("""
+                    MATCH (f:Finding {engagement_id: $eid})
+                    OPTIONAL MATCH (f)-[:HAS_ARTIFACT]->(a:Artifact)
+                    OPTIONAL MATCH (f)-[:EVIDENCED_BY|SUPPORTS]->(ep:EvidencePackage)
+                    WITH f, count(DISTINCT a) + count(DISTINCT ep) AS ev_count
+                    RETURN count(f) AS total, sum(CASE WHEN ev_count > 0 THEN 1 ELSE 0 END) AS with_evidence
+                """, eid=engagement_id)
+                cov_record = cov_result.single()
+                if cov_record:
+                    total = cov_record["total"] or 0
+                    with_ev = cov_record["with_evidence"] or 0
+                    stats["coverage"] = {
+                        "findings_with_evidence": with_ev,
+                        "findings_total": total,
+                        "percent": round((with_ev / total * 100) if total > 0 else 0.0, 1),
+                    }
+        except Exception as e:
+            print(f"Neo4j evidence stats error: {e}")
+
+    return stats
+
+
+@app.get("/api/evidence/manifest")
+async def get_evidence_manifest(engagement_id: str):
+    """Generate a structured evidence manifest JSON from Neo4j Artifacts."""
+    artifacts = []
+
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (a:Artifact {engagement_id: $eid})
+                    OPTIONAL MATCH (f:Finding {id: a.finding_id})
+                    RETURN a.id AS id, a.type AS type, a.timestamp AS timestamp,
+                           a.file_path AS file_path, a.file_hash AS file_hash,
+                           a.file_size AS file_size, a.mime_type AS mime_type,
+                           a.caption AS caption, a.agent AS agent, a.backend AS backend,
+                           a.capture_mode AS capture_mode, a.finding_id AS finding_id,
+                           f.title AS finding_title, f.severity AS finding_severity
+                    ORDER BY a.timestamp ASC
+                """, eid=engagement_id)
+                for record in result:
+                    artifacts.append({
+                        "id": record["id"],
+                        "type": record.get("type"),
+                        "timestamp": record.get("timestamp"),
+                        "file_path": record.get("file_path"),
+                        "file_hash": f"sha256:{record['file_hash']}" if record.get("file_hash") else None,
+                        "file_size": record.get("file_size"),
+                        "mime_type": record.get("mime_type"),
+                        "caption": record.get("caption"),
+                        "agent": record.get("agent"),
+                        "backend": record.get("backend"),
+                        "capture_mode": record.get("capture_mode"),
+                        "finding_id": record.get("finding_id"),
+                        "finding_title": record.get("finding_title"),
+                        "finding_severity": record.get("finding_severity"),
+                    })
+        except Exception as e:
+            print(f"Neo4j manifest query error: {e}")
+
+    return {
+        "engagement_id": engagement_id,
+        "generated": datetime.utcnow().isoformat() + "Z",
+        "total_artifacts": len(artifacts),
+        "artifacts": artifacts,
+    }
+
+
+@app.post("/api/evidence/package")
+async def create_evidence_package(engagement_id: str):
+    """Generate a ZIP containing all evidence files + manifest for an engagement."""
+    # Get manifest
+    manifest = await get_evidence_manifest(engagement_id)
+    athena_dir = Path(__file__).parent.parent.parent
+
+    # Output directory for ZIPs
+    output_dir = athena_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    ts_str = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    zip_filename = f"evidence-{engagement_id}-{ts_str}.zip"
+    zip_path = output_dir / zip_filename
+
+    included_files = []
+    missing_files = []
+
+    with zipfile.ZipFile(str(zip_path), "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # Write manifest
+        manifest_json = json.dumps(manifest, indent=2)
+        zf.writestr("manifest.json", manifest_json)
+
+        # Add each artifact file
+        for art in manifest["artifacts"]:
+            rel = art.get("file_path")
+            if not rel:
+                continue
+            abs_path = athena_dir / rel
+            if abs_path.exists():
+                arcname = f"artifacts/{abs_path.name}"
+                zf.write(str(abs_path), arcname)
+                included_files.append(arcname)
+            else:
+                missing_files.append(rel)
+
+    download_url = f"/api/evidence/package/{engagement_id}/download"
+    return {
+        "ok": True,
+        "zip_path": str(zip_path),
+        "zip_filename": zip_filename,
+        "download_url": download_url,
+        "total_artifacts": manifest["total_artifacts"],
+        "included_files": len(included_files),
+        "missing_files": missing_files,
+    }
+
+
+@app.get("/api/evidence/package/{engagement_id}/download")
+async def download_evidence_package(engagement_id: str):
+    """Serve the most recent evidence ZIP for an engagement."""
+    athena_dir = Path(__file__).parent.parent.parent
+    output_dir = athena_dir / "output"
+
+    # Find most recent ZIP for this engagement
+    pattern = f"evidence-{engagement_id}-*.zip"
+    matches = sorted(output_dir.glob(pattern), reverse=True)
+    if not matches:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No evidence package found for engagement {engagement_id}. Run POST /api/evidence/package first."},
+        )
+
+    zip_path = matches[0]
+    return FileResponse(
+        str(zip_path),
+        media_type="application/zip",
+        filename=zip_path.name,
+    )
 
 
 @app.get("/api/scans")

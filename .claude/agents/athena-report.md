@@ -67,6 +67,24 @@ RETURN f.target, f.title, f.severity, f.tool_used, f.evidence, f.confirmed_at
 ORDER BY f.severity, f.confirmed_at
 ```
 
+### Query Findings with Evidence Artifacts
+
+```cypher
+MATCH (f:Finding {engagement_id: $eid})
+OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
+OPTIONAL MATCH (f)-[:HAS_ARTIFACT]->(a:Artifact)
+WITH f, ep, collect(a {.id, .type, .caption, .file_path, .file_hash, .capture_mode}) AS artifacts
+RETURN f.id AS id, f.title AS title, f.severity AS severity,
+       f.target AS target, f.description AS description,
+       f.cvss AS cvss, f.cve AS cve,
+       ep.confidence AS confidence, ep.verification_method AS method,
+       ep.http_pairs AS http_pairs, ep.output_evidence AS output_evidence,
+       artifacts
+ORDER BY CASE f.severity
+    WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+    WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END
+```
+
 **Attack chains:**
 ```cypher
 MATCH path = (f1:Finding {engagement_id: $eid})-[:LEADS_TO*]->(f2:Finding)
@@ -204,7 +222,7 @@ Write the final report to the engagement output directory. The report should fol
 [Table of all findings]
 
 ### 4. Detailed Findings
-[Each finding with description, evidence, impact, remediation]
+[Each finding with description, evidence, impact, remediation — see Evidence Embedding section below]
 
 ### 5. Attack Chains
 [Visual description of exploitation paths]
@@ -226,6 +244,59 @@ Write the final report to the engagement output directory. The report should fol
 ```
 
 Save to: `reports/{engagement_id}/athena-report-{date}.md`
+
+### Evidence Embedding Per Finding
+
+For each finding with artifacts, embed evidence directly in the finding section:
+
+```markdown
+### {section}.{index} {title}
+
+**Severity:** {severity} | **CVSS:** {cvss} | **Status:** Confirmed
+**Target:** {target}
+{if capture_mode == "observable": **Mode:** OBSERVABLE (vulnerability documented, not exploited — production system)}
+
+**Description:**
+{description}
+
+**Evidence:**
+
+{for each screenshot artifact:}
+![Figure {section}.{index}{letter} — {caption}]({file_path})
+*SHA-256: {file_hash[:16]}...*
+
+{if http_pairs:}
+**HTTP Request/Response:**
+\`\`\`
+{http_pairs}
+\`\`\`
+
+{if output_evidence:}
+**Command Output:**
+\`\`\`
+{output_evidence}
+\`\`\`
+
+**Confidence:** {confidence} ({len(artifacts)} evidence types)
+**Verified by:** athena-verify | {timestamp}
+
+**Remediation:**
+{remediation guidance}
+```
+
+### Evidence Manifest Appendix
+
+At the end of the report, generate an evidence manifest appendix:
+
+```bash
+curl -s http://localhost:8080/api/evidence/manifest?engagement_id=${engagement_id}
+```
+
+Include as a summary table:
+
+| # | Finding | Type | Mode | SHA-256 | Backend |
+|---|---------|------|------|---------|---------|
+| 1 | SQL Injection - Login | screenshot | exploitable | a7f3e2d9... | external |
 
 ---
 

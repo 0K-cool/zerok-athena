@@ -480,5 +480,32 @@
       "options": {"type": "string", "required": false, "default": "", "description": "curl flags (e.g. -X POST -d '...', -H 'Authorization: ...')"},
       "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra curl flags"}
     }
+  },
+
+  "evidence_upload": {
+    "display_name": "Evidence Artifact Upload",
+    "endpoint": "/api/artifacts",
+    "timeout": 30,
+    "backends": ["external", "internal"],
+    "category": "enrichment",
+    "params": {
+      "file": {"type": "file", "required": true, "description": "Evidence file (screenshot, log, etc.)"},
+      "finding_id": {"type": "string", "required": true, "description": "Finding ID to link evidence to"},
+      "engagement_id": {"type": "string", "required": true, "description": "Engagement ID"},
+      "type": {"type": "string", "required": true, "description": "screenshot|http_pair|command_output|tool_log|response_diff"},
+      "caption": {"type": "string", "required": false, "description": "Human-readable description"},
+      "capture_mode": {"type": "string", "required": false, "default": "exploitable", "description": "exploitable|observable"}
+    }
+  },
+
+  "evidence_package": {
+    "display_name": "Client Evidence Package",
+    "endpoint": "/api/evidence/package",
+    "timeout": 60,
+    "backends": ["external", "internal"],
+    "category": "enrichment",
+    "params": {
+      "engagement_id": {"type": "string", "required": true, "description": "Engagement ID to package"}
+    }
   }
 }
