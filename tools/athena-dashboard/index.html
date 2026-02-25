@@ -6657,7 +6657,10 @@
 
       // KPI refresh trigger from SDK bridge (after Neo4j writes)
       if (type === 'kpi_refresh') {
-        if (currentEngagementId) loadEngagementSummary(currentEngagementId);
+        if (currentEngagementId) {
+          loadEngagementSummary(currentEngagementId);
+          loadDashboardFromAPI();
+        }
         return;
       }
 
@@ -8199,10 +8202,18 @@
       if (empty) empty.style.display = 'none';
 
       // Update control state based on system message content
+      // Use specific phrases to avoid false triggers from "scan completed", "test completed", etc.
       const content = (msg.content || '').toLowerCase();
-      if (content.includes('paused')) setCtrlState('paused');
-      else if (content.includes('resumed')) setCtrlState('running');
-      else if (content.includes('stopped') || content.includes('completed')) setCtrlState('idle');
+      if (content.includes('engagement paused') || content.includes('agents paused')) setCtrlState('paused');
+      else if (content.includes('engagement resumed') || content.includes('agents resumed')) setCtrlState('running');
+      else if (content.includes('session ended') || content.includes('engagement complete') || content.includes('engagement stopped')) {
+        setCtrlState('idle');
+        // Final KPI refresh after engagement ends — capture all Neo4j writes
+        if (currentEngagementId) {
+          loadEngagementSummary(currentEngagementId);
+          loadDashboardFromAPI();
+        }
+      }
 
       const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
 
@@ -9362,6 +9373,10 @@
       document.querySelectorAll('.engagement-list-item').forEach(el => {
         el.classList.toggle('active', el.dataset.engId === eid);
       });
+
+      // Clear AI timeline and LED badges to prevent cross-engagement data leak
+      clearDrawer();
+      resetAgentChips();
 
       // Reset dashboard widgets then reload for selected engagement
       resetDashboardFindingWidgets();

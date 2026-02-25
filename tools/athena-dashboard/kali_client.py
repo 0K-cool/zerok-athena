@@ -368,10 +368,16 @@ class KaliClient:
         # Build command from template
         command = template.format(run_id=run_id, **merged)
 
-        # Append additional_args if present
+        # Append additional_args if present, stripping unsupported flags
         additional = params.get("additional_args", "")
         if additional:
-            command = f"{command} {additional}"
+            unsupported = tool_def.get("unsupported_flags", [])
+            if unsupported:
+                for flag in unsupported:
+                    additional = additional.replace(flag, "")
+                additional = " ".join(additional.split())  # collapse extra spaces
+            if additional:
+                command = f"{command} {additional}"
 
         client = await self._get_client()
         resp = await client.post(
@@ -411,14 +417,17 @@ class KaliClient:
                 continue
             if backend and backend not in defn.get("backends", []):
                 continue
-            tools.append({
+            tool_info = {
                 "name": name,
                 "display_name": defn.get("display_name", name),
                 "category": defn.get("category", ""),
                 "backends": defn.get("backends", []),
                 "hitl_required": defn.get("hitl_required", False),
                 "timeout": defn.get("timeout", 300),
-            })
+            }
+            if defn.get("flag_notes"):
+                tool_info["flag_notes"] = defn["flag_notes"]
+            tools.append(tool_info)
         return tools
 
     def requires_hitl(self, tool_name: str) -> bool:

@@ -53,11 +53,13 @@
     "timeout": 300,
     "backends": ["external", "internal"],
     "category": "web",
+    "unsupported_flags": ["-wildcard", "--wildcard"],
+    "flag_notes": "Do NOT use -wildcard or --wildcard (removed in modern gobuster). Use --no-error to suppress DNS errors instead.",
     "params": {
       "url": {"type": "string", "required": true, "description": "Target URL"},
       "mode": {"type": "string", "required": false, "default": "dir", "description": "Gobuster mode (dir, dns, vhost)"},
       "wordlist": {"type": "string", "required": false, "default": "/usr/share/wordlists/dirb/common.txt", "description": "Wordlist path"},
-      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra gobuster flags"}
+      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra gobuster flags. Do NOT use -wildcard (unsupported)."}
     }
   },
 
@@ -95,10 +97,12 @@
     "backends": ["external", "internal"],
     "category": "exploit",
     "hitl_required": true,
+    "unsupported_flags": ["--ssl-cert"],
+    "flag_notes": "Do NOT use --ssl-cert (unsupported in sqlmap <=1.10.x). Use --force-ssl for HTTPS targets instead.",
     "params": {
       "url": {"type": "string", "required": true, "description": "Target URL with injectable parameter"},
       "data": {"type": "string", "required": false, "default": "", "description": "POST data string"},
-      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra sqlmap flags (e.g. --technique=B --risk=1)"}
+      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra sqlmap flags (e.g. --technique=B --risk=1). Do NOT use --ssl-cert (unsupported); use --force-ssl for HTTPS."}
     }
   },
 
