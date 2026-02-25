@@ -8044,9 +8044,32 @@
     }
 
     function renderMarkdown(s) {
-      // Lightweight markdown → HTML for system messages
+      // Lightweight markdown → HTML for system/thinking messages
       if (!s) return '';
       var html = escHtml(s);
+      // Tables: detect markdown table blocks and convert to HTML
+      html = html.replace(/((?:^\|.+\|$\n?)+)/gm, function(tableBlock) {
+        var rows = tableBlock.trim().split('\n').filter(function(r) { return r.trim(); });
+        if (rows.length < 2) return tableBlock;
+        var isSep = /^\|[\s\-:]+(\|[\s\-:]+)+\|?$/.test(rows[1]);
+        var startRow = isSep ? 2 : 0;
+        var headerRow = isSep ? rows[0] : null;
+        var out = '<table style="width:100%;border-collapse:collapse;font-size:12px;margin:6px 0;">';
+        if (headerRow) {
+          var hCells = headerRow.split('|').filter(function(c,i,a) { return i > 0 && i < a.length - 1; });
+          out += '<tr>';
+          hCells.forEach(function(c) { out += '<th style="text-align:left;padding:3px 8px;border-bottom:1px solid var(--zerok-border);color:var(--zerok-primary);font-weight:600;">' + c.trim() + '</th>'; });
+          out += '</tr>';
+        }
+        for (var r = startRow; r < rows.length; r++) {
+          var cells = rows[r].split('|').filter(function(c,i,a) { return i > 0 && i < a.length - 1; });
+          out += '<tr>';
+          cells.forEach(function(c) { out += '<td style="padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.05);">' + c.trim() + '</td>'; });
+          out += '</tr>';
+        }
+        out += '</table>';
+        return out;
+      });
       // Headings: ## Title
       html = html.replace(/^#{3,}\s+(.+)$/gm, '<strong style="color:var(--zerok-text);font-size:12px;">$1</strong>');
       html = html.replace(/^##\s+(.+)$/gm, '<strong style="color:var(--zerok-primary);font-size:13px;display:block;margin:6px 0 2px;">$1</strong>');
@@ -8187,7 +8210,7 @@
             '<span><strong>' + escHtml(agentName) + '</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-info) 20%,transparent);color:var(--zerok-info);">RESPONSE</span></span>' +
             '<span class="event-time">' + time + '</span>' +
           '</div>' +
-          '<div class="event-detail" style="color:var(--zerok-text-muted);">' + escHtml(msg.content || '') + '</div>' +
+          '<div class="event-detail" style="color:var(--zerok-text-muted);">' + renderMarkdown(msg.content || '') + '</div>' +
         '</div>';
 
       if (timeline) {
@@ -8229,7 +8252,7 @@
             '<span><strong>System</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-medium) 20%,transparent);color:var(--zerok-medium);">CONTROL</span></span>' +
             '<span class="event-time">' + time + '</span>' +
           '</div>' +
-          '<div class="event-detail" style="color:var(--zerok-text-muted);">' + escHtml(msg.content || '') + '</div>' +
+          '<div class="event-detail" style="color:var(--zerok-text-muted);">' + renderMarkdown(msg.content || '') + '</div>' +
         '</div>';
 
       if (timeline) {
