@@ -1956,7 +1956,7 @@ async def get_finding_evidence(eid: str, fid: str):
                     OPTIONAL MATCH (f)-[:SUPPORTS]->(ep2:EvidencePackage)
                     WITH collect(DISTINCT ep1) + collect(DISTINCT ep2) AS all_eps
                     UNWIND all_eps AS ep
-                    WHERE ep IS NOT NULL
+                    WITH ep WHERE ep IS NOT NULL
                     RETURN ep.id AS id, ep.type AS type, ep.timestamp AS timestamp,
                            ep.http_pairs AS http_pairs,
                            ep.output_evidence AS output_evidence,
