@@ -9152,8 +9152,9 @@
           const fBadge = document.getElementById('nav-badge-findings');
           if (fBadge) { fBadge.textContent = fCount; fBadge.style.display = fCount > 0 ? '' : 'none'; }
         }
-        // Scans badge
-        const sRes = await fetch('/api/scans');
+        // Scans badge (filter by current engagement to avoid stale cross-engagement counts)
+        const sUrl = currentEngagementId ? `/api/scans?engagement=${encodeURIComponent(currentEngagementId)}` : '/api/scans';
+        const sRes = await fetch(sUrl);
         const sData = await sRes.json();
         const sCount = Array.isArray(sData) ? sData.length : 0;
         const sBadge = document.getElementById('nav-badge-scans');
@@ -9209,7 +9210,7 @@
         list.innerHTML = engagements.map(e => `
           <div class="engagement-list-item ${e.id === currentEngagementId ? 'active' : ''}" data-eng-id="${e.id}" onclick="selectEngagement('${e.id}')">
             <div class="engagement-status-dot ${dotClassMap[e.status] || 'completed'}"></div>
-            <span class="engagement-name">${escHtml(e.name)}</span>
+            <span class="engagement-name" title="${escHtml(e.name)}">${escHtml(e.name)}</span>
             ${e.authorization ? `<span class="auth-badge ${e.authorization}">${e.authorization === 'documented' ? 'Doc' : 'Manual'}</span>` : ''}
             <span class="engagement-actions" onclick="event.stopPropagation()">
               <span class="engagement-action-btn" role="button" onclick="archiveEngagement('${e.id}', '${escHtml(e.name)}')" title="Archive">
@@ -9485,20 +9486,57 @@
       });
     })();
 
+    function _highlightField(id, msg) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.borderColor = 'var(--zerok-critical)';
+      // Add or update inline error message
+      let errEl = el.parentElement.querySelector('.field-error');
+      if (!errEl) {
+        errEl = document.createElement('div');
+        errEl.className = 'field-error';
+        errEl.style.cssText = 'color: var(--zerok-critical); font-size: 11px; margin-top: 2px;';
+        el.parentElement.appendChild(errEl);
+      }
+      errEl.textContent = msg;
+      // Clear on input
+      el.addEventListener('input', function _clear() {
+        el.style.borderColor = '';
+        if (errEl.parentElement) errEl.remove();
+        el.removeEventListener('input', _clear);
+      }, { once: true });
+    }
+
     async function createEngagement() {
       const form = document.getElementById('createEngagementForm');
       const types = getSelectedTypes();
+
+      // Clear previous field errors
+      form.querySelectorAll('.field-error').forEach(e => e.remove());
+      form.querySelectorAll('.modal-input').forEach(e => e.style.borderColor = '');
+
+      // Field validation
+      let hasError = false;
+      if (!form.engName.value.trim()) {
+        _highlightField('engName', 'Engagement name is required');
+        hasError = true;
+      }
+      if (!form.engClient.value.trim()) {
+        _highlightField('engClient', 'Client name is required');
+        hasError = true;
+      }
       if (types.length === 0) {
         showToast('error', 'Error', 'Select at least one engagement type');
-        return;
+        hasError = true;
       }
       // Authorization validation
       if (!_scopeDocUploaded && !_authAcknowledged) {
         showToast('error', 'Authorization Required', 'Upload a SoW/RoE document or confirm written authorization');
         document.getElementById('authAcknowledgment').style.animation = 'pulse-warning 0.4s ease';
         setTimeout(() => document.getElementById('authAcknowledgment').style.animation = '', 400);
-        return;
+        hasError = true;
       }
+      if (hasError) return;
       const data = {
         name: form.engName.value,
         client: form.engClient.value,
