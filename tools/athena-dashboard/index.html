@@ -3805,9 +3805,8 @@
       color: var(--zerok-low);
       max-height: 400px;
       overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-      overflow-wrap: break-word;
+      overflow-x: auto;
+      white-space: pre;
       margin-top: 6px;
       box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4);
     }
@@ -7766,6 +7765,8 @@
       const order = ['critical', 'high', 'medium', 'low', 'info'];
       const maxVal = Math.max(1, ...Object.values(_severityCounts));
 
+      const total = Object.values(_severityCounts).reduce((a, b) => a + b, 0);
+
       // Update Y-axis (hide when no findings)
       const yaxis = document.getElementById('severity-yaxis');
       if (yaxis) {
@@ -7782,8 +7783,6 @@
           }
         }
       }
-
-      const total = Object.values(_severityCounts).reduce((a, b) => a + b, 0);
 
       barItems.forEach((item, i) => {
         const sev = order[i];
