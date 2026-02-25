@@ -3442,6 +3442,7 @@
       background: color-mix(in srgb, var(--zerok-info) 25%, transparent);
       color: var(--zerok-info);
       border: 1px solid color-mix(in srgb, var(--zerok-info) 30%, transparent);
+      font-size: 16px;
     }
 
     .timeline-icon.tool {
@@ -3623,6 +3624,7 @@
       background: color-mix(in srgb, var(--zerok-info) 25%, transparent);
       color: var(--zerok-info);
       border: 1px solid color-mix(in srgb, var(--zerok-info) 30%, transparent);
+      font-size: 16px;
     }
 
     .timeline-card-icon.tool {
@@ -8033,7 +8035,8 @@
       }
 
       // Last resort: convert literal \n to real newlines for non-JSON text
-      return text.replace(/\\n/g, '\n').replace(/\\t/g, '\t').trim();
+      // Only strip trailing whitespace to preserve ASCII art leading spaces
+      return text.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\s+$/, '');
     }
 
     function escHtml(s) {
