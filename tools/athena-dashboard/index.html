@@ -3181,14 +3181,15 @@
     .ai-drawer.open {
       width: 420px;
       min-width: 420px;
-      border-left-color: var(--zerok-border);
+      border-left-color: transparent;
     }
 
     .ai-drawer-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 16px 20px;
+      padding: 8px 20px;
+      background: var(--zerok-sidebar);
       border-bottom: 1px solid var(--zerok-border);
       flex-shrink: 0;
     }
@@ -3242,18 +3243,23 @@
     }
 
     .ai-drawer-close {
-      background: none;
+      width: 30px;
+      height: 30px;
+      background: var(--zerok-card);
       border: none;
       color: var(--zerok-text-muted);
       cursor: pointer;
-      padding: 4px;
-      border-radius: 4px;
+      padding: 0;
+      border-radius: 6px;
       display: flex;
       align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      margin-top: 2px;
     }
 
     .ai-drawer-close:hover {
-      background: var(--zerok-sidebar-hover);
+      background: var(--zerok-card-hover);
       color: var(--zerok-text);
     }
 
