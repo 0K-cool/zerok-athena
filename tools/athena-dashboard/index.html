@@ -4870,38 +4870,38 @@
             <div class="widget-body" id="severity-chart-body">
               <div class="bar-chart-wrapper">
                 <div class="bar-chart-yaxis" id="severity-yaxis">
-                  <span>0</span>
                   <span></span>
                   <span></span>
                   <span></span>
-                  <span>0</span>
+                  <span></span>
+                  <span></span>
                 </div>
                 <div class="bar-chart-area" id="severity-bars">
                   <div class="bar-chart-grid">
                     <span></span><span></span><span></span><span></span><span></span>
                   </div>
                   <div class="bar-item">
-                    <span class="bar-value">0</span>
+                    <span class="bar-value" style="visibility:hidden"></span>
                     <div class="bar" style="height: 0px; background: var(--zerok-critical);"></div>
                     <span class="bar-label">Critical</span>
                   </div>
                   <div class="bar-item">
-                    <span class="bar-value">0</span>
+                    <span class="bar-value" style="visibility:hidden"></span>
                     <div class="bar" style="height: 0px; background: var(--zerok-high);"></div>
                     <span class="bar-label">High</span>
                   </div>
                   <div class="bar-item">
-                    <span class="bar-value">0</span>
+                    <span class="bar-value" style="visibility:hidden"></span>
                     <div class="bar" style="height: 0px; background: var(--zerok-medium);"></div>
                     <span class="bar-label">Medium</span>
                   </div>
                   <div class="bar-item">
-                    <span class="bar-value">0</span>
+                    <span class="bar-value" style="visibility:hidden"></span>
                     <div class="bar" style="height: 0px; background: var(--zerok-low);"></div>
                     <span class="bar-label">Low</span>
                   </div>
                   <div class="bar-item">
-                    <span class="bar-value">0</span>
+                    <span class="bar-value" style="visibility:hidden"></span>
                     <div class="bar" style="height: 0px; background: var(--zerok-info);"></div>
                     <span class="bar-label">Info</span>
                   </div>
@@ -7759,16 +7759,24 @@
       const order = ['critical', 'high', 'medium', 'low', 'info'];
       const maxVal = Math.max(1, ...Object.values(_severityCounts));
 
-      // Update Y-axis
+      // Update Y-axis (hide when no findings)
       const yaxis = document.getElementById('severity-yaxis');
       if (yaxis) {
         const spans = yaxis.querySelectorAll('span');
         if (spans.length >= 5) {
-          spans[0].textContent = maxVal;
-          spans[4].textContent = '0';
-          spans[2].textContent = Math.round(maxVal / 2);
+          if (total > 0) {
+            spans[0].textContent = maxVal;
+            spans[4].textContent = '0';
+            spans[2].textContent = Math.round(maxVal / 2);
+          } else {
+            spans[0].textContent = '';
+            spans[2].textContent = '';
+            spans[4].textContent = '';
+          }
         }
       }
+
+      const total = Object.values(_severityCounts).reduce((a, b) => a + b, 0);
 
       barItems.forEach((item, i) => {
         const sev = order[i];
@@ -7776,9 +7784,27 @@
         const count = _severityCounts[sev] || 0;
         const valSpan = item.querySelector('.bar-value');
         const bar = item.querySelector('.bar');
-        if (valSpan) valSpan.textContent = count;
+        if (valSpan) {
+          valSpan.textContent = count > 0 ? count : '';
+          valSpan.style.visibility = count > 0 ? 'visible' : 'hidden';
+        }
         if (bar) bar.style.height = (count > 0 ? Math.max(4, (count / maxVal) * 90) : 0) + 'px';
       });
+
+      // Show/hide empty state
+      const emptyMsg = document.getElementById('severity-empty');
+      if (total === 0) {
+        if (!emptyMsg) {
+          const el = document.createElement('div');
+          el.id = 'severity-empty';
+          el.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--zerok-text-dim);font-size:11px;font-style:italic;';
+          el.textContent = 'No findings yet';
+          const body = document.getElementById('severity-chart-body');
+          if (body) { body.style.position = 'relative'; body.appendChild(el); }
+        }
+      } else if (emptyMsg) {
+        emptyMsg.remove();
+      }
     }
 
     function updateVulnStatusDonut(vulnData) {
