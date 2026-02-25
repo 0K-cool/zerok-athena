@@ -3275,6 +3275,66 @@
       line-height: 1.4;
     }
 
+    /* ── Event card inner layout (system messages, agent events) ── */
+    .event-icon {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    .event-body {
+      min-width: 0;            /* allow flex child to shrink below content size */
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .event-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .event-header > span:first-child {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .event-time {
+      flex-shrink: 0;
+      font-size: 11px;
+      opacity: 0.6;
+    }
+
+    .event-type {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-weight: 600;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .event-detail {
+      margin-top: 4px;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-wrap: break-word;
+      word-wrap: break-word;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
     @keyframes event-slide-in {
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
