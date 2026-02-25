@@ -2391,7 +2391,8 @@ async def get_attack_graph(engagement: Optional[str] = None):
                 nodes = []
                 for label, ntype in [("Host", "host"), ("Service", "service"),
                                       ("Vulnerability", "vulnerability"),
-                                      ("Credential", "credential"), ("Finding", "finding")]:
+                                      ("Credential", "credential"), ("Finding", "finding"),
+                                      ("AttackPath", "attack_path")]:
                     if eid:
                         result = session.run(
                             f"MATCH (n:{label}) WHERE n.engagement_id = $eid RETURN n, labels(n) AS labels LIMIT 100",
