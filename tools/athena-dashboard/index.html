@@ -9376,6 +9376,7 @@
       document.getElementById('scopeFileInput').value = '';
       // Reset authorization state
       _scopeDocUploaded = false;
+      _scopeDocRawText = '';
       _authAcknowledged = false;
       const ack = document.getElementById('authAcknowledgment');
       ack.classList.remove('checked');
@@ -9383,6 +9384,7 @@
     }
 
     let _scopeDocUploaded = false;
+    let _scopeDocRawText = '';  // Full document text for agent scope enforcement
     let _authAcknowledged = false;
 
     function toggleAuthAck() {
@@ -9435,6 +9437,7 @@
           status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>' +
             result.scope_targets.length + ' targets extracted from ' + escHtml(file.name);
           _scopeDocUploaded = true;
+          _scopeDocRawText = result.raw_text || '';
           updateAuthVisibility();
         } else {
           status.className = 'scope-upload-status error';
@@ -9488,6 +9491,7 @@
         types: types,
         authorization: _scopeDocUploaded ? 'documented' : 'manual',
         evidence_mode: document.getElementById('new-eng-evidence-mode')?.value || 'exploitable',
+        scope_doc: _scopeDocRawText,
       };
 
       try {

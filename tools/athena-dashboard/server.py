@@ -1128,6 +1128,7 @@ class CreateEngagementPayload(BaseModel):
     types: list[str] = ["external"]
     authorization: str = "manual"  # "documented" (SoW/RoE uploaded) or "manual" (operator assertion)
     evidence_mode: str = "exploitable"  # "exploitable" (only confirmed vulns) or "all" (capture everything)
+    scope_doc: str = ""  # Full raw text from uploaded SoW/RoE — injected into agent prompt for scope enforcement
 
 
 @app.post("/api/engagements/parse-scope")
@@ -1166,6 +1167,7 @@ async def parse_scope_document(file: UploadFile = File(...)):
         "filename": file.filename,
         "scope_targets": unique[:50],  # Cap at 50
         "scope_text": ", ".join(unique[:50]) if unique else "",
+        "raw_text": text[:10000],  # Full document text for agent prompt injection (capped at 10KB)
         "raw_length": len(text),
     }
 
@@ -1186,6 +1188,7 @@ async def create_engagement(payload: CreateEngagementPayload):
                         name: $name,
                         client: $client,
                         scope: $scope,
+                        scope_doc: $scope_doc,
                         types: $types,
                         authorization: $authorization,
                         evidence_mode: $evidence_mode,
@@ -1193,7 +1196,7 @@ async def create_engagement(payload: CreateEngagementPayload):
                         start_date: $start_date
                     })
                 """, id=engagement_id, name=payload.name, client=payload.client,
-                     scope=payload.scope, types=types_str,
+                     scope=payload.scope, scope_doc=payload.scope_doc, types=types_str,
                      authorization=payload.authorization,
                      evidence_mode=payload.evidence_mode, start_date=start_date)
 
@@ -3893,13 +3896,67 @@ async def _stream_ai_output(eid: str, process: subprocess.Popen):
     ))
 
 
-def _build_sdk_prompt(eid: str, target: str, backend: str) -> str:
+def _parse_target_scope(target: str) -> dict:
+    """Parse a target URL/IP into structured scope constraints.
+
+    Returns dict with: host, port, protocol, is_url, nmap_target, allowed_ports.
+    Used to generate explicit scope rules so the agent doesn't over-scan.
+    """
+    from urllib.parse import urlparse
+
+    result = {
+        "host": target,
+        "port": None,
+        "protocol": None,
+        "is_url": False,
+        "nmap_target": target,
+        "allowed_ports": [],
+        "scope_line": target,
+    }
+
+    # Try URL parsing
+    parsed = urlparse(target if "://" in target else f"http://{target}")
+    if parsed.hostname:
+        result["host"] = parsed.hostname
+        result["is_url"] = True
+        result["protocol"] = parsed.scheme
+
+        if parsed.port:
+            result["port"] = parsed.port
+            result["allowed_ports"] = [parsed.port]
+            result["nmap_target"] = f"{parsed.hostname} -p {parsed.port}"
+            result["scope_line"] = f"{parsed.hostname}:{parsed.port} ({parsed.scheme})"
+        else:
+            # Default ports for protocol
+            default_ports = {"http": 80, "https": 443}
+            p = default_ports.get(parsed.scheme)
+            if p:
+                result["port"] = p
+                result["allowed_ports"] = [p]
+                result["nmap_target"] = f"{parsed.hostname} -p {p}"
+            result["scope_line"] = f"{parsed.hostname} ({parsed.scheme}, port {p or 'default'})"
+
+    return result
+
+
+def _build_sdk_prompt(eid: str, target: str, backend: str,
+                      scope_doc: str = "") -> str:
     """Build the engagement prompt for the Agent SDK.
 
     Minimal prompt — relies on CLAUDE.md (auto-loaded from cwd) for platform
     context, security constraints, PTES methodology, tool docs, and HITL flow.
     Only provides engagement-specific parameters and dashboard API formats.
     """
+    scope = _parse_target_scope(target)
+    scope_doc_block = ""
+    if scope_doc:
+        scope_doc_block = f"""
+RULES OF ENGAGEMENT (from uploaded scope document):
+{scope_doc}
+--- End of scope document ---
+Only test assets listed in the scope document above. Everything else is OFF-LIMITS.
+"""
+
     return f"""ENGAGEMENT PARAMETERS:
 - Engagement ID: {eid}
 - Target: {target}
@@ -3933,13 +3990,16 @@ You can use ANY tool available on the Kali boxes. If a tool you need is not inst
 request HITL approval to install it (POST /api/approvals with action "install <package>"),
 then install via execute_command (e.g. apt install -y <package>).
 
-SCOPE ENFORCEMENT:
-Your target is EXACTLY: {target}
-- If the target is a URL with a port, ONLY scan that specific host:port
-- For nmap: use -p <port> to restrict scanning to the target port(s)
-- Do NOT scan all 65535 ports on the resolved IP — other services are OUT OF SCOPE
+SCOPE ENFORCEMENT (HARD BOUNDARY):
+Target: {target}
+In-scope host: {scope["host"]}
+In-scope port(s): {", ".join(str(p) for p in scope["allowed_ports"]) if scope["allowed_ports"] else "all (no port restriction)"}
+Nmap usage: nmap {scope["nmap_target"]} (ALWAYS use this exact target — never scan without -p when ports are specified)
+- ONLY scan the host and port(s) listed above
+- Any other services on the same IP are OUT OF SCOPE (may be shared infrastructure)
+- If nmap discovers other ports, do NOT enumerate or probe them
 - Read CLAUDE.md section "1b. Antsle Cloud Infrastructure" for protected assets
-
+{scope_doc_block}
 Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
 Use kali_{backend} MCP tools for all offensive operations.
 Write all findings to Neo4j with engagement_id="{eid}".
@@ -3947,13 +4007,24 @@ When the operator sends you a message, respond directly and helpfully.
 """
 
 
-def _build_legacy_prompt(eid: str, target: str, backend: str) -> str:
+def _build_legacy_prompt(eid: str, target: str, backend: str,
+                         scope_doc: str = "") -> str:
     """Build the engagement prompt for the legacy subprocess mode.
 
     Minimal prompt — relies on CLAUDE.md (auto-loaded from cwd) for platform
     context, security constraints, PTES methodology, tool docs, and HITL flow.
     Only provides engagement-specific parameters and dashboard API formats.
     """
+    scope = _parse_target_scope(target)
+    scope_doc_block = ""
+    if scope_doc:
+        scope_doc_block = f"""
+RULES OF ENGAGEMENT (from uploaded scope document):
+{scope_doc}
+--- End of scope document ---
+Only test assets listed in the scope document above. Everything else is OFF-LIMITS.
+"""
+
     return f"""ENGAGEMENT PARAMETERS:
 - Engagement ID: {eid}
 - Target: {target}
@@ -3987,13 +4058,16 @@ You can use ANY tool available on the Kali boxes. If a tool you need is not inst
 request HITL approval to install it (POST /api/approvals with action "install <package>"),
 then install via execute_command (e.g. apt install -y <package>).
 
-SCOPE ENFORCEMENT:
-Your target is EXACTLY: {target}
-- If the target is a URL with a port, ONLY scan that specific host:port
-- For nmap: use -p <port> to restrict scanning to the target port(s)
-- Do NOT scan all 65535 ports on the resolved IP — other services are OUT OF SCOPE
+SCOPE ENFORCEMENT (HARD BOUNDARY):
+Target: {target}
+In-scope host: {scope["host"]}
+In-scope port(s): {", ".join(str(p) for p in scope["allowed_ports"]) if scope["allowed_ports"] else "all (no port restriction)"}
+Nmap usage: nmap {scope["nmap_target"]} (ALWAYS use this exact target — never scan without -p when ports are specified)
+- ONLY scan the host and port(s) listed above
+- Any other services on the same IP are OUT OF SCOPE (may be shared infrastructure)
+- If nmap discovers other ports, do NOT enumerate or probe them
 - Read CLAUDE.md section "1b. Antsle Cloud Infrastructure" for protected assets
-
+{scope_doc_block}
 Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
 Use kali_{backend} MCP tools for all offensive operations.
 Write all findings to Neo4j with engagement_id="{eid}".
@@ -4064,26 +4138,43 @@ async def start_engagement_ai(
     """
     global _ai_process, _active_sdk_session
 
+    scope_doc = ""
     if not target:
         eng = next((e for e in state.engagements if e.id == eid), None)
         if eng:
             target = eng.target
-        if not target and neo4j_available and neo4j_driver:
+        if neo4j_available and neo4j_driver:
             try:
                 with neo4j_driver.session() as session:
                     result = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope",
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope, e.scope_doc AS scope_doc",
                         eid=eid,
                     )
                     record = result.single()
-                    if record and record.get("scope"):
-                        target = record["scope"]
+                    if record:
+                        if not target and record.get("scope"):
+                            target = record["scope"]
+                        if record.get("scope_doc"):
+                            scope_doc = record["scope_doc"]
             except Exception:
                 pass
         if not target:
             return JSONResponse(status_code=400, content={
                 "error": "Target scope required. Pass ?target=<ip/cidr/url>"
             })
+    elif neo4j_available and neo4j_driver:
+        # Target was provided, but still fetch scope_doc from Neo4j
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run(
+                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc",
+                    eid=eid,
+                )
+                record = result.single()
+                if record and record.get("scope_doc"):
+                    scope_doc = record["scope_doc"]
+        except Exception:
+            pass
 
     # Stop any existing session/process
     if _active_sdk_session and _active_sdk_session.is_running:
@@ -4104,11 +4195,12 @@ async def start_engagement_ai(
     # Broadcast AI mode system event
     use_sdk = (mode == "sdk" and SDK_AVAILABLE)
     mode_label = "Agent SDK" if use_sdk else "subprocess (legacy)"
+    scope_info = f" Scope document loaded ({len(scope_doc)} chars)." if scope_doc else " No scope document — using target URL constraints only."
     await state.add_event(AgentEvent(
         id=str(uuid.uuid4())[:8],
         type="system",
         agent="OR",
-        content=f"AI Mode activated ({mode_label}). Executing PTES phases 1-7 against {target}. HITL required for exploitation.",
+        content=f"AI Mode activated ({mode_label}). Executing PTES phases 1-7 against {target}. HITL required for exploitation.{scope_info}",
         timestamp=time.time(),
     ))
 
@@ -4124,7 +4216,7 @@ async def start_engagement_ai(
 
     # ── SDK Mode (Phase F) ──────────────────────
     if use_sdk:
-        prompt = _build_sdk_prompt(eid, target, backend)
+        prompt = _build_sdk_prompt(eid, target, backend, scope_doc=scope_doc)
         _active_sdk_session = AthenaAgentSession(
             engagement_id=eid,
             target=target,
@@ -4159,7 +4251,7 @@ async def start_engagement_ai(
         }
 
     # ── Legacy Subprocess Mode (Phase E fallback) ──
-    prompt = _build_legacy_prompt(eid, target, backend)
+    prompt = _build_legacy_prompt(eid, target, backend, scope_doc=scope_doc)
     claude_bin = os.environ.get("CLAUDE_BIN", os.path.expanduser("~/.local/bin/claude"))
     cmd = [
         claude_bin,
