@@ -243,6 +243,7 @@ class AthenaAgentSession:
         self._current_agent = "OR"
         self._tool_count = 0
         self._total_cost_usd: float = 0.0
+        self._pending_tools: dict[str, str] = {}  # tool_use_id → tool_name
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to the dashboard.
@@ -380,7 +381,8 @@ class AthenaAgentSession:
             self.is_running = False
             await self._emit("system", "OR",
                 f"AI engagement session ended. "
-                f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} total cost.")
+                f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} total cost.",
+                {"control": "engagement_ended"})
             # Clean up orphaned scans that were dispatched but never completed
             await self._cleanup_orphan_scans()
 
@@ -440,7 +442,8 @@ class AthenaAgentSession:
                 await self._query_task
             except asyncio.CancelledError:
                 pass
-        await self._emit("system", "OR", "Engagement paused by operator.")
+        await self._emit("system", "OR", "Engagement paused by operator.",
+            {"control": "engagement_paused"})
 
     async def resume(
         self,
@@ -544,6 +547,9 @@ class AthenaAgentSession:
                 if command:
                     tool_desc += f": {command[:100]}"
 
+                # Track tool_use_id → name for tool_complete correlation
+                self._pending_tools[block.id] = block.name
+
                 await self._emit("tool_start", self._current_agent,
                     f"Calling {tool_desc}", {
                         "tool": block.name,
@@ -560,8 +566,10 @@ class AthenaAgentSession:
             for block in msg.content:
                 if isinstance(block, ToolResultBlock):
                     output = _extract_tool_output(block.content)
+                    tool_name = self._pending_tools.pop(block.tool_use_id, "")
                     await self._emit("tool_complete", self._current_agent,
                         output, {
+                            "tool": tool_name,
                             "tool_id": block.tool_use_id,
                             "success": not block.is_error,
                             "output": output,
@@ -569,9 +577,12 @@ class AthenaAgentSession:
         elif msg.tool_use_result:
             raw = msg.tool_use_result.get("content", "")
             output = _extract_tool_output(raw)
+            tool_use_id = msg.tool_use_result.get("tool_use_id", "")
+            tool_name = self._pending_tools.pop(tool_use_id, "")
             await self._emit("tool_complete", self._current_agent,
                 output, {
-                    "tool_id": msg.tool_use_result.get("tool_use_id", ""),
+                    "tool": tool_name,
+                    "tool_id": tool_use_id,
                     "success": not msg.tool_use_result.get("is_error", False),
                     "output": output,
                 })

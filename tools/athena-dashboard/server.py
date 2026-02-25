@@ -2872,7 +2872,11 @@ def _find_report_dir(athena_dir: Path, report_id: str) -> tuple[Path | None, Pat
 async def get_reports(engagement: Optional[str] = None, include_archived: bool = False):
     """Get reports by scanning engagement 09-reporting/ directories and in-memory state."""
     eid = engagement or state.active_engagement_id
-    reports = list(state._reports)  # In-memory reports from POST
+    # Filter in-memory reports by engagement (consistent with DELETE filtering)
+    if eid:
+        reports = [r for r in state._reports if r.get("engagement_id") == eid]
+    else:
+        reports = list(state._reports)
 
     # Also scan filesystem for report files in engagement directories
     athena_dir = Path(__file__).parent.parent.parent  # ATHENA project root
@@ -3092,14 +3096,10 @@ async def delete_all_reports(engagement: Optional[str] = None):
                     report_file.unlink()
                     deleted += 1
 
-    # Clear in-memory reports
-    if eid:
-        before = len(state._reports)
-        state._reports = [r for r in state._reports if r.get("engagement_id") != eid]
-        deleted += before - len(state._reports)
-    else:
-        deleted += len(state._reports)
-        state._reports.clear()
+    # Clear in-memory reports — always clear ALL to prevent orphaned reports
+    # with mismatched/missing engagement_id from reappearing on reload
+    deleted += len(state._reports)
+    state._reports.clear()
 
     return {"ok": True, "deleted": deleted}
 
@@ -4074,6 +4074,42 @@ Write all findings to Neo4j with engagement_id="{eid}".
 """
 
 
+    # Agent code → PTES phase mapping for Scan Coverage tracking
+_AGENT_TO_PHASE = {
+    "PL": "PLANNING",
+    "PO": "INTELLIGENCE GATHERING",
+    "AR": "INTELLIGENCE GATHERING",
+    "CV": "VULNERABILITY ANALYSIS",
+    "AP": "THREAT MODELING",
+    "WV": "WEB APP TESTING",
+    "JS": "WEB APP TESTING",
+    "PD": "WEB APP TESTING",
+    "WA": "WEB APP TESTING",
+    "AT": "WEB APP TESTING",
+    "AA": "WEB APP TESTING",
+    "EC": "EXPLOITATION",
+    "EX": "EXPLOITATION",
+    "VF": "EXPLOITATION",
+    "PE": "POST-EXPLOITATION",
+    "DV": "POST-EXPLOITATION",
+    "LM": "LATERAL MOVEMENT",
+    "RP": "REPORTING",
+}
+
+# Security tools whose output should be auto-captured as evidence
+_EVIDENCE_TOOLS = {
+    "execute_command", "nmap_scan", "naabu_scan", "nuclei_scan",
+    "sqlmap_scan", "gobuster_scan", "nikto_scan", "httpx_scan",
+    "katana_crawl", "ffuf_fuzz", "testssl_scan", "wpscan",
+    "feroxbuster_scan", "whatweb_scan", "wafw00f_scan",
+}
+_EVIDENCE_TOOL_KEYWORDS = {
+    "nmap", "nuclei", "sqlmap", "gobuster", "nikto", "httpx",
+    "katana", "ffuf", "testssl", "wpscan", "feroxbuster",
+    "whatweb", "wafw00f", "curl", "wget",
+}
+
+
 async def _sdk_event_to_dashboard(event: dict, eid: str):
     """Bridge SDK events to the dashboard state + WebSocket broadcast.
 
@@ -4093,20 +4129,123 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
             agent_status = AgentStatus.RUNNING if status_str == "running" else AgentStatus.IDLE
         await state.update_agent_status(agent_code, agent_status)
 
+        # Emit phase_update for Scan Coverage when an agent starts running
+        if status_str == "running" and agent_code in _AGENT_TO_PHASE:
+            await state.broadcast({
+                "type": "phase_update",
+                "phase": _AGENT_TO_PHASE[agent_code],
+                "agent": agent_code,
+                "timestamp": time.time(),
+            })
+
     # Also update LED on tool_start (agent is actively working)
     elif event_type == "tool_start":
         await state.update_agent_status(agent_code, AgentStatus.RUNNING,
             metadata.get("tool", ""))
 
-    # On tool_complete for Neo4j writes, trigger a KPI refresh
+        # Also emit phase_update on tool_start for coverage tracking
+        if agent_code in _AGENT_TO_PHASE:
+            await state.broadcast({
+                "type": "phase_update",
+                "phase": _AGENT_TO_PHASE[agent_code],
+                "agent": agent_code,
+                "timestamp": time.time(),
+            })
+
+    # On tool_complete for Neo4j writes, query live counts and push stat_update
     elif event_type == "tool_complete":
         tool_name = metadata.get("tool", "")
         if "neo4j" in tool_name or "create_" in tool_name:
+            # Query Neo4j for live counts and broadcast immediately
+            if neo4j_available and neo4j_driver:
+                try:
+                    with neo4j_driver.session() as sess:
+                        rec = sess.run("""
+                            OPTIONAL MATCH (h:Host {engagement_id: $eid})
+                            WITH count(DISTINCT h) AS hosts
+                            OPTIONAL MATCH (s:Service)-[:RUNS_ON]->(:Host {engagement_id: $eid})
+                            WITH hosts, count(DISTINCT s) AS services
+                            OPTIONAL MATCH (f:Finding {engagement_id: $eid})
+                            WITH hosts, services, count(DISTINCT f) AS findings
+                            OPTIONAL MATCH (v:Vulnerability {engagement_id: $eid})
+                            RETURN hosts, services, findings, count(DISTINCT v) AS vulns
+                        """, eid=eid).single()
+                        if rec:
+                            await state.broadcast({
+                                "type": "stat_update",
+                                "hosts": rec["hosts"],
+                                "services": rec["services"],
+                                "findings": rec["findings"],
+                                "vulns": rec["vulns"],
+                                "timestamp": time.time(),
+                            })
+                except Exception:
+                    pass
+            # Also send kpi_refresh so frontend pulls full summary
             await state.broadcast({
                 "type": "kpi_refresh",
                 "engagement_id": eid,
                 "timestamp": time.time(),
             })
+
+        # Auto-capture security tool output as evidence
+        tool_lower = tool_name.lower()
+        is_security_tool = (
+            tool_name in _EVIDENCE_TOOLS
+            or any(kw in tool_lower for kw in _EVIDENCE_TOOL_KEYWORDS)
+        )
+        if is_security_tool and event.get("content", "").strip():
+            try:
+                output_text = event["content"][:50000]  # Cap at 50KB
+                # Save to evidence directory
+                evidence_root = ensure_evidence_dirs(eid)
+                timestamp_str = datetime.now().strftime("%Y%m%d-%H%M%S")
+                safe_tool = (
+                    tool_lower
+                    .replace("mcp__kali_external__", "")
+                    .replace("mcp__kali_internal__", "")
+                    .replace("__", "-")[:30]
+                )
+                filename = f"{safe_tool}-{timestamp_str}.txt"
+                filepath = evidence_root / "command-output" / filename
+                filepath.write_text(output_text, encoding="utf-8")
+                file_size = filepath.stat().st_size
+                file_hash = hashlib.sha256(output_text.encode()).hexdigest()
+
+                # Create Artifact node in Neo4j
+                if neo4j_available and neo4j_driver:
+                    artifact_id = f"art-{uuid.uuid4().hex[:8]}"
+                    rel_path = f"08-evidence/command-output/{filename}"
+                    with neo4j_driver.session() as sess:
+                        sess.run("""
+                            CREATE (a:Artifact {
+                                id: $aid, engagement_id: $eid,
+                                type: 'command_output', file_path: $path,
+                                file_hash: $hash, file_size: $size,
+                                mime_type: 'text/plain', caption: $caption,
+                                agent: $agent, backend: 'external',
+                                capture_mode: 'exploitable', timestamp: datetime()
+                            })
+                            WITH a
+                            MATCH (e:Engagement {id: $eid})
+                            MERGE (e)-[:HAS_EVIDENCE]->(a)
+                            RETURN a
+                        """, {
+                            "aid": artifact_id, "eid": eid,
+                            "path": rel_path, "hash": file_hash,
+                            "size": file_size,
+                            "caption": f"Auto-captured {safe_tool} output",
+                            "agent": agent_code,
+                        })
+
+                    # Broadcast evidence update
+                    await state.broadcast({
+                        "type": "stat_update",
+                        "evidence_count": 1,  # Incremental
+                        "timestamp": time.time(),
+                    })
+            except Exception as e:
+                print(f"Evidence auto-capture error: {e}")
 
     # Add to event timeline
     await state.add_event(AgentEvent(
@@ -4390,6 +4529,7 @@ async def stop_engagement(eid: str):
     await state.broadcast({
         "type": "system",
         "content": f"Engagement {eid} stopped by operator. Active processes killed.",
+        "metadata": {"control": "engagement_stopped"},
         "timestamp": time.time(),
     })
     return {"ok": True, "message": f"Engagement {eid} stopped", "kill_results": kill_results}
@@ -4478,6 +4618,7 @@ async def pause_engagement(eid: str):
     await state.broadcast({
         "type": "system",
         "content": f"Engagement {eid} paused by operator",
+        "metadata": {"control": "engagement_paused"},
         "timestamp": time.time(),
     })
     return {"ok": True, "message": f"Engagement {eid} paused", "kill_results": kill_results}
@@ -4500,6 +4641,7 @@ async def resume_engagement(eid: str):
     await state.broadcast({
         "type": "system",
         "content": f"Engagement {eid} resumed by operator",
+        "metadata": {"control": "engagement_resumed"},
         "timestamp": time.time(),
     })
     return {"ok": True, "message": f"Engagement {eid} resumed"}

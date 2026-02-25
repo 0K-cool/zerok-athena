@@ -192,6 +192,35 @@ def create_finding(title: str, severity: str, engagement_id: str,
     return json.dumps({"finding_id": fid, "severity": severity})
 
 @mcp.tool()
+def create_artifact(engagement_id: str, finding_id: str, artifact_type: str,
+                    file_path: str, file_hash: str, caption: str = "",
+                    agent: str = "unknown", backend: str = "external",
+                    capture_mode: str = "exploitable", file_size: int = 0,
+                    mime_type: str = "text/plain") -> str:
+    """Create an evidence artifact linked to a finding. Types: screenshot, http_pair, command_output, tool_log, response_diff."""
+    aid = f"art-{uuid.uuid4().hex[:8]}"
+    run_query("""
+        CREATE (a:Artifact {
+            id: $aid, engagement_id: $eid, finding_id: $fid,
+            type: $type, file_path: $path, file_hash: $hash,
+            file_size: $size, mime_type: $mime, caption: $caption,
+            agent: $agent, backend: $backend, capture_mode: $mode,
+            timestamp: datetime()
+        })
+        WITH a
+        MATCH (f:Finding {id: $fid})
+        MERGE (f)-[:HAS_ARTIFACT]->(a)
+        WITH a
+        MATCH (e:Engagement {id: $eid})
+        MERGE (e)-[:HAS_EVIDENCE]->(a)
+        RETURN a
+    """, {"aid": aid, "eid": engagement_id, "fid": finding_id,
+          "type": artifact_type, "path": file_path, "hash": file_hash,
+          "size": file_size, "mime": mime_type, "caption": caption,
+          "agent": agent, "backend": backend, "mode": capture_mode})
+    return json.dumps({"artifact_id": aid, "type": artifact_type, "finding_id": finding_id})
+
+@mcp.tool()
 def query_graph(cypher: str, params: str = "{}") -> str:
     """Run a read-only Cypher query against the knowledge graph."""
     upper = cypher.upper()
