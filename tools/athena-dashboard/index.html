@@ -3636,6 +3636,7 @@
       font-weight: 700;
       color: var(--zerok-text);
       font-family: var(--zerok-font-mono);
+      flex-shrink: 0;
     }
 
     .timeline-card-preview {
@@ -3768,6 +3769,12 @@
       background: color-mix(in srgb, var(--zerok-primary) 12%, transparent);
       color: var(--zerok-primary);
       margin-left: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 180px;
+      min-width: 0;
+      flex-shrink: 1;
     }
 
     .tool-args-grid {
@@ -7030,7 +7037,7 @@
         '<div class="timeline-card-header" onclick="toggleCard(this)">' +
           '<div class="timeline-card-icon tool">&#9654;</div>' +
           '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
-          '<span class="tool-name-badge">' + escHtml(toolName) + '</span>' +
+          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName)) + '</span>' +
           '<div class="timeline-card-meta">' +
             '<span class="tool-status-badge running" data-status-badge="' + toolId + '">Running...</span>' +
             '<span class="tool-timer running" data-timer="' + toolId + '">0s</span>' +
@@ -7173,7 +7180,7 @@
         '<div class="timeline-card-header" onclick="toggleCard(this)">' +
           '<div class="timeline-card-icon complete">&#10003;</div>' +
           '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
-          '<span class="tool-name-badge">' + escHtml(toolName) + '</span>' +
+          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName)) + '</span>' +
           '<div class="timeline-card-meta">' +
             '<span class="tool-status-badge done">Done (' + duration + 's)</span>' +
             '<span class="tool-timer done">' + duration + 's</span>' +
@@ -8024,6 +8031,14 @@
       const d = document.createElement('div');
       d.textContent = stripAnsi(s || '');
       return d.innerHTML;
+    }
+
+    function shortToolName(name) {
+      // mcp__kali_external__nmap_scan → nmap_scan
+      // mcp__neo4j__create_finding → create_finding
+      if (!name) return '';
+      var parts = name.split('__');
+      return parts.length >= 3 ? parts.slice(2).join('__') : name;
     }
 
     function renderMarkdown(s) {
