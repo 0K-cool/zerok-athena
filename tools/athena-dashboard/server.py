@@ -4554,6 +4554,17 @@ async def start_engagement_ai(
     state.active_engagement_id = eid
     state.engagement_stopped = False
 
+    # Update Neo4j engagement status to active
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run(
+                    "MATCH (e:Engagement {id: $eid}) SET e.status = 'active'",
+                    eid=eid,
+                )
+        except Exception:
+            pass
+
     # Broadcast AI mode system event
     use_sdk = (mode == "sdk" and SDK_AVAILABLE)
     mode_label = "Agent SDK" if use_sdk else "subprocess (legacy)"
