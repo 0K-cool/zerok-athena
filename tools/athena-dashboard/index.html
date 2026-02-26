@@ -8524,6 +8524,11 @@
           engBadge.querySelector('span:last-child').textContent = 'Pentest Paused';
         }
       }
+      // BUG-027: Dismiss HITL overlay when engagement stops
+      if (state === 'idle') {
+        const hitlOverlay = document.getElementById('hitlOverlay');
+        if (hitlOverlay) hitlOverlay.classList.remove('visible');
+      }
       // Update sidebar engagement LED color
       const activeItem = document.querySelector('.engagement-list-item.active .engagement-status-dot');
       if (activeItem) {
@@ -9418,15 +9423,24 @@
         const kpiCriticals = document.getElementById('kpi-criticals');
         const kpiMtte = document.getElementById('kpi-mtte');
         if (kpiHosts) kpiHosts.textContent = summary.hosts || 0;
-        if (kpiFindings) kpiFindings.textContent = summary.findings || 0;
+        // BUG-026: During active engagement, never decrease findings KPI (prevents flicker
+        // when summary endpoint returns 0 but WebSocket stat_update already set correct value)
+        const summaryFindings = summary.findings || 0;
+        if (kpiFindings) {
+          const currentVal = parseInt(kpiFindings.textContent) || 0;
+          if (summaryFindings >= currentVal) {
+            kpiFindings.textContent = summaryFindings;
+          }
+        }
         if (kpiOpenPorts) kpiOpenPorts.textContent = summary.services || 0;
 
         // Sync nav badge with API findings count
         const findingsBadge = document.getElementById('nav-badge-findings');
         if (findingsBadge) {
-          const fc = summary.findings || 0;
+          const currentBadgeVal = parseInt(findingsBadge.textContent) || 0;
+          const fc = Math.max(summaryFindings, currentBadgeVal);
           if (fc > 0) { findingsBadge.textContent = fc; findingsBadge.style.display = ''; }
-          else { findingsBadge.style.display = 'none'; }
+          // BUG-026: Don't hide badge if it was already showing during engagement
         }
 
         // Update Confirmed Exploits KPI

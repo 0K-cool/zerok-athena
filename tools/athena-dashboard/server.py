@@ -2876,11 +2876,13 @@ async def update_scan(scan_id: str, request: dict):
             scan[field] = request[field]
 
     # Auto-set completed_at if status changed to completed/error
-    if request.get("status") in ("completed", "error") and not scan.get("completed_at"):
+    # BUG-021b: Agent sends "complete" (no "d") — accept both variants
+    if request.get("status") in ("completed", "complete", "error") and not scan.get("completed_at"):
         scan["completed_at"] = datetime.now(timezone.utc).isoformat()
 
     # BUG-004: Auto-calculate duration if not explicitly provided and scan is done
-    if scan.get("status") in ("completed", "error") and not request.get("duration_s"):
+    # BUG-021b: Accept both "completed" and "complete" status variants
+    if scan.get("status") in ("completed", "complete", "error") and not request.get("duration_s"):
         started = scan.get("started_at")
         completed = scan.get("completed_at")
         if started and completed and scan.get("duration_s", 0) == 0:
