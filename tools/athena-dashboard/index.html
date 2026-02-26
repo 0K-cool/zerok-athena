@@ -8279,8 +8279,24 @@
           loadEngagementSummary(currentEngagementId);
           loadDashboardFromAPI();
         }
+        // BUG-022: Mark stale "Running" tool cards as cancelled on stop
+        document.querySelectorAll('.tool-status-badge.running').forEach(badge => {
+          badge.textContent = 'Cancelled';
+          badge.className = 'tool-status-badge cancelled';
+        });
+        document.querySelectorAll('.tool-timer.running').forEach(t => t.classList.remove('running'));
+        document.querySelectorAll('.tool-progress-fill.running').forEach(p => { p.classList.remove('running'); p.classList.add('cancelled'); });
+        // Clear all running tool timers
+        Object.keys(runningTools).forEach(tid => {
+          if (runningTools[tid] && runningTools[tid].timerInterval) clearInterval(runningTools[tid].timerInterval);
+          delete runningTools[tid];
+        });
         // BUG-017: Auto-generate engagement summary when AI didn't reach report phase
+        // BUG-020: Guard against duplicate summary (engagement_ended + engagement_stopped both fire)
+        if (!window._summaryGenerated) {
+        window._summaryGenerated = true;
         setTimeout(() => {
+            window._summaryGenerated = false;  // Reset for next engagement
             // Fetch final engagement summary and display it in the timeline
             if (currentEngagementId) {
                 fetch(`/api/engagements/${currentEngagementId}/summary`)
@@ -8319,6 +8335,7 @@
                     .catch(() => {});  // Silent fail — non-critical
             }
         }, 2000);  // 2s delay to allow final Neo4j sync
+        }  // end BUG-020 duplicate guard
       }
       else if (control === 'awaiting_commands') setCtrlState('idle');
 
@@ -8767,8 +8784,10 @@
         const engRes = await fetch('/api/engagements');
         const engData = await engRes.json();
         const engs = engData.engagements || engData;
+        // If dashboard knows a session is running, count at least 1
+        const runningLocally = _currentCtrlState === 'running' || _currentCtrlState === 'paused';
         const active = engs.filter(e => e.status !== 'completed' && e.status !== 'stopped' && e.status !== 'archived' && (e.phase === 'AI Mode' || (e.status === 'active' && e.phase && e.phase !== '—'))).length;
-        kpiEng.textContent = active;
+        kpiEng.textContent = runningLocally ? Math.max(active, 1) : active;
       } catch (e) { /* ignore */ }
     }
 
