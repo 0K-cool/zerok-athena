@@ -3,7 +3,8 @@
 ATHENA Kali Extra Tools Blueprint
 Additional tool endpoints to align Kali External (Antsle) with Kali Internal (Mini-PC).
 Tools: naabu, nuclei, httpx, katana, gau, responder, crackmapexec,
-       eyewitness, whatweb, kiterunner, s3scanner, kill-all
+       eyewitness, whatweb, kiterunner, s3scanner, brutus, titus,
+       fingerprintx, kill-all
 """
 
 import logging
@@ -263,6 +264,99 @@ def s3scanner():
         return jsonify({"error": "Bucket parameter is required"}), 400
     additional_args = params.get("additional_args", "")
     cmd = f"s3scanner scan --bucket {bucket}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd))
+
+
+@extra_tools_bp.route("/api/tools/brutus", methods=["POST"])
+def brutus():
+    """Credential testing with Brutus (Praetorian) — 23 protocols, embedded SSH bad keys."""
+    params = request.json
+    target = params.get("target", "")
+    protocol = params.get("protocol", "")
+    if not target:
+        return jsonify({"error": "Target parameter is required (host:port)"}), 400
+    if not protocol:
+        return jsonify({"error": "Protocol parameter is required (ssh, smb, mysql, etc.)"}), 400
+    usernames = params.get("usernames", "root,admin")
+    passwords = params.get("passwords", "")
+    password_file = params.get("password_file", "")
+    key_file = params.get("key_file", "")
+    spray = params.get("spray", False)
+    badkeys = params.get("badkeys", True)
+    additional_args = params.get("additional_args", "")
+    cmd = f"brutus --target {target} --protocol {protocol} -u {usernames} --json -q"
+    if passwords:
+        cmd += f" -p {passwords}"
+    if password_file:
+        cmd += f" -P {password_file}"
+    if key_file:
+        cmd += f" -k {key_file}"
+    if spray:
+        cmd += " --spray"
+    if not badkeys:
+        cmd += " --no-badkeys"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=600))
+
+
+@extra_tools_bp.route("/api/tools/brutus-pipeline", methods=["POST"])
+def brutus_pipeline():
+    """Brutus pipeline mode: naabu → fingerprintx → brutus (auto credential testing)."""
+    params = request.json
+    target = params.get("target", "")
+    if not target:
+        return jsonify({"error": "Target parameter is required (host or CIDR)"}), 400
+    ports = params.get("ports", "")
+    usernames = params.get("usernames", "root,admin")
+    passwords = params.get("passwords", "")
+    additional_args = params.get("additional_args", "")
+    cmd = f"naabu -host {target} -silent"
+    if ports:
+        cmd += f" -p {ports}"
+    cmd += f" | fingerprintx --json | brutus --fingerprintx -u {usernames} --json -q"
+    if passwords:
+        cmd += f" -p {passwords}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=900))
+
+
+@extra_tools_bp.route("/api/tools/titus", methods=["POST"])
+def titus():
+    """Secret scanning with Titus (Praetorian) — 450+ rules, live validation."""
+    params = request.json
+    target_path = params.get("target_path", "")
+    if not target_path:
+        return jsonify({"error": "target_path parameter is required"}), 400
+    git_mode = params.get("git", False)
+    validate = params.get("validate", False)
+    extract = params.get("extract", "")
+    output_format = params.get("format", "json")
+    additional_args = params.get("additional_args", "")
+    cmd = f"titus scan {target_path} --format {output_format}"
+    if git_mode:
+        cmd += " --git"
+    if validate:
+        cmd += " --validate"
+    if extract:
+        cmd += f" --extract {extract}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=600))
+
+
+@extra_tools_bp.route("/api/tools/fingerprintx", methods=["POST"])
+def fingerprintx():
+    """Service fingerprinting with fingerprintx (Praetorian)."""
+    params = request.json
+    target = params.get("target", "")
+    if not target:
+        return jsonify({"error": "Target parameter is required (host:port)"}), 400
+    additional_args = params.get("additional_args", "")
+    cmd = f"echo {target} | fingerprintx --json"
     if additional_args:
         cmd += f" {additional_args}"
     return jsonify(execute_command(cmd))
