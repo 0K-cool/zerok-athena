@@ -9721,6 +9721,7 @@
         types: types,
         authorization: _scopeDocUploaded ? 'documented' : 'manual',
         evidence_mode: document.getElementById('new-eng-evidence-mode')?.value || 'exploitable',
+        client_industry: document.getElementById('new-eng-client-industry')?.value || 'general',
         scope_doc: _scopeDocRawText,
       };
 
@@ -11722,6 +11723,17 @@
             <select id="new-eng-evidence-mode" style="background: var(--zerok-bg-alt); color: var(--zerok-text); border: 1px solid var(--zerok-border); border-radius: 4px; padding: 6px 10px; width: 100%; margin-top: 4px;">
               <option value="exploitable">Exploitable (lab/CTF)</option>
               <option value="observable">Observable (healthcare/production)</option>
+            </select>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label" for="new-eng-client-industry">Client Industry</label>
+            <select id="new-eng-client-industry" style="background: var(--zerok-bg-alt); color: var(--zerok-text); border: 1px solid var(--zerok-border); border-radius: 4px; padding: 6px 10px; width: 100%; margin-top: 4px;">
+              <option value="general">General</option>
+              <option value="healthcare">Healthcare (HIPAA)</option>
+              <option value="financial">Financial (PCI-DSS)</option>
+              <option value="government">Government (NIST 800-53, FISMA)</option>
+              <option value="saas">SaaS / Cloud (SOC 2)</option>
+              <option value="critical_infra">Critical Infrastructure (ICS/SCADA)</option>
             </select>
           </div>
         </form>

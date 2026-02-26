@@ -1129,6 +1129,7 @@ class CreateEngagementPayload(BaseModel):
     authorization: str = "manual"  # "documented" (SoW/RoE uploaded) or "manual" (operator assertion)
     evidence_mode: str = "exploitable"  # "exploitable" (only confirmed vulns) or "all" (capture everything)
     scope_doc: str = ""  # Full raw text from uploaded SoW/RoE — injected into agent prompt for scope enforcement
+    client_industry: str = "general"  # healthcare, financial, government, saas, critical_infra, general
 
 
 @app.post("/api/engagements/parse-scope")
@@ -1192,13 +1193,15 @@ async def create_engagement(payload: CreateEngagementPayload):
                         types: $types,
                         authorization: $authorization,
                         evidence_mode: $evidence_mode,
+                        client_industry: $client_industry,
                         status: 'active',
                         start_date: $start_date
                     })
                 """, id=engagement_id, name=payload.name, client=payload.client,
                      scope=payload.scope, scope_doc=payload.scope_doc, types=types_str,
                      authorization=payload.authorization,
-                     evidence_mode=payload.evidence_mode, start_date=start_date)
+                     evidence_mode=payload.evidence_mode,
+                     client_industry=payload.client_industry, start_date=start_date)
 
             ensure_evidence_dirs(engagement_id)
 
@@ -4094,8 +4097,38 @@ def _parse_target_scope(target: str) -> dict:
     return result
 
 
+def _get_framework_instructions(client_industry: str) -> str:
+    """Return compliance framework mapping instructions based on client industry."""
+    # Always included
+    base = """REPORT COMPLIANCE FRAMEWORKS (always include):
+- MITRE ATT&CK: Map each finding to technique IDs (e.g., T1190, T1078)
+- NIST CSF 2.0: Map to functions (Identify, Protect, Detect, Respond, Recover)
+- OWASP Top 10 2021: Map web findings to categories (A01-A10)"""
+
+    industry_map = {
+        "healthcare": """
+- HIPAA Security Rule: Map to §164.312 controls (access control, audit, integrity, authentication, transmission)
+- Include HIPAA risk assessment references per §164.308(a)(1)""",
+        "financial": """
+- PCI-DSS 4.0: Map to requirements (Req 1-12, e.g., Req 6.2 for secure development, Req 11.3 for pentesting)
+- Include cardholder data environment (CDE) scope notes""",
+        "government": """
+- NIST SP 800-53 Rev 5: Map to control families (AC, AU, IA, SC, SI, etc.)
+- FISMA: Include impact level assessment (Low/Moderate/High)""",
+        "saas": """
+- SOC 2 Type II: Map to Trust Services Criteria (CC6.1 access, CC7.2 monitoring, CC8.1 change management)
+- Include data residency and multi-tenancy considerations""",
+        "critical_infra": """
+- NIST SP 800-82 Rev 3: Map to ICS/SCADA-specific controls
+- IEC 62443: Include zone/conduit model references where applicable""",
+    }
+
+    extra = industry_map.get(client_industry, "")
+    return base + extra
+
+
 def _build_sdk_prompt(eid: str, target: str, backend: str,
-                      scope_doc: str = "") -> str:
+                      scope_doc: str = "", client_industry: str = "general") -> str:
     """Build the engagement prompt for the Agent SDK.
 
     Minimal prompt — relies on CLAUDE.md (auto-loaded from cwd) for platform
@@ -4135,6 +4168,19 @@ Scan registration: POST http://localhost:8080/api/scans
 Findings: POST http://localhost:8080/api/engagements/{eid}/findings
 Credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
 
+Report generation (Phase 8 — REQUIRED after exploitation):
+  1. Create the directory: engagements/active/{eid}/09-reporting/
+  2. Write report files there:
+     - technical-report.md (detailed findings with CVSS, exploitation steps, evidence references)
+     - executive-summary.md (business impact, non-technical language for leadership)
+     - remediation-roadmap.md (prioritized fix recommendations with effort estimates)
+  3. Register EACH report with the dashboard:
+     POST http://localhost:8080/api/reports
+     Body: {{"title":"<title>","type":"technical|executive|remediation","engagement_id":"{eid}","engagement_name":"<target_name>","format":"MD","file_path":"engagements/active/{eid}/09-reporting/<filename>.md","findings_included":<count>}}
+  4. For EVERY finding in reports, include compliance framework mappings:
+{_get_framework_instructions(client_industry)}
+  Do NOT create your own engagement directories. Always use engagements/active/{eid}/09-reporting/.
+
 HITL approvals (exploitation phase):
   POST http://localhost:8080/api/approvals → get approval_id
   Poll GET http://localhost:8080/api/approvals/{{approval_id}} every 5s until resolved
@@ -4163,7 +4209,7 @@ When the operator sends you a message, respond directly and helpfully.
 
 
 def _build_legacy_prompt(eid: str, target: str, backend: str,
-                         scope_doc: str = "") -> str:
+                         scope_doc: str = "", client_industry: str = "general") -> str:
     """Build the engagement prompt for the legacy subprocess mode.
 
     Minimal prompt — relies on CLAUDE.md (auto-loaded from cwd) for platform
@@ -4202,6 +4248,19 @@ Scan registration: POST http://localhost:8080/api/scans
 
 Findings: POST http://localhost:8080/api/engagements/{eid}/findings
 Credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
+
+Report generation (Phase 8 — REQUIRED after exploitation):
+  1. Create the directory: engagements/active/{eid}/09-reporting/
+  2. Write report files there:
+     - technical-report.md (detailed findings with CVSS, exploitation steps, evidence references)
+     - executive-summary.md (business impact, non-technical language for leadership)
+     - remediation-roadmap.md (prioritized fix recommendations with effort estimates)
+  3. Register EACH report with the dashboard:
+     POST http://localhost:8080/api/reports
+     Body: {{"title":"<title>","type":"technical|executive|remediation","engagement_id":"{eid}","engagement_name":"<target_name>","format":"MD","file_path":"engagements/active/{eid}/09-reporting/<filename>.md","findings_included":<count>}}
+  4. For EVERY finding in reports, include compliance framework mappings:
+{_get_framework_instructions(client_industry)}
+  Do NOT create your own engagement directories. Always use engagements/active/{eid}/09-reporting/.
 
 HITL approvals (exploitation phase):
   POST http://localhost:8080/api/approvals → get approval_id
@@ -4550,6 +4609,7 @@ async def start_engagement_ai(
     global _ai_process, _active_sdk_session
 
     scope_doc = ""
+    client_industry = "general"
     if not target:
         eng = next((e for e in state.engagements if e.id == eid), None)
         if eng:
@@ -4558,7 +4618,7 @@ async def start_engagement_ai(
             try:
                 with neo4j_driver.session() as session:
                     result = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope, e.scope_doc AS scope_doc",
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry",
                         eid=eid,
                     )
                     record = result.single()
@@ -4567,6 +4627,8 @@ async def start_engagement_ai(
                             target = record["scope"]
                         if record.get("scope_doc"):
                             scope_doc = record["scope_doc"]
+                        if record.get("client_industry"):
+                            client_industry = record["client_industry"]
             except Exception:
                 pass
         if not target:
@@ -4574,16 +4636,19 @@ async def start_engagement_ai(
                 "error": "Target scope required. Pass ?target=<ip/cidr/url>"
             })
     elif neo4j_available and neo4j_driver:
-        # Target was provided, but still fetch scope_doc from Neo4j
+        # Target was provided, but still fetch scope_doc and client_industry from Neo4j
         try:
             with neo4j_driver.session() as session:
                 result = session.run(
-                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc",
+                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc, e.client_industry AS client_industry",
                     eid=eid,
                 )
                 record = result.single()
-                if record and record.get("scope_doc"):
-                    scope_doc = record["scope_doc"]
+                if record:
+                    if record.get("scope_doc"):
+                        scope_doc = record["scope_doc"]
+                    if record.get("client_industry"):
+                        client_industry = record["client_industry"]
         except Exception:
             pass
 
@@ -4638,7 +4703,7 @@ async def start_engagement_ai(
 
     # ── SDK Mode (Phase F) ──────────────────────
     if use_sdk:
-        prompt = _build_sdk_prompt(eid, target, backend, scope_doc=scope_doc)
+        prompt = _build_sdk_prompt(eid, target, backend, scope_doc=scope_doc, client_industry=client_industry)
         _active_sdk_session = AthenaAgentSession(
             engagement_id=eid,
             target=target,
@@ -4673,7 +4738,7 @@ async def start_engagement_ai(
         }
 
     # ── Legacy Subprocess Mode (Phase E fallback) ──
-    prompt = _build_legacy_prompt(eid, target, backend, scope_doc=scope_doc)
+    prompt = _build_legacy_prompt(eid, target, backend, scope_doc=scope_doc, client_industry=client_industry)
     claude_bin = os.environ.get("CLAUDE_BIN", os.path.expanduser("~/.local/bin/claude"))
     cmd = [
         claude_bin,
