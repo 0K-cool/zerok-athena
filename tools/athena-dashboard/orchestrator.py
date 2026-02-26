@@ -23,6 +23,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 from urllib.parse import urlparse
 
@@ -140,6 +141,11 @@ class AgentRunner:
         self.kali = kali
         self.ctx = ctx
 
+        # Evidence screenshot context (stashed by run_tool for report_finding)
+        self._last_tool_name = ""
+        self._last_tool_command = ""
+        self._last_tool_output = ""
+
     def _check_stopped(self):
         """Raise if engagement was stopped (checks both ctx flag and server flag)."""
         if self.ctx.stopped:
@@ -192,6 +198,11 @@ class AgentRunner:
 
         tool_id = str(uuid.uuid4())[:8]
         tool_display = display or f"Running {tool_name}..."
+
+        # Stash tool context for evidence screenshots (used by report_finding)
+        self._last_tool_name = tool_name
+        self._last_tool_command = tool_display
+
         start_time = time.time()
         start_iso = datetime.now(timezone.utc).isoformat()
 
@@ -272,6 +283,9 @@ class AgentRunner:
             result.stdout = _ANSI_RE.sub("", result.stdout)
         if result.stderr:
             result.stderr = _ANSI_RE.sub("", result.stderr)
+
+        # Stash full output for terminal screenshots (after ANSI stripping)
+        self._last_tool_output = result.stdout or ""
 
         # Stream output in chunks for dashboard display
         if result.stdout:
@@ -574,6 +588,27 @@ class AgentRunner:
                 scan["findings_count"] += 1
                 break
 
+        # Auto-capture evidence screenshots for this finding
+        if evidence and finding_id:
+            _tool = self._last_tool_name or self.agent
+            _cmd = self._last_tool_command or ""
+            _full_output = self._last_tool_output or evidence
+
+            # Terminal screenshot of tool output (always when there's output)
+            await self.capture_evidence_screenshot(
+                finding_id=finding_id, target=target,
+                tool_name=_tool, tool_output=_full_output,
+                command=_cmd, capture_type="exploit",
+            )
+
+            # Web baseline screenshot (only if HTTP target)
+            if target.startswith(("http://", "https://")):
+                await self.capture_evidence_screenshot(
+                    finding_id=finding_id, target=target,
+                    tool_name=_tool, tool_output="",
+                    capture_type="baseline",
+                )
+
         await self._emit_stats()
 
     async def _upgrade_finding(
@@ -647,6 +682,28 @@ class AgentRunner:
                 except Exception as e:
                     logger.warning("Neo4j finding upgrade error: %s", e)
 
+        # Auto-capture evidence screenshots for the upgraded finding
+        if evidence and finding_id:
+            _tool = self._last_tool_name or self.agent
+            _cmd = self._last_tool_command or ""
+            _full_output = self._last_tool_output or evidence
+
+            # Terminal screenshot of tool output (always when there's output)
+            await self.capture_evidence_screenshot(
+                finding_id=finding_id, target=existing.get("target", ""),
+                tool_name=_tool, tool_output=_full_output,
+                command=_cmd, capture_type="exploit",
+            )
+
+            # Web baseline screenshot (only if HTTP target)
+            _upgrade_target = existing.get("target", "")
+            if _upgrade_target.startswith(("http://", "https://")):
+                await self.capture_evidence_screenshot(
+                    finding_id=finding_id, target=_upgrade_target,
+                    tool_name=_tool, tool_output="",
+                    capture_type="baseline",
+                )
+
         # Broadcast upgrade to dashboard (same event type, dashboard will update)
         await self.state.broadcast({
             "type": "finding_upgraded",
@@ -661,6 +718,211 @@ class AgentRunner:
             "evidence": evidence[:500] if evidence else "",
             "engagement": self.ctx.engagement_id,
         })
+
+    async def capture_evidence_screenshot(
+        self,
+        finding_id: str,
+        target: str,
+        tool_name: str,
+        tool_output: str,
+        command: str = "",
+        capture_type: str = "exploit",
+    ) -> str | None:
+        """Capture a screenshot and save as Artifact. Returns artifact_id or None.
+
+        capture_type: 'baseline' (web page before exploit) or 'exploit' (terminal/web after)
+        Never raises -- screenshots are best-effort, never block the engagement.
+        """
+        try:
+            if capture_type == "baseline" and target.startswith(("http://", "https://")):
+                result = await self.kali.run_tool("screenshot_web", {
+                    "url": target, "viewport": "1280x900", "wait_ms": 2000,
+                }, backend=self.ctx.backend_override or "auto",
+                   target_type=self.ctx.target_type)
+                screenshot_mode = "web"
+            elif tool_output:
+                result = await self.kali.run_tool("screenshot_terminal", {
+                    "command": command,
+                    "output": tool_output[:50000],
+                    "tool_name": tool_name,
+                    "max_lines": 200,
+                }, backend=self.ctx.backend_override or "auto",
+                   target_type=self.ctx.target_type)
+                screenshot_mode = "terminal"
+            else:
+                return None
+
+            if not result.success:
+                logger.warning(f"[EVIDENCE] Screenshot failed ({capture_type}) for finding {finding_id}: {result.error}")
+                return None
+
+            # Extract base64 image from Kali JSON response
+            import json as _json
+            try:
+                resp_data = _json.loads(result.stdout)
+                image_b64 = resp_data.get("image_b64", "")
+            except (ValueError, AttributeError):
+                image_b64 = result.stdout or ""
+
+            if not image_b64:
+                logger.warning(f"[EVIDENCE] Empty screenshot response for finding {finding_id}")
+                return None
+
+            artifact_id = await self._save_screenshot(
+                finding_id=finding_id,
+                image_b64=image_b64,
+                capture_type=capture_type,
+                screenshot_mode=screenshot_mode,
+                tool_name=tool_name,
+            )
+            if artifact_id:
+                logger.info(f"[EVIDENCE] Screenshot captured ({capture_type}/{screenshot_mode}): {artifact_id}")
+            return artifact_id
+
+        except Exception as e:
+            logger.warning(f"[EVIDENCE] Screenshot error: {e}")
+            return None
+
+    async def _save_screenshot(
+        self,
+        finding_id: str,
+        image_b64: str,
+        capture_type: str,
+        screenshot_mode: str,
+        tool_name: str,
+    ) -> str | None:
+        """Decode base64 PNG, save to disk, create thumbnail, create Neo4j Artifact."""
+        import base64 as _b64
+        import hashlib as _hashlib
+        from server import ensure_evidence_dirs, neo4j_driver, neo4j_available
+        from io import BytesIO
+
+        try:
+            png_bytes = _b64.b64decode(image_b64)
+            file_hash = _hashlib.sha256(png_bytes).hexdigest()
+
+            # Compress if >2MB
+            if len(png_bytes) > 2 * 1024 * 1024:
+                try:
+                    from PIL import Image
+                    img = Image.open(BytesIO(png_bytes))
+                    buf = BytesIO()
+                    img.convert("RGB").save(buf, format="JPEG", quality=85)
+                    png_bytes = buf.getvalue()
+                    file_hash = _hashlib.sha256(png_bytes).hexdigest()
+                    ext = ".jpg"
+                    mime_type = "image/jpeg"
+                except ImportError:
+                    ext = ".png"
+                    mime_type = "image/png"
+            else:
+                ext = ".png"
+                mime_type = "image/png"
+
+            # Build filename
+            evidence_root = ensure_evidence_dirs(self.ctx.engagement_id)
+            screenshots_dir = evidence_root / "screenshots"
+
+            # Auto-increment sequence
+            existing_files = [
+                f for f in screenshots_dir.iterdir()
+                if f.is_file() and f.suffix in (".png", ".jpg")
+            ] if screenshots_dir.exists() else []
+            seq = len(existing_files) + 1
+
+            # Get finding severity
+            severity = "UNKNOWN"
+            for f in self.ctx.findings:
+                if f.get("id") == finding_id:
+                    severity = (f.get("severity") or "unknown").upper()
+                    break
+
+            timestamp_str = datetime.now().strftime("%Y%m%d-%H%M%S")
+            safe_tool = re.sub(r'[^a-zA-Z0-9-]', '-', tool_name)[:20].strip('-').lower() or "tool"
+            filename = f"{seq:03d}-{severity}-{safe_tool}-{capture_type}-{timestamp_str}{ext}"
+            filepath = screenshots_dir / filename
+            filepath.write_bytes(png_bytes)
+
+            # Relative path from ATHENA project root
+            athena_dir = Path(__file__).parent.parent.parent
+            try:
+                rel_path = str(filepath.relative_to(athena_dir))
+            except ValueError:
+                rel_path = str(filepath)
+
+            # Generate thumbnail (300px wide, JPEG 75%)
+            thumbnail_rel = None
+            try:
+                from PIL import Image
+                img = Image.open(BytesIO(png_bytes))
+                ratio = 300 / img.width
+                new_h = int(img.height * ratio)
+                thumb = img.resize((300, new_h), Image.LANCZOS)
+                thumb_name = f"{seq:03d}-{capture_type}-thumb.jpg"
+                thumb_path = screenshots_dir / "thumbnails" / thumb_name
+                thumb_path.parent.mkdir(parents=True, exist_ok=True)
+                buf = BytesIO()
+                thumb.convert("RGB").save(buf, format="JPEG", quality=75)
+                thumb_path.write_bytes(buf.getvalue())
+                try:
+                    thumbnail_rel = str(thumb_path.relative_to(athena_dir))
+                except ValueError:
+                    thumbnail_rel = str(thumb_path)
+            except Exception as e:
+                logger.warning(f"[EVIDENCE] Thumbnail error: {e}")
+
+            # Neo4j Artifact node
+            artifact_id = f"art-{uuid.uuid4().hex[:8]}"
+            caption = f"{'Baseline' if capture_type == 'baseline' else 'Evidence'}: {tool_name}"
+
+            if neo4j_available and neo4j_driver:
+                with neo4j_driver.session() as sess:
+                    sess.run("""
+                        CREATE (a:Artifact {
+                            id: $aid, engagement_id: $eid,
+                            type: 'screenshot', file_path: $path,
+                            file_hash: $hash, file_size: $size,
+                            mime_type: $mime, caption: $caption,
+                            agent: $agent, backend: $backend,
+                            capture_mode: $capture_mode,
+                            screenshot_mode: $ss_mode,
+                            thumbnail_path: $thumb,
+                            timestamp: datetime()
+                        })
+                        WITH a
+                        MATCH (e:Engagement {id: $eid})
+                        MERGE (e)-[:HAS_EVIDENCE]->(a)
+                        WITH a
+                        MATCH (f:Finding {id: $fid})
+                        MERGE (f)-[:HAS_ARTIFACT]->(a)
+                        RETURN a
+                    """, {
+                        "aid": artifact_id,
+                        "eid": self.ctx.engagement_id,
+                        "path": rel_path,
+                        "hash": file_hash,
+                        "size": len(png_bytes),
+                        "mime": mime_type,
+                        "caption": caption,
+                        "agent": self.agent,
+                        "backend": self.ctx.backend_override or "external",
+                        "capture_mode": capture_type,
+                        "ss_mode": screenshot_mode,
+                        "thumb": thumbnail_rel,
+                        "fid": finding_id,
+                    })
+
+                await self.state.broadcast({
+                    "type": "stat_update",
+                    "evidence_count": 1,
+                    "timestamp": time.time(),
+                })
+
+            return artifact_id
+
+        except Exception as e:
+            logger.warning(f"[EVIDENCE] Save screenshot error: {e}")
+            return None
 
     async def _write_finding_neo4j(self, fid, title, severity, category,
                                     target, description, cvss, cve, evidence):

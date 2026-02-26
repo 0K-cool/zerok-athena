@@ -511,5 +511,36 @@
     "params": {
       "engagement_id": {"type": "string", "required": true, "description": "Engagement ID to package"}
     }
+  },
+
+  "_phase2_comment": "Phase 2: Automated Evidence Screenshots",
+
+  "screenshot_web": {
+    "display_name": "Web Screenshot",
+    "endpoint": "/api/tools/screenshot",
+    "timeout": 30,
+    "backends": ["external", "internal"],
+    "category": "evidence",
+    "params": {
+      "url": {"type": "string", "required": true, "description": "Target URL to screenshot"},
+      "viewport": {"type": "string", "required": false, "default": "1280x900", "description": "Viewport WxH"},
+      "wait_ms": {"type": "integer", "required": false, "default": 2000, "description": "Wait for page load (ms)"},
+      "full_page": {"type": "boolean", "required": false, "default": false, "description": "Full page or viewport only"}
+    }
+  },
+
+  "screenshot_terminal": {
+    "display_name": "Terminal Screenshot",
+    "endpoint": "/api/tools/screenshot_terminal",
+    "timeout": 15,
+    "backends": ["external", "internal"],
+    "category": "evidence",
+    "params": {
+      "command": {"type": "string", "required": true, "description": "Command that was executed"},
+      "output": {"type": "string", "required": true, "description": "Full command stdout"},
+      "tool_name": {"type": "string", "required": false, "default": "Terminal", "description": "Tool name for title bar"},
+      "timestamp": {"type": "string", "required": false, "description": "Execution timestamp"},
+      "max_lines": {"type": "integer", "required": false, "default": 200, "description": "Max lines to render"}
+    }
   }
 }

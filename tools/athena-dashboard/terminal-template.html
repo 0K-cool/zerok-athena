@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, initial-scale=1.0">
+<title>{{TOOL_NAME}} — Terminal</title>
+<style>
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    width: 1280px;
+    height: 900px;
+    overflow: hidden;
+    background: #1a1a2e;
+    font-family: "Fira Code", "SF Mono", "Cascadia Code", "Consolas", "Courier New", monospace;
+  }
+
+  /* ── Title Bar ────────────────────────────────── */
+  .title-bar {
+    display: flex;
+    align-items: center;
+    height: 36px;
+    background: #16162a;
+    padding: 0 16px;
+    position: relative;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .traffic-lights {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 1;
+  }
+
+  .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot-red    { background: #ff5f56; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green  { background: #27c93f; }
+
+  .title-text {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #888;
+    font-size: 13px;
+    font-family: "Fira Code", "SF Mono", "Cascadia Code", "Consolas", "Courier New", monospace;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* ── Terminal Body ────────────────────────────── */
+  .terminal-body {
+    position: relative;
+    width: 1280px;
+    height: 864px; /* 900 - 36 */
+    background: #1a1a2e;
+    padding: 20px 24px;
+    overflow: hidden;
+    color: #e0e0e0;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  /* ── Command Line ─────────────────────────────── */
+  .command-line {
+    color: #00ff41;
+    margin-bottom: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+  }
+
+  /* ── Output Block ─────────────────────────────── */
+  .output-block {
+    color: #e0e0e0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    word-break: break-word;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    overflow: hidden;
+  }
+
+  /* ── ANSI Color Classes ───────────────────────── */
+  .ansi-red     { color: #ff5555; }
+  .ansi-green   { color: #50fa7b; }
+  .ansi-yellow  { color: #f1fa8c; }
+  .ansi-blue    { color: #6272a4; }
+  .ansi-magenta { color: #ff79c6; }
+  .ansi-cyan    { color: #8be9fd; }
+  .ansi-bold    { font-weight: 700; }
+  .ansi-dim     { opacity: 0.7; }
+
+  /* ── ATHENA Watermark ─────────────────────────── */
+  .watermark {
+    position: absolute;
+    right: 20px;
+    bottom: 12px;
+    color: rgba(255, 255, 255, 0.06);
+    font-size: 14px;
+    font-weight: 600;
+    font-family: "Fira Code", "SF Mono", "Cascadia Code", "Consolas", "Courier New", monospace;
+    letter-spacing: 0.1em;
+    pointer-events: none;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Title Bar -->
+  <div class="title-bar">
+    <div class="traffic-lights">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+    </div>
+    <div class="title-text">{{TOOL_NAME}} &mdash; {{TIMESTAMP}}</div>
+  </div>
+
+  <!-- Terminal Body -->
+  <div class="terminal-body">
+    <pre class="command-line">$ {{COMMAND}}</pre>
+    <pre class="output-block">{{OUTPUT}}</pre>
+    <div class="watermark">ATHENA</div>
+  </div>
+
+</body>
+</html>
