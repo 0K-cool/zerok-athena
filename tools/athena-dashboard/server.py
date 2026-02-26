@@ -3914,13 +3914,21 @@ async def _stream_ai_output(eid: str, process: subprocess.Popen):
                     # Detect agent from tool name
                     if "kali" in tool_name:
                         agent_code = "OR"
+                    # Extract actual command for execute_command tools
+                    tool_meta = {"tool": tool_name}
+                    tool_input = event.get("input", {})
+                    if "execute_command" in tool_name and isinstance(tool_input, dict):
+                        cmd = tool_input.get("command", "")
+                        if cmd:
+                            # Extract first word as command name (e.g. "nmap -sV..." -> "nmap")
+                            tool_meta["command"] = cmd.split()[0].split("/")[-1] if cmd.strip() else ""
                     await state.add_event(AgentEvent(
                         id=str(uuid.uuid4())[:8],
                         type="tool_start",
                         agent=agent_code,
                         content=f"Calling {tool_name}",
                         timestamp=time.time(),
-                        metadata={"tool": tool_name},
+                        metadata=tool_meta,
                     ))
 
                 # Tool result — broadcast as tool_complete

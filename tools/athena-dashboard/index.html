@@ -7064,7 +7064,7 @@
         '<div class="timeline-card-header" onclick="toggleCard(this)">' +
           '<div class="timeline-card-icon tool">&#9654;</div>' +
           '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
-          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName)) + '</span>' +
+          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName, msg.metadata)) + '</span>' +
           '<div class="timeline-card-meta">' +
             '<span class="tool-status-badge running" data-status-badge="' + toolId + '">Running...</span>' +
             '<span class="tool-timer running" data-timer="' + toolId + '">0s</span>' +
@@ -7211,7 +7211,7 @@
         '<div class="timeline-card-header" onclick="toggleCard(this)">' +
           '<div class="timeline-card-icon complete">&#10003;</div>' +
           '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
-          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName)) + '</span>' +
+          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName, msg.metadata)) + '</span>' +
           '<div class="timeline-card-meta">' +
             '<span class="tool-status-badge done">Done (' + duration + 's)</span>' +
             '<span class="tool-timer done">' + duration + 's</span>' +
@@ -8076,12 +8076,17 @@
       return d.innerHTML;
     }
 
-    function shortToolName(name) {
+    function shortToolName(name, meta) {
       // mcp__kali_external__nmap_scan → nmap_scan
       // mcp__neo4j__create_finding → create_finding
+      // execute_command with command metadata → show actual command (e.g. "curl", "nmap")
       if (!name) return '';
       var parts = name.split('__');
-      return parts.length >= 3 ? parts.slice(2).join('__') : name;
+      var short = parts.length >= 3 ? parts.slice(2).join('__') : name;
+      if (short === 'execute_command' && meta && meta.command) {
+        return meta.command;
+      }
+      return short;
     }
 
     function renderMarkdown(s) {
@@ -8294,10 +8299,10 @@
         });
         // BUG-017: Auto-generate engagement summary when AI didn't reach report phase
         // BUG-020: Guard against duplicate summary (engagement_ended + engagement_stopped both fire)
+        // Flag stays true until next engagement starts (reset in startEngage)
         if (!window._summaryGenerated) {
         window._summaryGenerated = true;
         setTimeout(() => {
-            window._summaryGenerated = false;  // Reset for next engagement
             // Fetch final engagement summary and display it in the timeline
             if (currentEngagementId) {
                 fetch(`/api/engagements/${currentEngagementId}/summary`)
@@ -8535,6 +8540,7 @@
       const eid = currentEngagementId;
       const mode = document.getElementById('engageMode').value;
       const backendOverride = 'external';  // Force external for Antsle bridge targets
+      window._summaryGenerated = false;  // BUG-020: Reset summary guard for new engagement
       setCtrlState('running');
 
       if (mode === 'ai') {
