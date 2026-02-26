@@ -608,5 +608,157 @@
       "target": {"type": "string", "required": true, "description": "Target host:port (e.g. 192.168.1.10:22)"},
       "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra fingerprintx flags"}
     }
+  },
+
+  "interactsh_oob": {
+    "display_name": "Interactsh OOB Interaction Server",
+    "endpoint": "/api/tools/interactsh",
+    "timeout": 60,
+    "backends": ["external", "internal"],
+    "category": "exploit",
+    "params": {
+      "poll_interval": {"type": "integer", "required": false, "default": 5, "description": "Polling interval in seconds"},
+      "token": {"type": "string", "required": false, "default": "", "description": "Authentication token for interactsh server"},
+      "timeout": {"type": "integer", "required": false, "default": 30, "description": "Duration to listen for interactions"}
+    }
+  },
+
+  "cvemap_lookup": {
+    "display_name": "CVEMap CVE Intelligence",
+    "endpoint": "/api/tools/cvemap",
+    "timeout": 60,
+    "backends": ["external", "internal"],
+    "category": "recon",
+    "params": {
+      "cve_id": {"type": "string", "required": false, "default": "", "description": "Specific CVE ID (e.g. CVE-2024-1234)"},
+      "keyword": {"type": "string", "required": false, "default": "", "description": "Search keyword (e.g. apache, log4j)"},
+      "severity": {"type": "string", "required": false, "default": "", "description": "Filter by severity (critical, high, medium, low)"},
+      "limit": {"type": "integer", "required": false, "default": 25, "description": "Max results to return"}
+    }
+  },
+
+  "dnsx_resolve": {
+    "display_name": "DNSX DNS Resolver",
+    "endpoint": "/api/tools/dnsx",
+    "timeout": 120,
+    "backends": ["external", "internal"],
+    "category": "recon",
+    "params": {
+      "domain": {"type": "string", "required": true, "description": "Target domain to resolve"},
+      "wordlist": {"type": "string", "required": false, "default": "", "description": "Subdomain wordlist path for brute-force"},
+      "record_type": {"type": "string", "required": false, "default": "a", "description": "DNS record type (a, aaaa, mx, ns, txt, cname, soa)"}
+    }
+  },
+
+  "uncover_search": {
+    "display_name": "Uncover Internet Search",
+    "endpoint": "/api/tools/uncover",
+    "timeout": 60,
+    "backends": ["external", "internal"],
+    "category": "recon",
+    "params": {
+      "query": {"type": "string", "required": true, "description": "Search query (e.g. 'org:acme ssl:true')"},
+      "engine": {"type": "string", "required": false, "default": "shodan", "description": "Search engine (shodan, censys, fofa, hunter, zoomeye)"},
+      "limit": {"type": "integer", "required": false, "default": 100, "description": "Max results to return"}
+    }
+  },
+
+  "chisel_tunnel": {
+    "display_name": "Chisel TCP/UDP Tunnel",
+    "endpoint": "/api/tools/chisel",
+    "timeout": 120,
+    "backends": ["external", "internal"],
+    "category": "exploit",
+    "params": {
+      "mode": {"type": "string", "required": false, "default": "client", "description": "Mode: server or client"},
+      "server_url": {"type": "string", "required": false, "default": "", "description": "Server URL for client mode (e.g. http://10.0.0.1:8080)"},
+      "remote": {"type": "string", "required": false, "default": "", "description": "Remote tunnel spec (e.g. 9090:127.0.0.1:8080)"},
+      "port": {"type": "string", "required": false, "default": "8080", "description": "Listening port for server mode"},
+      "timeout": {"type": "integer", "required": false, "default": 60, "description": "Tunnel duration in seconds"}
+    }
+  },
+
+  "impacket_attack": {
+    "display_name": "Impacket AD Attack Suite",
+    "endpoint": "/api/tools/impacket",
+    "timeout": 120,
+    "backends": ["external", "internal"],
+    "category": "exploit",
+    "params": {
+      "script": {"type": "string", "required": false, "default": "secretsdump", "description": "Impacket script (secretsdump, psexec, wmiexec, smbexec, atexec, dcomexec, getTGT, getST, getADUsers, getArch, smbclient, rpcdump, samrdump, lookupsid)"},
+      "domain": {"type": "string", "required": true, "description": "Target domain (e.g. CORP)"},
+      "username": {"type": "string", "required": true, "description": "Username for authentication"},
+      "password": {"type": "string", "required": false, "default": "", "description": "Password (or use hashes)"},
+      "target": {"type": "string", "required": true, "description": "Target IP or hostname"},
+      "hashes": {"type": "string", "required": false, "default": "", "description": "NTLM hashes (LM:NT format) for pass-the-hash"},
+      "extra_args": {"type": "string", "required": false, "default": "", "description": "Additional arguments"}
+    }
+  },
+
+  "theharvester_osint": {
+    "display_name": "theHarvester OSINT Gatherer",
+    "endpoint": "/api/tools/theharvester",
+    "timeout": 180,
+    "backends": ["external", "internal"],
+    "category": "recon",
+    "params": {
+      "domain": {"type": "string", "required": true, "description": "Target domain to gather intel on"},
+      "source": {"type": "string", "required": false, "default": "all", "description": "Data source (all, google, bing, linkedin, twitter, shodan, etc.)"},
+      "limit": {"type": "integer", "required": false, "default": 200, "description": "Max results per source"}
+    }
+  },
+
+  "prowler_cloud": {
+    "display_name": "Prowler Cloud Security Scanner",
+    "endpoint": "/api/tools/prowler",
+    "timeout": 600,
+    "backends": ["external", "internal"],
+    "category": "cloud",
+    "params": {
+      "provider": {"type": "string", "required": false, "default": "aws", "description": "Cloud provider (aws, azure, gcp, kubernetes)"},
+      "checks": {"type": "string", "required": false, "default": "", "description": "Specific checks to run (comma-separated)"},
+      "severity": {"type": "string", "required": false, "default": "", "description": "Filter by severity (critical, high, medium, low)"},
+      "compliance": {"type": "string", "required": false, "default": "", "description": "Compliance framework (cis, pci, hipaa, nist800)"},
+      "extra_args": {"type": "string", "required": false, "default": "", "description": "Additional prowler arguments"}
+    }
+  },
+
+  "pacu_aws": {
+    "display_name": "Pacu AWS Exploitation Framework",
+    "endpoint": "/api/tools/pacu",
+    "timeout": 300,
+    "backends": ["external", "internal"],
+    "category": "cloud",
+    "params": {
+      "module": {"type": "string", "required": true, "description": "Pacu module to run (e.g. iam__enum_permissions, s3__bucket_finder, ec2__enum)"},
+      "module_args": {"type": "string", "required": false, "default": "", "description": "Module-specific arguments"}
+    }
+  },
+
+  "trivy_scan": {
+    "display_name": "Trivy Container/FS/IaC Scanner",
+    "endpoint": "/api/tools/trivy",
+    "timeout": 300,
+    "backends": ["external", "internal"],
+    "category": "vuln_scan",
+    "params": {
+      "target": {"type": "string", "required": true, "description": "Scan target (image name, directory path, git repo URL)"},
+      "scan_type": {"type": "string", "required": false, "default": "fs", "description": "Scan type (image, fs, repo, config, sbom)"},
+      "severity": {"type": "string", "required": false, "default": "HIGH,CRITICAL", "description": "Severity filter (comma-separated)"},
+      "scanners": {"type": "string", "required": false, "default": "vuln,secret,misconfig", "description": "Scanner types (vuln, secret, misconfig, license)"}
+    }
+  },
+
+  "zaproxy_dast": {
+    "display_name": "ZAP DAST Scanner",
+    "endpoint": "/api/tools/zaproxy",
+    "timeout": 900,
+    "backends": ["external", "internal"],
+    "category": "vuln_scan",
+    "params": {
+      "target": {"type": "string", "required": true, "description": "Target URL to scan"},
+      "scan_type": {"type": "string", "required": false, "default": "baseline", "description": "Scan type (baseline, full, api)"},
+      "api_definition": {"type": "string", "required": false, "default": "", "description": "API definition URL for api scan type (OpenAPI spec)"}
+    }
   }
 }

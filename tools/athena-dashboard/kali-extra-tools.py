@@ -4,7 +4,8 @@ ATHENA Kali Extra Tools Blueprint
 Additional tool endpoints to align Kali External (Antsle) with Kali Internal (Mini-PC).
 Tools: naabu, nuclei, httpx, katana, gau, responder, crackmapexec,
        eyewitness, whatweb, kiterunner, s3scanner, brutus, titus,
-       fingerprintx, kill-all
+       fingerprintx, interactsh, cvemap, dnsx, uncover, chisel,
+       impacket, theHarvester, prowler, pacu, trivy, zaproxy, kill-all
 """
 
 import logging
@@ -360,3 +361,234 @@ def fingerprintx():
     if additional_args:
         cmd += f" {additional_args}"
     return jsonify(execute_command(cmd))
+
+
+# ==================== NEW TOOLS (Feb 2026) ====================
+
+
+@extra_tools_bp.route("/api/tools/interactsh", methods=["POST"])
+def interactsh():
+    """OOB interaction server with interactsh (ProjectDiscovery) — blind SSRF/SQLi/XSS detection."""
+    params = request.json
+    poll_interval = params.get("poll_interval", 5)
+    token = params.get("token", "")
+    additional_args = params.get("additional_args", "")
+    cmd = f"interactsh-client -poll-interval {poll_interval} -json -nc"
+    if token:
+        cmd += f" -token {token}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    timeout = params.get("timeout", 120)
+    return jsonify(execute_command(cmd, timeout=timeout))
+
+
+@extra_tools_bp.route("/api/tools/cvemap", methods=["POST"])
+def cvemap():
+    """CVE intelligence lookup with cvemap (ProjectDiscovery) — EPSS, KEV, PoC status."""
+    params = request.json
+    cve_id = params.get("cve_id", "")
+    keyword = params.get("keyword", "")
+    severity = params.get("severity", "")
+    if not cve_id and not keyword:
+        return jsonify({"error": "cve_id or keyword parameter is required"}), 400
+    additional_args = params.get("additional_args", "")
+    cmd = "cvemap -json"
+    if cve_id:
+        cmd += f" -id {cve_id}"
+    if keyword:
+        cmd += f" -search {keyword}"
+    if severity:
+        cmd += f" -severity {severity}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd))
+
+
+@extra_tools_bp.route("/api/tools/dnsx", methods=["POST"])
+def dnsx():
+    """DNS resolution and enumeration with dnsx (ProjectDiscovery)."""
+    params = request.json
+    target = params.get("target", "")
+    if not target:
+        return jsonify({"error": "Target parameter is required (domain or subdomain)"}), 400
+    record_type = params.get("record_type", "")
+    wordlist = params.get("wordlist", "")
+    additional_args = params.get("additional_args", "")
+    cmd = f"echo {target} | dnsx -json -resp"
+    if record_type:
+        cmd += f" -{record_type}"
+    if wordlist:
+        cmd += f" -w {wordlist}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd))
+
+
+@extra_tools_bp.route("/api/tools/uncover", methods=["POST"])
+def uncover():
+    """Internet scanner aggregation with uncover (ProjectDiscovery) — Shodan/Censys/FOFA."""
+    params = request.json
+    query = params.get("query", "")
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+    engine = params.get("engine", "shodan")
+    limit = params.get("limit", 100)
+    additional_args = params.get("additional_args", "")
+    cmd = f"uncover -q '{query}' -e {engine} -l {limit} -json"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd))
+
+
+@extra_tools_bp.route("/api/tools/chisel", methods=["POST"])
+def chisel():
+    """HTTP tunneling/pivoting with Chisel — reverse port forwarding and SOCKS proxy."""
+    params = request.json
+    mode = params.get("mode", "client")
+    server_addr = params.get("server", "")
+    remote = params.get("remote", "")
+    port = params.get("port", "8888")
+    additional_args = params.get("additional_args", "")
+    if mode == "server":
+        cmd = f"chisel server --port {port} --reverse"
+    elif mode == "client":
+        if not server_addr:
+            return jsonify({"error": "Server address required for client mode"}), 400
+        cmd = f"chisel client {server_addr}"
+        if remote:
+            cmd += f" {remote}"
+        else:
+            cmd += " R:socks"
+    else:
+        return jsonify({"error": "Mode must be 'server' or 'client'"}), 400
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=600))
+
+
+@extra_tools_bp.route("/api/tools/impacket", methods=["POST"])
+def impacket():
+    """Active Directory attacks with Impacket (Fortra) — secretsdump, GetUserSPNs, psexec, etc."""
+    params = request.json
+    script = params.get("script", "")
+    target = params.get("target", "")
+    if not script:
+        return jsonify({"error": "Script parameter is required (e.g. secretsdump, GetUserSPNs, psexec)"}), 400
+    if not target:
+        return jsonify({"error": "Target parameter is required"}), 400
+    username = params.get("username", "")
+    password = params.get("password", "")
+    domain = params.get("domain", "")
+    hashes = params.get("hashes", "")
+    additional_args = params.get("additional_args", "")
+    cmd = f"impacket-{script}"
+    if domain and username and password:
+        cmd += f" {domain}/{username}:{password}@{target}"
+    elif domain and username and hashes:
+        cmd += f" {domain}/{username}@{target} -hashes {hashes}"
+    elif username and password:
+        cmd += f" {username}:{password}@{target}"
+    elif username:
+        cmd += f" {username}@{target}"
+    else:
+        cmd += f" {target}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=300))
+
+
+@extra_tools_bp.route("/api/tools/theharvester", methods=["POST"])
+def theharvester():
+    """OSINT reconnaissance with theHarvester — emails, subdomains, IPs from public sources."""
+    params = request.json
+    domain = params.get("domain", "")
+    if not domain:
+        return jsonify({"error": "Domain parameter is required"}), 400
+    source = params.get("source", "all")
+    limit = params.get("limit", 200)
+    additional_args = params.get("additional_args", "")
+    cmd = f"theHarvester -d {domain} -b {source} -l {limit}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=300))
+
+
+@extra_tools_bp.route("/api/tools/prowler", methods=["POST"])
+def prowler():
+    """Cloud security posture assessment with Prowler — AWS/GCP/Azure/K8s compliance."""
+    params = request.json
+    provider = params.get("provider", "aws")
+    checks = params.get("checks", "")
+    severity = params.get("severity", "")
+    compliance = params.get("compliance", "")
+    additional_args = params.get("additional_args", "")
+    cmd = f"prowler {provider} -M json"
+    if checks:
+        cmd += f" -c {checks}"
+    if severity:
+        cmd += f" --severity {severity}"
+    if compliance:
+        cmd += f" --compliance {compliance}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=1800))
+
+
+@extra_tools_bp.route("/api/tools/pacu", methods=["POST"])
+def pacu():
+    """AWS exploitation with Pacu (Rhino Security Labs) — IAM escalation, data exfil, persistence."""
+    params = request.json
+    module = params.get("module", "")
+    if not module:
+        return jsonify({"error": "Module parameter is required (e.g. iam__enum_permissions, s3__download_bucket)"}), 400
+    module_args = params.get("module_args", "")
+    additional_args = params.get("additional_args", "")
+    cmd = f"pacu --module {module}"
+    if module_args:
+        cmd += f" --module-args '{module_args}'"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=600))
+
+
+@extra_tools_bp.route("/api/tools/trivy", methods=["POST"])
+def trivy():
+    """Container/filesystem/IaC vulnerability scanning with Trivy (Aqua Security)."""
+    params = request.json
+    target = params.get("target", "")
+    scan_type = params.get("scan_type", "fs")
+    if not target:
+        return jsonify({"error": "Target parameter is required (image, path, or repo URL)"}), 400
+    severity = params.get("severity", "CRITICAL,HIGH")
+    output_format = params.get("format", "json")
+    scanners = params.get("scanners", "vuln,secret,misconfig")
+    additional_args = params.get("additional_args", "")
+    cmd = f"trivy {scan_type} {target} --format {output_format} --severity {severity} --scanners {scanners}"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=600))
+
+
+@extra_tools_bp.route("/api/tools/zaproxy", methods=["POST"])
+def zaproxy():
+    """DAST web scanning with ZAP (Checkmarx) — authenticated scanning, spidering, active scan."""
+    params = request.json
+    target = params.get("target", "")
+    if not target:
+        return jsonify({"error": "Target URL parameter is required"}), 400
+    scan_type = params.get("scan_type", "baseline")
+    additional_args = params.get("additional_args", "")
+    if scan_type == "baseline":
+        cmd = f"zaproxy -cmd -quickurl {target} -quickout /tmp/zap-report.json"
+    elif scan_type == "full":
+        cmd = f"zaproxy -cmd -quickurl {target} -quickprogress -quickout /tmp/zap-report.json"
+    elif scan_type == "api":
+        api_def = params.get("api_definition", "")
+        cmd = f"zaproxy -cmd -quickurl {target} -quickout /tmp/zap-report.json"
+        if api_def:
+            cmd += f" -openapiurl {api_def}"
+    else:
+        cmd = f"zaproxy -cmd -quickurl {target} -quickout /tmp/zap-report.json"
+    if additional_args:
+        cmd += f" {additional_args}"
+    return jsonify(execute_command(cmd, timeout=1800))
