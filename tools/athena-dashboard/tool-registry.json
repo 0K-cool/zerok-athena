@@ -542,5 +542,71 @@
       "timestamp": {"type": "string", "required": false, "description": "Execution timestamp"},
       "max_lines": {"type": "integer", "required": false, "default": 200, "description": "Max lines to render"}
     }
+  },
+
+  "_praetorian_comment": "Praetorian tools: credential testing, secret scanning, service fingerprinting",
+
+  "brutus_cred_test": {
+    "display_name": "Brutus Credential Tester",
+    "endpoint": "/api/tools/brutus",
+    "timeout": 600,
+    "backends": ["external", "internal"],
+    "category": "exploit",
+    "hitl_required": true,
+    "params": {
+      "target": {"type": "string", "required": true, "description": "Target host:port (e.g. 192.168.1.10:22)"},
+      "protocol": {"type": "string", "required": true, "description": "Protocol (ssh, rdp, ftp, smb, mysql, postgresql, mssql, mongodb, redis, neo4j, ldap, winrm, http, snmp, etc.)"},
+      "usernames": {"type": "string", "required": false, "default": "root,admin", "description": "Comma-separated usernames"},
+      "passwords": {"type": "string", "required": false, "default": "", "description": "Comma-separated passwords"},
+      "password_file": {"type": "string", "required": false, "default": "", "description": "Password wordlist path on Kali"},
+      "key_file": {"type": "string", "required": false, "default": "", "description": "SSH private key file path"},
+      "spray": {"type": "boolean", "required": false, "default": false, "description": "Password spraying mode (each password across all users)"},
+      "badkeys": {"type": "boolean", "required": false, "default": true, "description": "Test embedded bad SSH keys (Rapid7/Vagrant)"},
+      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra brutus flags (e.g. --sticky-keys for RDP)"}
+    }
+  },
+
+  "brutus_pipeline": {
+    "display_name": "Brutus Auto-Credential Pipeline",
+    "endpoint": "/api/tools/brutus-pipeline",
+    "timeout": 900,
+    "backends": ["external", "internal"],
+    "category": "exploit",
+    "hitl_required": true,
+    "params": {
+      "target": {"type": "string", "required": true, "description": "Target host or CIDR (e.g. 192.168.1.0/24)"},
+      "ports": {"type": "string", "required": false, "default": "", "description": "Port specification for naabu (e.g. 22,80,443,3306)"},
+      "usernames": {"type": "string", "required": false, "default": "root,admin", "description": "Comma-separated usernames"},
+      "passwords": {"type": "string", "required": false, "default": "", "description": "Comma-separated passwords"},
+      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra brutus flags appended to pipeline"}
+    }
+  },
+
+  "titus_secret_scan": {
+    "display_name": "Titus Secret Scanner",
+    "endpoint": "/api/tools/titus",
+    "timeout": 600,
+    "backends": ["external", "internal"],
+    "category": "post_exploit",
+    "params": {
+      "target_path": {"type": "string", "required": true, "description": "Path to scan (directory, file, or git repo on Kali)"},
+      "git": {"type": "boolean", "required": false, "default": false, "description": "Scan git history for secrets"},
+      "validate": {"type": "boolean", "required": false, "default": false, "description": "Validate detected secrets against live APIs"},
+      "extract": {"type": "string", "required": false, "default": "", "description": "Extract from binary files (xlsx,docx,pdf,zip or 'all')"},
+      "format": {"type": "string", "required": false, "default": "json", "description": "Output format (json, sarif, human)"},
+      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra titus flags (e.g. --rules-include, --include-hidden)"}
+    }
+  },
+
+  "fingerprintx_scan": {
+    "display_name": "Fingerprintx Service Fingerprinter",
+    "endpoint": "/api/tools/fingerprintx",
+    "timeout": 120,
+    "backends": ["external", "internal"],
+    "category": "recon",
+    "params": {
+      "target": {"type": "string", "required": true, "description": "Target host:port (e.g. 192.168.1.10:22)"},
+      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra fingerprintx flags"}
+    }
   }
 }
