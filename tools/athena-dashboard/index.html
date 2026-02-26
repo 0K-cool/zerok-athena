@@ -8767,7 +8767,7 @@
         const engRes = await fetch('/api/engagements');
         const engData = await engRes.json();
         const engs = engData.engagements || engData;
-        const active = engs.filter(e => e.phase === 'AI Mode' || (e.status === 'active' && e.phase && e.phase !== '—')).length;
+        const active = engs.filter(e => e.status !== 'completed' && e.status !== 'stopped' && e.status !== 'archived' && (e.phase === 'AI Mode' || (e.status === 'active' && e.phase && e.phase !== '—'))).length;
         kpiEng.textContent = active;
       } catch (e) { /* ignore */ }
     }
