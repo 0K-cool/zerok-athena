@@ -36,6 +36,7 @@ Event Types (client → server):
 import asyncio
 import hashlib
 import json
+import yaml
 import mimetypes
 import os
 import re
@@ -1129,7 +1130,7 @@ class CreateEngagementPayload(BaseModel):
     authorization: str = "manual"  # "documented" (SoW/RoE uploaded) or "manual" (operator assertion)
     evidence_mode: str = "exploitable"  # "exploitable" (only confirmed vulns) or "all" (capture everything)
     scope_doc: str = ""  # Full raw text from uploaded SoW/RoE — injected into agent prompt for scope enforcement
-    client_industry: str = "general"  # healthcare, financial, government, saas, critical_infra, general
+    client_industry: str = "general"  # healthcare, financial, government, saas, critical_infra, ai_ml, eu_regulated, general
 
 
 @app.post("/api/engagements/parse-scope")
@@ -4097,34 +4098,54 @@ def _parse_target_scope(target: str) -> dict:
     return result
 
 
+# ── Compliance Framework Config (loaded once from YAML) ──────────────
+_frameworks_config: dict | None = None
+
+def _load_frameworks_config() -> dict:
+    """Load frameworks.yml config, cached in module-level variable."""
+    global _frameworks_config
+    if _frameworks_config is not None:
+        return _frameworks_config
+    config_path = Path(__file__).parent / "config" / "frameworks.yml"
+    if config_path.exists():
+        with open(config_path, "r") as f:
+            _frameworks_config = yaml.safe_load(f) or {}
+    else:
+        _frameworks_config = {}
+    return _frameworks_config
+
+
 def _get_framework_instructions(client_industry: str) -> str:
-    """Return compliance framework mapping instructions based on client industry."""
-    # Always included
-    base = """REPORT COMPLIANCE FRAMEWORKS (always include):
+    """Return compliance framework mapping instructions based on client industry.
+
+    Reads from config/frameworks.yml. Falls back to minimal defaults if config missing.
+    """
+    cfg = _load_frameworks_config()
+
+    # Base frameworks (always included)
+    base_items = cfg.get("base_frameworks", [])
+    if base_items:
+        lines = ["REPORT COMPLIANCE FRAMEWORKS (always include):"]
+        for fw in base_items:
+            lines.append(f"- {fw['name']}: {fw['instruction']}")
+        base = "\n".join(lines)
+    else:
+        # Fallback if config missing
+        base = """REPORT COMPLIANCE FRAMEWORKS (always include):
 - MITRE ATT&CK: Map each finding to technique IDs (e.g., T1190, T1078)
-- NIST CSF 2.0: Map to functions (Identify, Protect, Detect, Respond, Recover)
+- NIST CSF 2.0: Map to functions (Govern, Identify, Protect, Detect, Respond, Recover)
 - OWASP Top 10 2021: Map web findings to categories (A01-A10)"""
 
-    industry_map = {
-        "healthcare": """
-- HIPAA Security Rule: Map to §164.312 controls (access control, audit, integrity, authentication, transmission)
-- Include HIPAA risk assessment references per §164.308(a)(1)""",
-        "financial": """
-- PCI-DSS 4.0: Map to requirements (Req 1-12, e.g., Req 6.2 for secure development, Req 11.3 for pentesting)
-- Include cardholder data environment (CDE) scope notes""",
-        "government": """
-- NIST SP 800-53 Rev 5: Map to control families (AC, AU, IA, SC, SI, etc.)
-- FISMA: Include impact level assessment (Low/Moderate/High)""",
-        "saas": """
-- SOC 2 Type II: Map to Trust Services Criteria (CC6.1 access, CC7.2 monitoring, CC8.1 change management)
-- Include data residency and multi-tenancy considerations""",
-        "critical_infra": """
-- NIST SP 800-82 Rev 3: Map to ICS/SCADA-specific controls
-- IEC 62443: Include zone/conduit model references where applicable""",
-    }
+    # Industry-specific frameworks
+    industry_cfg = cfg.get("industry_frameworks", {}).get(client_industry, {})
+    industry_fws = industry_cfg.get("frameworks", [])
+    if industry_fws:
+        extra_lines = [f"\nADDITIONAL FRAMEWORKS for {industry_cfg.get('display_name', client_industry)} clients:"]
+        for fw in industry_fws:
+            extra_lines.append(f"- {fw['name']}: {fw['instruction']}")
+        return base + "\n".join(extra_lines)
 
-    extra = industry_map.get(client_industry, "")
-    return base + extra
+    return base
 
 
 def _build_sdk_prompt(eid: str, target: str, backend: str,
