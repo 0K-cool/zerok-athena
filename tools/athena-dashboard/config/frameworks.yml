@@ -1,0 +1,193 @@
+# ATHENA Compliance Framework Configuration
+# Used by _get_framework_instructions() to generate pentest report instructions
+# Last updated: 2026-02-26
+# Source: output/research/2026-02-26-ai-security-frameworks-reference.yaml
+#
+# To update: /security-intel-update frameworks
+# Review cycle: Quarterly (next: 2026-05-26)
+
+metadata:
+  version: "1.0.0"
+  last_updated: "2026-02-26"
+  next_review: "2026-05-26"
+  source: "Vex PAI research — NIST, OWASP, MITRE, ISO, EU, CISA"
+
+# ─────────────────────────────────────────────────
+# BASE FRAMEWORKS — Always included in every report
+# ─────────────────────────────────────────────────
+base_frameworks:
+  - id: "mitre_attack"
+    name: "MITRE ATT&CK"
+    version: "v16"
+    instruction: "Map each finding to technique IDs (e.g., T1190, T1078, T1110)"
+    url: "https://attack.mitre.org/"
+
+  - id: "nist_csf"
+    name: "NIST CSF 2.0"
+    version: "2.0"
+    instruction: "Map to functions (Govern, Identify, Protect, Detect, Respond, Recover)"
+    url: "https://www.nist.gov/cyberframework"
+
+  - id: "owasp_top10"
+    name: "OWASP Top 10 2021"
+    version: "2021"
+    instruction: "Map web findings to categories (A01-A10)"
+    url: "https://owasp.org/www-project-top-10/"
+
+# ─────────────────────────────────────────────────
+# INDUSTRY-SPECIFIC FRAMEWORKS
+# Key = client_industry value from engagement
+# ─────────────────────────────────────────────────
+industry_frameworks:
+
+  healthcare:
+    display_name: "Healthcare (HIPAA)"
+    frameworks:
+      - id: "hipaa"
+        name: "HIPAA Security Rule"
+        version: "2013 (45 CFR Part 164)"
+        instruction: "Map to 164.312 controls (access control, audit, integrity, authentication, transmission). Include risk assessment references per 164.308(a)(1)"
+        url: "https://www.hhs.gov/hipaa/for-professionals/security/index.html"
+      - id: "fda_ai_samd"
+        name: "FDA AI/ML SaMD Framework"
+        version: "2024"
+        instruction: "For AI/ML medical devices, reference FDA PCCP guidance and cybersecurity requirements"
+        url: "https://www.fda.gov/medical-devices/software-medical-device-samd/artificial-intelligence-and-machine-learning-software-medical-device"
+        condition: "Include only if target involves AI/ML medical device software"
+
+  financial:
+    display_name: "Financial (PCI-DSS)"
+    frameworks:
+      - id: "pci_dss"
+        name: "PCI-DSS 4.0"
+        version: "4.0.1"
+        instruction: "Map to requirements (Req 1-12, e.g., Req 6.2 for secure development, Req 11.3 for pentesting). Include cardholder data environment (CDE) scope notes"
+        url: "https://www.pcisecuritystandards.org/"
+      - id: "sr_11_7"
+        name: "Federal Reserve SR 11-7"
+        version: "2011 (current)"
+        instruction: "For AI/ML models in financial services, reference model risk management requirements"
+        url: "https://www.federalreserve.gov/supervisionreg/srletters/sr1107.htm"
+        condition: "Include only if target involves AI/ML models"
+
+  government:
+    display_name: "Government (NIST 800-53, FISMA)"
+    frameworks:
+      - id: "nist_800_53"
+        name: "NIST SP 800-53 Rev 5"
+        version: "Rev 5"
+        instruction: "Map to control families (AC, AU, IA, SC, SI, etc.). Include impact level assessment (Low/Moderate/High)"
+        url: "https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final"
+      - id: "fisma"
+        name: "FISMA"
+        version: "2014"
+        instruction: "Include FISMA impact level assessment and authorization boundary scope"
+      - id: "omb_m_24_10"
+        name: "OMB M-24-10"
+        version: "2024"
+        instruction: "For federal AI systems, reference CAIO governance and AI use case inventory requirements"
+        url: "https://www.whitehouse.gov/wp-content/uploads/2024/03/M-24-10-Advancing-Governance-Innovation-and-Risk-Management-for-Agency-Use-of-Artificial-Intelligence.pdf"
+        condition: "Include only if target involves AI systems"
+
+  saas:
+    display_name: "SaaS / Cloud (SOC 2)"
+    frameworks:
+      - id: "soc2"
+        name: "SOC 2 Type II"
+        version: "2017 (TSP 100)"
+        instruction: "Map to Trust Services Criteria (CC6.1 access, CC7.2 monitoring, CC8.1 change management). Include data residency and multi-tenancy considerations"
+        url: "https://www.aicpa-cima.com/topic/audit-assurance/audit-and-assurance-greater-than-soc-2"
+
+  critical_infra:
+    display_name: "Critical Infrastructure (ICS/SCADA)"
+    frameworks:
+      - id: "nist_800_82"
+        name: "NIST SP 800-82 Rev 3"
+        version: "Rev 3"
+        instruction: "Map to ICS/SCADA-specific controls and security zones"
+        url: "https://csrc.nist.gov/pubs/sp/800/82/r3/final"
+      - id: "iec_62443"
+        name: "IEC 62443"
+        version: "4.2"
+        instruction: "Include zone/conduit model references where applicable"
+
+  ai_ml:
+    display_name: "AI/ML Systems"
+    frameworks:
+      - id: "owasp_llm_top10"
+        name: "OWASP LLM Top 10 2025"
+        version: "2025 (v2.0)"
+        instruction: "Map AI findings to LLM01-LLM10 categories (Prompt Injection, Sensitive Info Disclosure, Supply Chain, Data Poisoning, Improper Output Handling, Excessive Agency, System Prompt Leakage, Vector/Embedding Weaknesses, Misinformation, Unbounded Consumption)"
+        url: "https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/"
+
+      - id: "owasp_agentic_top10"
+        name: "OWASP Agentic Top 10 2026"
+        version: "1.0"
+        instruction: "For agentic AI systems, map to ASI01-ASI10 (Agent Goal Hijack, Tool Misuse, Identity/Privilege Abuse, Supply Chain, Code Execution, Memory Poisoning, Inter-Agent Comms, Cascading Failures, Human-Agent Trust, Rogue Agents)"
+        url: "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+        condition: "Include if target uses autonomous AI agents"
+
+      - id: "mitre_atlas"
+        name: "MITRE ATLAS"
+        version: "v5.3.0"
+        instruction: "Map AI-specific findings to ATLAS technique IDs (e.g., AML.T0051 Prompt Injection, AML.T0047 Supply Chain, AML.T0048 Adversarial Example, AML.T0064 Data Poisoning). Use alongside ATT&CK for hybrid coverage"
+        url: "https://atlas.mitre.org/"
+
+      - id: "nist_ai_rmf"
+        name: "NIST AI RMF 1.0"
+        version: "1.0 (AI 100-1)"
+        instruction: "Map to GOVERN/MAP/MEASURE/MANAGE functions. Focus on MEASURE 2.6 (adversarial testing) and MEASURE 2.7 (security evaluation)"
+        url: "https://airc.nist.gov/Home"
+
+      - id: "nist_ai_600_1"
+        name: "NIST AI 600-1 (GenAI Profile)"
+        version: "1.0"
+        instruction: "For generative AI, reference GenAI-specific risks: data poisoning, prompt injection, confabulation, information security"
+        url: "https://doi.org/10.6028/NIST.AI.600-1"
+        condition: "Include if target is a generative AI system"
+
+      - id: "nist_ai_100_2"
+        name: "NIST AI 100-2 (Adversarial ML Taxonomy)"
+        version: "E2023"
+        instruction: "Classify AI attacks using standardized taxonomy: evasion, poisoning, privacy, and abuse attacks"
+        url: "https://doi.org/10.6028/NIST.AI.100-2e2023"
+
+      - id: "iso_42001"
+        name: "ISO/IEC 42001:2023"
+        version: "Edition 1"
+        instruction: "Reference AI Management System requirements: Clause 6 (risk planning), Clause 8.4 (impact assessment), Annex A (AI-specific controls)"
+        url: "https://www.iso.org/standard/81230.html"
+
+      - id: "eu_ai_act"
+        name: "EU AI Act"
+        version: "Regulation 2024/1689"
+        instruction: "For EU-market AI systems, reference Article 9 (risk management), Article 15 (cybersecurity), Article 14 (human oversight). Note risk tier classification (high-risk enforcement August 2026)"
+        url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202401689"
+        condition: "Include if target operates in EU market or processes EU data"
+
+      - id: "nist_sp_800_218a"
+        name: "NIST SP 800-218A (AI SSDF)"
+        version: "1.0"
+        instruction: "For AI software development, reference secure development practices: PW.1.1 (security requirements), PO.3.2 (training data supply chain), RV.1.3 (AI-specific vulnerabilities)"
+        url: "https://doi.org/10.6028/NIST.SP.800-218A"
+        condition: "Include if assessing AI development practices"
+
+      - id: "cisa_ncsc_ai"
+        name: "CISA/NCSC AI Security Guidelines"
+        version: "1.0"
+        instruction: "Reference the 4 lifecycle phases: Secure Design, Development, Deployment, and Operation/Maintenance"
+        url: "https://www.ncsc.gov.uk/collection/guidelines-secure-ai-system-development"
+
+  eu_regulated:
+    display_name: "EU Regulated (AI Act + GDPR)"
+    frameworks:
+      - id: "eu_ai_act_full"
+        name: "EU AI Act"
+        version: "Regulation 2024/1689"
+        instruction: "Classify AI system risk tier (Unacceptable/High/Limited/Minimal). For high-risk: Article 9 (risk management), Article 10 (data governance), Article 12 (logging), Article 14 (human oversight), Article 15 (cybersecurity). Note penalty tiers (up to EUR 35M or 7% turnover)"
+        url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202401689"
+      - id: "enisa_ai"
+        name: "ENISA AI Cybersecurity Guidelines"
+        version: "2023"
+        instruction: "Reference ENISA AI cybersecurity and standardisation guidance for EU compliance context"
+        url: "https://www.enisa.europa.eu/publications/cybersecurity-of-ai-and-standardisation"
