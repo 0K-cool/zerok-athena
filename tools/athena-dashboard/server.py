@@ -4561,10 +4561,16 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
                 file_size = filepath.stat().st_size
                 file_hash = hashlib.sha256(output_text.encode()).hexdigest()
 
-                # Create Artifact node in Neo4j
+                # Compute correct relative path from ATHENA project root
+                athena_dir = Path(__file__).parent.parent.parent
+                try:
+                    rel_path = str(filepath.relative_to(athena_dir))
+                except ValueError:
+                    rel_path = str(filepath)
+
+                # Create Artifact node in Neo4j and link to Engagement + Findings
                 if neo4j_available and neo4j_driver:
                     artifact_id = f"art-{uuid.uuid4().hex[:8]}"
-                    rel_path = f"08-evidence/command-output/{filename}"
                     with neo4j_driver.session() as sess:
                         sess.run("""
                             CREATE (a:Artifact {
@@ -4578,6 +4584,13 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
                             WITH a
                             MATCH (e:Engagement {id: $eid})
                             MERGE (e)-[:HAS_EVIDENCE]->(a)
+                            WITH a
+                            OPTIONAL MATCH (f:Finding {engagement_id: $eid})
+                            WHERE NOT exists((f)-[:HAS_ARTIFACT]->(:Artifact {type: 'command_output', caption: $caption}))
+                            WITH a, f ORDER BY f.created_at DESC LIMIT 1
+                            FOREACH (_ IN CASE WHEN f IS NOT NULL THEN [1] ELSE [] END |
+                                MERGE (f)-[:HAS_ARTIFACT]->(a)
+                            )
                             RETURN a
                         """, {
                             "aid": artifact_id, "eid": eid,

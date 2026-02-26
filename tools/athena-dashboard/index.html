@@ -10268,11 +10268,11 @@
       const isImage = art.type === 'screenshot';
       let content = '';
       if (isImage) {
-        content = `<div class="artifact-thumbnail" onclick="showArtifactFullsize('${art.id}')">
+        content = `<div class="artifact-thumbnail" onclick="showArtifactFullsize('${art.id}', '${art.type || "command_output"}')">
             <img src="/api/artifacts/${art.id}/thumbnail" alt="${(art.caption || 'Screenshot').replace(/"/g, '&quot;')}" loading="lazy" style="width: 100%; border-radius: 4px; cursor: pointer; aspect-ratio: 16/10; object-fit: cover;">
         </div>`;
       } else {
-        content = `<div class="artifact-preview" onclick="showArtifactFullsize('${art.id}')" style="cursor: pointer;">
+        content = `<div class="artifact-preview" onclick="showArtifactFullsize('${art.id}', '${art.type || "command_output"}')" style="cursor: pointer;">
             <span style="font-size: 2em;">${icon}</span>
             <div style="color: var(--zerok-text-muted); font-size: 0.8em; margin-top: 4px;">Click to view</div>
         </div>`;
@@ -10320,21 +10320,51 @@
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    function showArtifactFullsize(artifactId) {
+    async function showArtifactFullsize(artifactId, artifactType) {
       const existing = document.getElementById('artifact-overlay');
       if (existing) existing.remove();
       const overlay = document.createElement('div');
       overlay.id = 'artifact-overlay';
       overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:10000;display:flex;align-items:center;justify-content:center;cursor:pointer;';
       overlay.onclick = () => overlay.remove();
-      const img = document.createElement('img');
-      img.src = `/api/artifacts/${artifactId}/file`;
-      img.style.cssText = 'max-width:90vw;max-height:90vh;border-radius:8px;box-shadow:0 0 40px rgba(0,0,0,0.5);';
-      img.onclick = (e) => e.stopPropagation();
-      overlay.appendChild(img);
-      document.body.appendChild(overlay);
       const handler = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', handler); } };
       document.addEventListener('keydown', handler);
+
+      if (artifactType === 'screenshot') {
+        // Image: render as <img> with lightbox
+        const img = document.createElement('img');
+        img.src = `/api/artifacts/${artifactId}/file`;
+        img.style.cssText = 'max-width:90vw;max-height:90vh;border-radius:8px;box-shadow:0 0 40px rgba(0,0,0,0.5);';
+        img.onclick = (e) => e.stopPropagation();
+        overlay.appendChild(img);
+      } else {
+        // Text-based: fetch content and display in scrollable pre block
+        const container = document.createElement('div');
+        container.style.cssText = 'max-width:85vw;max-height:85vh;overflow:auto;background:var(--zerok-surface,#1a1a1a);border:1px solid var(--zerok-border,#333);border-radius:8px;box-shadow:0 0 40px rgba(0,0,0,0.5);padding:0;';
+        container.onclick = (e) => e.stopPropagation();
+        const header = document.createElement('div');
+        header.style.cssText = 'padding:12px 16px;border-bottom:1px solid var(--zerok-border,#333);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--zerok-surface,#1a1a1a);z-index:1;';
+        header.innerHTML = `<span style="color:var(--zerok-text-muted);font-size:0.85em;">${artifactType.replace('_',' ')} &mdash; ${artifactId}</span><span style="color:var(--zerok-text-dim);font-size:0.75em;">ESC to close</span>`;
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'margin:0;padding:16px;font-size:12px;line-height:1.5;color:var(--zerok-text,#e0e0e0);white-space:pre-wrap;word-wrap:break-word;font-family:"SF Mono","Fira Code",monospace;';
+        pre.textContent = 'Loading...';
+        container.appendChild(header);
+        container.appendChild(pre);
+        overlay.appendChild(container);
+        try {
+          const resp = await fetch(`/api/artifacts/${artifactId}/file`);
+          if (resp.ok) {
+            pre.textContent = await resp.text();
+          } else {
+            pre.textContent = `Error loading artifact: ${resp.status} ${resp.statusText}`;
+            pre.style.color = 'var(--zerok-critical, #ef4444)';
+          }
+        } catch (err) {
+          pre.textContent = `Failed to load: ${err.message}`;
+          pre.style.color = 'var(--zerok-critical, #ef4444)';
+        }
+      }
+      document.body.appendChild(overlay);
     }
 
     function filterFindings(severity) {
@@ -10426,7 +10456,7 @@
           : `<div style="display:flex;align-items:center;justify-content:center;min-height:120px;background:var(--zerok-bg);border-radius:4px;font-size:2em;">
               ${{screenshot:'📷',http_pair:'📋',command_output:'🖥️',tool_log:'📄',response_diff:'🔄'}[art.type]||'📎'}
             </div>`;
-        return `<div class="gallery-card" onclick="showArtifactFullsize('${art.id}')" style="cursor:pointer;position:relative;">
+        return `<div class="gallery-card" onclick="showArtifactFullsize('${art.id}', '${art.type || "command_output"}')" style="cursor:pointer;position:relative;">
           ${preview}
           <div style="padding:8px 0;">
             <div style="display:flex;justify-content:space-between;align-items:center;">
