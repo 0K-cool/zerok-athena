@@ -773,7 +773,8 @@
       flex: 1;
       height: 0;                    /* Forces % children to resolve against flex height */
       padding: var(--zerok-content-padding);
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: auto;             /* BUG-030: Scroll when content exceeds viewport (Findings, Scans, etc.) */
     }
 
     /* Minimal theme: Uniform frame, left tight to sidebar */
@@ -3065,6 +3066,11 @@
     .report-type-badge.full {
       background: color-mix(in srgb, var(--zerok-text) 15%, transparent);
       color: var(--zerok-text);
+    }
+
+    .report-type-badge.pentest {
+      background: color-mix(in srgb, var(--zerok-high) 15%, transparent);
+      color: var(--zerok-high);
     }
 
     [data-report-status="generating"].active {
@@ -8083,8 +8089,10 @@
       if (!name) return '';
       var parts = name.split('__');
       var short = parts.length >= 3 ? parts.slice(2).join('__') : name;
-      if (short === 'execute_command' && meta && meta.command) {
-        return meta.command;
+      if (short === 'execute_command' && meta) {
+        // ENH-001: Check meta.command (server-extracted) or meta.input.command (raw SDK metadata)
+        var cmd = meta.command || (meta.input && meta.input.command);
+        if (cmd) return cmd.trim().split(/\s/)[0].split('/').pop();
       }
       return short;
     }
@@ -8609,7 +8617,8 @@
       // Load engagements list, then populate dashboard from API
       loadEngagements().then(() => loadDashboardFromAPI());
       // Pre-fetch reports count for sidebar badge
-      fetch('/api/reports').then(r => r.json()).then(reports => {
+      const rptUrl = currentEngagementId ? `/api/reports?engagement=${currentEngagementId}` : '/api/reports';
+      fetch(rptUrl).then(r => r.json()).then(reports => {
         if (reports.length > 0) {
           const badge = document.getElementById('nav-badge-reports');
           if (badge) { badge.textContent = reports.length; badge.style.display = ''; }
@@ -10204,10 +10213,12 @@
         details.classList.remove('expanded');
         expandedFindingId = null;
       } else {
-        // Collapse previous
+        // Collapse previous (BUG-029: null guard — previous finding may have been filtered out)
         if (expandedFindingId) {
-          document.querySelector(`.finding-details-row[data-finding-id="${expandedFindingId}"]`).style.display = 'none';
-          document.getElementById(`details-${expandedFindingId}`).classList.remove('expanded');
+          const prevRow = document.querySelector(`.finding-details-row[data-finding-id="${expandedFindingId}"]`);
+          const prevDetails = document.getElementById(`details-${expandedFindingId}`);
+          if (prevRow) prevRow.style.display = 'none';
+          if (prevDetails) prevDetails.classList.remove('expanded');
         }
 
         // Expand new
@@ -10335,8 +10346,10 @@
         }
       });
 
-      // Filter findings
-      const filtered = severity === 'all' ? allFindings : allFindings.filter(f => f.severity === severity);
+      // BUG-029: Reset expanded finding when filtering (prevents stale reference crash)
+      expandedFindingId = null;
+      // Filter findings (case-insensitive — API returns "Critical", chips send "critical")
+      const filtered = severity === 'all' ? allFindings : allFindings.filter(f => (f.severity || '').toLowerCase() === severity);
       renderFindings(filtered);
     }
 
@@ -10702,7 +10715,8 @@
 
     async function loadReports() {
       try {
-        const res = await fetch('/api/reports');
+        const url = currentEngagementId ? `/api/reports?engagement=${currentEngagementId}` : '/api/reports';
+        const res = await fetch(url);
         allReports = await res.json();
 
         // Update summary counts
@@ -10847,7 +10861,13 @@
     }
 
     function downloadReport(reportId) {
-      window.open(`/api/reports/${encodeURIComponent(reportId)}/download`, '_blank');
+      // Use anchor with download attribute to force file save (not open in tab)
+      const a = document.createElement('a');
+      a.href = `/api/reports/${encodeURIComponent(reportId)}/download`;
+      a.download = '';  // Browser uses Content-Disposition filename
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
 
     async function markReportFinal(reportId) {

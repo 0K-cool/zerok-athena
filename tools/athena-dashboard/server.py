@@ -2984,9 +2984,9 @@ def _find_report_dir(athena_dir: Path, report_id: str) -> tuple[Path | None, Pat
 
 
 @app.get("/api/reports")
-async def get_reports(engagement: Optional[str] = None, include_archived: bool = False):
+async def get_reports(engagement: Optional[str] = None, include_archived: bool = False, all_engagements: bool = False):
     """Get reports by scanning engagement 09-reporting/ directories and in-memory state."""
-    eid = engagement or state.active_engagement_id
+    eid = None if all_engagements else (engagement or state.active_engagement_id)
     # Filter in-memory reports by engagement (consistent with DELETE filtering)
     if eid:
         reports = [r for r in state._reports if r.get("engagement_id") == eid]
@@ -2994,50 +2994,101 @@ async def get_reports(engagement: Optional[str] = None, include_archived: bool =
         reports = list(state._reports)
 
     # Also scan filesystem for report files in engagement directories
+    # BUG-028: Scan multiple locations — AI may write reports at engagement root
+    # or in 09-reporting/, and engagement dirs may be in active/ or engagements/ root
+    _eid_name_cache: dict[str, str] = {}  # Cache engagement names for directory matching
     athena_dir = Path(__file__).parent.parent.parent  # ATHENA project root
-    engagements_dir = athena_dir / "engagements" / "active"
-    if engagements_dir.exists():
-        for eng_dir in engagements_dir.iterdir():
+    engagements_base = athena_dir / "engagements"
+    skip_dirs = {"active", "archive", "archived", "templates"}
+    scan_roots = []
+    # Scan engagements/active/ (primary)
+    active_dir = engagements_base / "active"
+    if active_dir.exists():
+        scan_roots.append(active_dir)
+    # Scan engagements/ root for engagement dirs created by AI agents
+    if engagements_base.exists():
+        scan_roots.append(engagements_base)
+
+    report_suffixes = (".md", ".pdf", ".docx", ".html")
+    seen_file_ids = {r.get("id") for r in reports}
+
+    for scan_root in scan_roots:
+        for eng_dir in scan_root.iterdir():
             if not eng_dir.is_dir():
                 continue
+            # Skip non-engagement directories at engagements/ root
+            if scan_root == engagements_base and eng_dir.name in skip_dirs:
+                continue
             # Match engagement ID if provided (dir name starts with eid)
+            # Also match by engagement name/target keywords for AI-created dirs
             if eid and not eng_dir.name.startswith(eid):
-                continue
+                # Check if this dir was created by the AI for the active engagement
+                # by matching engagement name keywords in the directory name
+                if not _eid_name_cache.get(eid):
+                    # Try in-memory state first, then Neo4j
+                    eng_obj = next((e for e in state.engagements if getattr(e, 'id', None) == eid), None)
+                    if eng_obj:
+                        _eid_name_cache[eid] = (getattr(eng_obj, 'name', '') or '').lower()
+                    elif NEO4J_AVAILABLE:
+                        try:
+                            with neo4j_driver.session() as session:
+                                rec = session.run("MATCH (e:Engagement {id: $eid}) RETURN e.name AS name", eid=eid).single()
+                                _eid_name_cache[eid] = (rec["name"] or "").lower() if rec else ""
+                        except Exception:
+                            _eid_name_cache[eid] = ""
+                    else:
+                        _eid_name_cache[eid] = ""
+                eng_target_name = _eid_name_cache.get(eid, "")
+                dir_name_lower = eng_dir.name.lower()
+                # Match any word from engagement name (e.g., "acme gym" → "gym" matches "gymwebapp")
+                name_words = [w for w in eng_target_name.split() if len(w) >= 3]
+                if not any(w in dir_name_lower for w in name_words):
+                    continue
+            parts = eng_dir.name.split("_")
+            eng_name = parts[-1] if len(parts) >= 3 else eng_dir.name
+
+            # Collect report files from both 09-reporting/ and engagement root
+            report_files = []
             reporting_dir = eng_dir / "09-reporting"
-            if not reporting_dir.exists():
-                continue
-            # Load persisted metadata for this reporting directory
-            meta = _read_report_meta(reporting_dir)
-            for report_file in reporting_dir.iterdir():
-                if report_file.is_file() and report_file.suffix in (".md", ".pdf", ".docx", ".html"):
-                    file_id = f"file-{report_file.stem}"
-                    # Skip if already registered via POST
-                    if any(r.get("id") == file_id for r in reports):
-                        continue
-                    stat = report_file.stat()
-                    # Derive engagement name from directory (e.g. eng-46fdb6_2026-02-24_WebApp → WebApp)
-                    parts = eng_dir.name.split("_")
-                    eng_name = parts[-1] if len(parts) >= 3 else eng_dir.name
-                    # Apply persisted metadata (status, etc.)
-                    saved = meta.get(file_id, {})
-                    reports.append({
-                        "id": file_id,
-                        "title": saved.get("title") or report_file.stem.replace("-", " ").replace("_", " ").title(),
-                        "type": saved.get("type") or (
-                            "technical" if "technical" in report_file.stem.lower() else
-                            "executive" if "executive" in report_file.stem.lower() else
-                            "remediation" if "remediation" in report_file.stem.lower() else "pentest"),
-                        "status": saved.get("status", "draft"),
-                        "pages": saved.get("pages"),
-                        "findings_included": saved.get("findings_included"),
-                        "engagement_id": eid or parts[0],
-                        "engagement_name": eng_name,
-                        "author": saved.get("author", "AI Generated"),
-                        "format": report_file.suffix.lstrip(".").upper(),
-                        "file_path": str(report_file.relative_to(athena_dir)),
-                        "updated_at": saved.get("updated_at") or time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_mtime)),
-                        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_ctime)),
-                    })
+            if reporting_dir.exists():
+                meta = _read_report_meta(reporting_dir)
+                for f in reporting_dir.iterdir():
+                    if f.is_file() and f.suffix in report_suffixes:
+                        report_files.append((f, meta))
+            # BUG-028: Also scan engagement root for report files (AI writes here)
+            root_meta = _read_report_meta(eng_dir)
+            for f in eng_dir.iterdir():
+                if f.is_file() and f.suffix in report_suffixes:
+                    # Skip non-report files (README.md, notes, etc.)
+                    stem_lower = f.stem.lower()
+                    if any(kw in stem_lower for kw in ("report", "pentest", "executive", "remediation", "technical", "summary")):
+                        report_files.append((f, root_meta))
+
+            for report_file, meta in report_files:
+                file_id = f"file-{report_file.stem}"
+                if file_id in seen_file_ids:
+                    continue
+                seen_file_ids.add(file_id)
+                stat = report_file.stat()
+                saved = meta.get(file_id, {})
+                reports.append({
+                    "id": file_id,
+                    "title": saved.get("title") or report_file.stem.replace("-", " ").replace("_", " ").title(),
+                    "type": saved.get("type") or (
+                        "technical" if "technical" in report_file.stem.lower() else
+                        "executive" if "executive" in report_file.stem.lower() else
+                        "remediation" if "remediation" in report_file.stem.lower() else "pentest"),
+                    "status": saved.get("status", "draft"),
+                    "pages": saved.get("pages"),
+                    "findings_included": saved.get("findings_included"),
+                    "engagement_id": eid or parts[0],
+                    "engagement_name": eng_name,
+                    "author": saved.get("author", "AI Generated"),
+                    "format": report_file.suffix.lstrip(".").upper(),
+                    "file_path": str(report_file.relative_to(athena_dir)),
+                    "updated_at": saved.get("updated_at") or time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_mtime)),
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_ctime)),
+                })
 
     # Filter out archived reports unless explicitly requested
     if not include_archived:
@@ -3082,27 +3133,8 @@ async def create_report(payload: dict):
 async def download_report(report_id: str):
     """Download a report file by ID."""
     athena_dir = Path(__file__).parent.parent.parent
-    # Check in-memory reports first, then scan filesystem
-    all_reports = list(state._reports)
-    # Also scan filesystem
-    engagements_dir = athena_dir / "engagements" / "active"
-    if engagements_dir.exists():
-        for eng_dir in engagements_dir.iterdir():
-            if not eng_dir.is_dir():
-                continue
-            reporting_dir = eng_dir / "09-reporting"
-            if not reporting_dir.exists():
-                continue
-            for report_file in reporting_dir.iterdir():
-                if report_file.is_file() and report_file.suffix in (".md", ".pdf", ".docx", ".html"):
-                    file_id = f"file-{report_file.stem}"
-                    if file_id == report_id:
-                        return FileResponse(
-                            str(report_file),
-                            filename=report_file.name,
-                            media_type="application/octet-stream",
-                        )
-    # Check in-memory reports with file_path
+    # BUG-028: Reuse get_reports() which already scans all locations
+    all_reports = await get_reports(all_engagements=True, include_archived=True)
     for r in all_reports:
         if r.get("id") == report_id and r.get("file_path"):
             fp = athena_dir / r["file_path"]
@@ -4372,6 +4404,13 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
     elif event_type == "tool_start":
         await state.update_agent_status(agent_code, AgentStatus.RUNNING,
             metadata.get("tool", ""))
+        # ENH-001: Extract actual command name for execute_command tools
+        tool_name = metadata.get("tool", "")
+        if "execute_command" in tool_name:
+            tool_input = metadata.get("input", {})
+            cmd = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+            if cmd:
+                metadata["command"] = cmd.strip().split()[0].split("/")[-1]
 
         # Also emit phase_update on tool_start for coverage tracking
         if agent_code in _AGENT_TO_PHASE:
