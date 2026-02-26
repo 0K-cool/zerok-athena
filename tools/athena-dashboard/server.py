@@ -4793,6 +4793,15 @@ async def cleanup_orphan_scans(eid: str):
         if scan.get("status") == "running" and scan.get("engagement_id") == eid:
             scan["status"] = "aborted"
             scan["completed_at"] = now_iso
+            # BUG-021: Calculate duration from started_at to now
+            started = scan.get("started_at")
+            if started and scan.get("duration_s", 0) == 0:
+                try:
+                    dt_start = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                    dt_end = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
+                    scan["duration_s"] = max(0, int((dt_end - dt_start).total_seconds()))
+                except Exception:
+                    pass
             cleaned.append(scan["id"])
             await state.broadcast({
                 "type": "scan_complete",
@@ -4807,7 +4816,10 @@ async def cleanup_orphan_scans(eid: str):
                 result = session.run("""
                     MATCH (s:Scan {engagement_id: $eid})
                     WHERE s.status = 'running'
-                    SET s.status = 'aborted', s.completed_at = $now
+                    SET s.status = 'aborted', s.completed_at = $now,
+                        s.duration_s = CASE WHEN s.started_at IS NOT NULL
+                            THEN duration.between(datetime(s.started_at), datetime($now)).seconds
+                            ELSE 0 END
                     RETURN s.id AS id
                 """, eid=eid, now=now_iso)
                 for record in result:

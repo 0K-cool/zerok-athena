@@ -8808,6 +8808,12 @@
         const findings = (await res.json()) || [];
         _loadedFindingsCount = findings.length;
 
+        // BUG-024: Keep KPI in sync with findings list from API
+        const kpiFindingsEl = document.getElementById('kpi-findings');
+        if (kpiFindingsEl && findings.length > 0) kpiFindingsEl.textContent = findings.length;
+        const donutTotalEl = document.getElementById('donut-total');
+        if (donutTotalEl && findings.length > 0) donutTotalEl.textContent = findings.length;
+
         const recentBody = document.getElementById('recent-findings-body');
         const sevColors = {
           critical: 'var(--zerok-critical)', high: 'var(--zerok-high)',
@@ -10032,9 +10038,12 @@
         const res = await fetch(`/api/engagements/${currentEngagementId}/findings`);
         allFindings = await res.json();
 
-        // Update summary counts
+        // Update summary counts (BUG-025: severity from API may be capitalized)
         const counts = { critical: 0, high: 0, medium: 0, low: 0 };
-        allFindings.forEach(f => counts[f.severity]++);
+        allFindings.forEach(f => {
+          const sev = (f.severity || '').toLowerCase();
+          if (counts.hasOwnProperty(sev)) counts[sev]++;
+        });
 
         document.getElementById('findings-critical-count').textContent = counts.critical;
         document.getElementById('findings-high-count').textContent = counts.high;
