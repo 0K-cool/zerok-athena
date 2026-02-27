@@ -3601,6 +3601,63 @@
       border: 1px solid color-mix(in srgb, var(--zerok-primary) 30%, transparent);
     }
 
+    /* F2: Bilateral message icon */
+    .timeline-icon.message {
+      background: color-mix(in srgb, var(--zerok-strategy) 25%, transparent);
+      color: var(--zerok-strategy);
+      border: 1px solid color-mix(in srgb, var(--zerok-strategy) 30%, transparent);
+    }
+
+    /* F2: Bilateral route display */
+    .bilateral-route {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .bilateral-agent {
+      font-weight: 600;
+      font-size: 11px;
+      color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 12%, transparent);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .bilateral-arrow {
+      color: var(--zerok-strategy);
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    .bilateral-type {
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .bilateral-type.zerok-critical {
+      color: var(--zerok-critical);
+      background: color-mix(in srgb, var(--zerok-critical) 15%, transparent);
+    }
+
+    .bilateral-type.zerok-high {
+      color: var(--zerok-high);
+      background: color-mix(in srgb, var(--zerok-high) 15%, transparent);
+    }
+
+    .bilateral-type.zerok-medium {
+      color: var(--zerok-medium);
+      background: color-mix(in srgb, var(--zerok-medium) 15%, transparent);
+    }
+
+    .bilateral-type.zerok-low {
+      color: var(--zerok-low);
+      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+    }
+
     .timeline-content {
       flex: 1;
       min-width: 0;
@@ -6590,6 +6647,7 @@
       strategy_thinking:  { icon: '?', cls: 'thinking', label: 'Strategy' },
       strategy_decision:  { icon: '*', cls: 'system',   label: 'Strategy' },
       strategy_redirect:  { icon: '>', cls: 'tool',     label: 'Redirect' },
+      agent_message:      { icon: '→', cls: 'message',  label: 'Message' },
     };
 
     let ws = null;
@@ -6891,6 +6949,23 @@
       if (type === 'strategy_redirect') {
         bumpAgentCount('ST');
         addTimelineEvent(msg);
+        return;
+      }
+
+      // F2: Bilateral agent-to-agent message
+      if (type === 'agent_message') {
+        const meta = msg.metadata || {};
+        const from = meta.from_agent || msg.agent;
+        const to = meta.to_agent || '?';
+        const msgType = meta.msg_type || 'message';
+        const priority = meta.priority || 'medium';
+        // Light up both sender and recipient tiles
+        updateAgentStatusTile(from, 'running');
+        updateAgentChip(from, 'running');
+        bumpAgentCount(from);
+        bumpAgentCount(to);
+        // Render as bilateral arrow in timeline
+        addBilateralMessage(msg, from, to, msgType, priority);
         return;
       }
 
@@ -7522,6 +7597,45 @@
             '<span class="timeline-time">' + time + '</span>' +
           '</div>' +
           '<div class="timeline-text">' + contentHtml + '</div>' +
+        '</div>';
+
+      timeline.appendChild(el);
+      smartScroll(timeline);
+    }
+
+    // ── F2: Bilateral Message Rendering ──
+    function addBilateralMessage(msg, from, to, msgType, priority) {
+      const timeline = document.getElementById('aiTimeline');
+      const empty = document.getElementById('aiEmpty');
+      if (empty) empty.style.display = 'none';
+
+      const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+      const fromName = AGENT_NAMES[from] || from;
+      const toName = AGENT_NAMES[to] || to;
+
+      const priorityCls = priority === 'critical' ? 'zerok-critical' :
+                          priority === 'high' ? 'zerok-high' :
+                          priority === 'medium' ? 'zerok-medium' : 'zerok-low';
+
+      const el = document.createElement('div');
+      el.className = 'timeline-event bilateral-msg';
+      el.setAttribute('data-agent', from);
+      if (activeChipFilter && from !== activeChipFilter && to !== activeChipFilter) {
+        el.classList.add('filtered-out');
+      }
+      el.innerHTML =
+        '<div class="timeline-icon message">→</div>' +
+        '<div class="timeline-content">' +
+          '<div class="timeline-header">' +
+            '<span class="bilateral-route">' +
+              '<span class="bilateral-agent">' + escHtml(from) + '</span>' +
+              '<span class="bilateral-arrow">→</span>' +
+              '<span class="bilateral-agent">' + escHtml(to) + '</span>' +
+            '</span>' +
+            '<span class="bilateral-type ' + priorityCls + '">' + escHtml(msgType) + '</span>' +
+            '<span class="timeline-time">' + time + '</span>' +
+          '</div>' +
+          '<div class="timeline-text">' + renderMarkdown(msg.content || '') + '</div>' +
         '</div>';
 
       timeline.appendChild(el);

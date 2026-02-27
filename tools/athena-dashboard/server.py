@@ -757,8 +757,162 @@ async def post_event(payload: EventPayload):
         await state.update_agent_status("ST", AgentStatus.RUNNING, payload.content)
     elif payload.type == "strategy_decision":
         await state.update_agent_status("ST", AgentStatus.COMPLETED, payload.content)
+    # Phase F2: Bilateral message events (posted via /api/messages, but also renderable here)
+    elif payload.type == "agent_message":
+        await state.update_agent_status(payload.agent, AgentStatus.RUNNING, payload.content)
 
     return {"ok": True, "event_id": event.id}
+
+
+# ── F2: Bilateral Agent Communication ──────────────────────────
+
+class AgentMessagePayload(BaseModel):
+    """Bilateral message between agents (F2)."""
+    from_agent: str
+    to_agent: str
+    msg_type: str  # discovery, vulnerability, credential, verification, strategy, pivot
+    priority: str = "medium"  # low, medium, high, critical
+    content: str
+    neo4j_ref: Optional[str] = None
+    metadata: Optional[dict] = None
+
+# Communication rules: who can message whom and for what
+AGENT_COMM_RULES: dict[str, list[str]] = {
+    # Event → allowed recipients
+    "discovery":      ["CV", "WV", "AP", "ST"],      # Recon agents → vuln + strategy
+    "vulnerability":  ["EX", "EC", "ST"],             # Vuln agents → exploit + strategy
+    "credential":     ["PE", "LM", "ST"],             # Exploit → post-exploit + strategy
+    "verification":   ["ST", "RP"],                   # Verify → strategy + report
+    "strategy":       list(AGENT_NAMES.keys()),       # Strategy → anyone
+    "pivot":          ["PO", "AR", "WV", "ST"],       # PostExploit → recon + strategy
+}
+
+# Rate limit: max messages per agent per engagement phase
+AGENT_MSG_RATE_LIMIT = 5
+_agent_msg_counts: dict[str, int] = {}  # "agent:phase" → count
+
+
+@app.post("/api/messages")
+async def post_agent_message(payload: AgentMessagePayload):
+    """
+    Bilateral agent-to-agent message (F2).
+
+    Agents send direct messages to each other when discoveries change the
+    attack surface. Replaces hub-and-spoke with event-driven mesh.
+
+    Example:
+        curl -X POST http://localhost:8080/api/messages \\
+          -H 'Content-Type: application/json' \\
+          -d '{"from_agent":"AR","to_agent":"WV","msg_type":"discovery",
+               "priority":"high","content":"Internal API at :8443/api/v2 — no auth required",
+               "neo4j_ref":"svc-abc123"}'
+    """
+    # Validate agents exist
+    if payload.from_agent not in AGENT_NAMES:
+        return JSONResponse(status_code=400, content={"error": f"Unknown sender: {payload.from_agent}"})
+    if payload.to_agent not in AGENT_NAMES:
+        return JSONResponse(status_code=400, content={"error": f"Unknown recipient: {payload.to_agent}"})
+    if payload.from_agent == payload.to_agent:
+        return JSONResponse(status_code=400, content={"error": "Agent cannot message itself"})
+
+    # Validate message type
+    if payload.msg_type not in AGENT_COMM_RULES:
+        return JSONResponse(status_code=400, content={
+            "error": f"Unknown msg_type: {payload.msg_type}. Valid: {list(AGENT_COMM_RULES.keys())}"
+        })
+
+    # Validate communication rule (recipient allowed for this message type)
+    allowed = AGENT_COMM_RULES[payload.msg_type]
+    if payload.to_agent not in allowed:
+        return JSONResponse(status_code=400, content={
+            "error": f"{payload.from_agent} cannot send '{payload.msg_type}' to {payload.to_agent}. "
+                     f"Allowed recipients: {allowed}"
+        })
+
+    # Rate limit per agent per phase
+    current_phase = state.engagement_phase if hasattr(state, 'engagement_phase') else 0
+    rate_key = f"{payload.from_agent}:{current_phase}"
+    count = _agent_msg_counts.get(rate_key, 0)
+    if count >= AGENT_MSG_RATE_LIMIT:
+        return JSONResponse(status_code=429, content={
+            "error": f"Rate limit: {payload.from_agent} has sent {AGENT_MSG_RATE_LIMIT} "
+                     f"messages this phase (max {AGENT_MSG_RATE_LIMIT})"
+        })
+    _agent_msg_counts[rate_key] = count + 1
+
+    # Build metadata
+    meta = dict(payload.metadata or {})
+    meta["from_agent"] = payload.from_agent
+    meta["to_agent"] = payload.to_agent
+    meta["msg_type"] = payload.msg_type
+    meta["priority"] = payload.priority
+    if payload.neo4j_ref:
+        meta["neo4j_ref"] = payload.neo4j_ref
+
+    # Create event
+    event = AgentEvent(
+        id=str(uuid.uuid4())[:8],
+        type="agent_message",
+        agent=payload.from_agent,
+        content=payload.content,
+        timestamp=time.time(),
+        metadata=meta,
+    )
+    await state.add_event(event)
+
+    return {
+        "ok": True,
+        "event_id": event.id,
+        "from": payload.from_agent,
+        "to": payload.to_agent,
+        "msg_type": payload.msg_type,
+        "rate_remaining": AGENT_MSG_RATE_LIMIT - (count + 1),
+    }
+
+
+@app.get("/api/messages")
+async def get_agent_messages(
+    agent: Optional[str] = None,
+    msg_type: Optional[str] = None,
+    limit: int = 50,
+):
+    """
+    Get bilateral messages, optionally filtered by agent or type.
+
+    Query params:
+      ?agent=AR          — messages involving AR (sent or received)
+      ?msg_type=discovery — only discovery messages
+      ?limit=20          — max results (default 50)
+    """
+    messages = []
+    for evt in reversed(state.events):
+        if evt.type != "agent_message":
+            continue
+        meta = evt.metadata or {}
+        if agent and agent not in (meta.get("from_agent"), meta.get("to_agent")):
+            continue
+        if msg_type and meta.get("msg_type") != msg_type:
+            continue
+        messages.append({
+            "id": evt.id,
+            "from_agent": meta.get("from_agent"),
+            "to_agent": meta.get("to_agent"),
+            "msg_type": meta.get("msg_type"),
+            "priority": meta.get("priority"),
+            "content": evt.content,
+            "neo4j_ref": meta.get("neo4j_ref"),
+            "timestamp": evt.timestamp,
+        })
+        if len(messages) >= limit:
+            break
+    return {"messages": messages, "count": len(messages)}
+
+
+@app.delete("/api/messages/rate-limits")
+async def reset_message_rate_limits():
+    """Reset bilateral message rate limits (called on phase transition)."""
+    _agent_msg_counts.clear()
+    return {"ok": True, "message": "Rate limits reset"}
 
 
 class AgentStatusPayload(BaseModel):

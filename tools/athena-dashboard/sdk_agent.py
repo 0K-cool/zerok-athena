@@ -260,6 +260,41 @@ class AthenaAgentSession:
         """
         self._event_callback = callback
 
+    # ── F2: Bilateral Messaging ────────────────
+
+    async def send_bilateral_message(
+        self,
+        from_agent: str,
+        to_agent: str,
+        msg_type: str,
+        content: str,
+        priority: str = "medium",
+        neo4j_ref: str | None = None,
+    ):
+        """Send a bilateral agent-to-agent message (F2).
+
+        This emits an agent_message event that the dashboard renders as
+        a from→to arrow in the AI drawer timeline.
+
+        Args:
+            from_agent: Sender agent code (e.g. "AR")
+            to_agent: Recipient agent code (e.g. "WV")
+            msg_type: One of: discovery, vulnerability, credential,
+                      verification, strategy, pivot
+            content: Message content
+            priority: low, medium, high, critical
+            neo4j_ref: Optional Neo4j node ID reference
+        """
+        meta = {
+            "from_agent": from_agent,
+            "to_agent": to_agent,
+            "msg_type": msg_type,
+            "priority": priority,
+        }
+        if neo4j_ref:
+            meta["neo4j_ref"] = neo4j_ref
+        await self._emit("agent_message", from_agent, content, meta)
+
     # ── Internal Helpers ──────────────────────
 
     async def _emit(self, event_type: str, agent: str, content: str,
