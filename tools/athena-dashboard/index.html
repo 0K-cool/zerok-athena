@@ -10334,16 +10334,20 @@
       overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:10000;display:flex;align-items:center;justify-content:center;cursor:pointer;';
       overlay.onclick = (e) => { if (e.target === overlay) cleanup(); };
 
+      // Inner row: arrow + content + arrow (keeps arrows beside the content)
+      const innerRow = document.createElement('div');
+      innerRow.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:12px;max-width:95vw;max-height:calc(90vh - 60px);';
+      innerRow.onclick = (e) => e.stopPropagation();
+
       // Content container
       const contentWrap = document.createElement('div');
       contentWrap.id = 'artifact-content-wrap';
-      contentWrap.style.cssText = 'display:flex;align-items:center;justify-content:center;flex:1;max-width:90vw;max-height:calc(90vh - 60px);';
-      contentWrap.onclick = (e) => e.stopPropagation();
+      contentWrap.style.cssText = 'display:flex;align-items:center;justify-content:center;max-width:85vw;max-height:calc(90vh - 60px);';
 
       // Left arrow
       const leftArrow = document.createElement('button');
       leftArrow.innerHTML = '&#9664;';
-      leftArrow.style.cssText = 'position:fixed;left:16px;top:50%;transform:translateY(-50%);z-index:10002;width:48px;height:48px;border-radius:50%;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.2s;';
+      leftArrow.style.cssText = 'flex-shrink:0;z-index:10002;width:48px;height:48px;border-radius:50%;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.2s;';
       leftArrow.onmouseenter = () => leftArrow.style.background = 'rgba(255,255,255,0.18)';
       leftArrow.onmouseleave = () => leftArrow.style.background = 'rgba(255,255,255,0.08)';
       leftArrow.onclick = (e) => { e.stopPropagation(); navigate(-1); };
@@ -10351,7 +10355,7 @@
       // Right arrow
       const rightArrow = document.createElement('button');
       rightArrow.innerHTML = '&#9654;';
-      rightArrow.style.cssText = 'position:fixed;right:16px;top:50%;transform:translateY(-50%);z-index:10002;width:48px;height:48px;border-radius:50%;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.2s;';
+      rightArrow.style.cssText = 'flex-shrink:0;z-index:10002;width:48px;height:48px;border-radius:50%;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.2s;';
       rightArrow.onmouseenter = () => rightArrow.style.background = 'rgba(255,255,255,0.18)';
       rightArrow.onmouseleave = () => rightArrow.style.background = 'rgba(255,255,255,0.08)';
       rightArrow.onclick = (e) => { e.stopPropagation(); navigate(1); };
@@ -10360,9 +10364,10 @@
       const infoBar = document.createElement('div');
       infoBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:10002;padding:12px 24px;background:rgba(0,0,0,0.85);border-top:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-between;align-items:center;font-size:0.85em;';
 
-      overlay.appendChild(contentWrap);
-      overlay.appendChild(leftArrow);
-      overlay.appendChild(rightArrow);
+      innerRow.appendChild(leftArrow);
+      innerRow.appendChild(contentWrap);
+      innerRow.appendChild(rightArrow);
+      overlay.appendChild(innerRow);
       overlay.appendChild(infoBar);
 
       function updateArrows() {
