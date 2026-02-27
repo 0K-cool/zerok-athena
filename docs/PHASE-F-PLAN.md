@@ -435,4 +435,164 @@ After Phase F, ATHENA will:
 
 ---
 
+## Phase G: Parallel Agent Isolation (Worktrees)
+
+**Status:** Planning (prerequisite: Phase F bilateral messaging)
+**Priority:** HIGH | **Effort:** 1-2 weeks | **Impact:** HIGH (3-5x engagement speed)
+**Added:** February 27, 2026
+
+### Problem
+
+Today, ATHENA's 7 agents run sequentially or with limited parallelism in a shared working directory. Evidence files, scan outputs, and report fragments collide. Phase F adds bilateral communication, but agents still step on each other's files.
+
+### Solution: Git Worktree Isolation
+
+Claude Code v2.1.49+ supports `isolation: "worktree"` — each agent gets its own full copy of the ATHENA repo in a separate git worktree. True parallel execution with zero file conflicts.
+
+```
+Engagement starts (orchestrator in main working dir)
+├── AR (Recon)       → worktree: .claude/worktrees/ar-recon/
+├── WV (Web Vuln)    → worktree: .claude/worktrees/wv-webscan/
+├── VS (Vuln Scan)   → worktree: .claude/worktrees/vs-nuclei/
+└── EX (Exploit)     → worktree: .claude/worktrees/ex-validate/
+Each writes evidence to its own copy → merge results via Neo4j + git
+```
+
+### Benefits
+
+| Dimension | Without Worktrees (Today) | With Worktrees (Phase G) |
+|-----------|---------------------------|--------------------------|
+| **Parallelism** | Agents step on files | True parallel, zero conflicts |
+| **Evidence** | Mixed in one directory | Cleanly separated per agent |
+| **Failure isolation** | One agent's error affects all | Corruption contained, discard + retry |
+| **Git history** | One messy stream | Per-agent branches, clean merges |
+| **Speed** | Sequential bottleneck | 3-5x faster engagements |
+
+### G1: WorktreeCreate Security Hook
+
+**Priority: CRITICAL | Effort: 2-3 hours**
+
+Before any worktree agent starts, propagate ATHENA's security constraints:
+
+```bash
+# hooks/worktree-security-setup.sh (WorktreeCreate — BLOCKING)
+# Ensures every isolated agent inherits ATHENA security layers
+
+set -e
+INPUT=$(cat /dev/stdin)
+NAME=$(echo "$INPUT" | jq -r '.name')
+WORKTREE_DIR="$(pwd)/.claude/worktrees/$NAME"
+
+# Create worktree (we take over git behavior)
+git worktree add "$WORKTREE_DIR" HEAD 2>&1 >&2
+
+# Propagate ATHENA security: CLAUDE.md constraints, hooks, .mcp.json
+# (CLAUDE.md is in git, so it's already in the worktree)
+# Verify .mcp.json points to correct Kali backends
+cp .mcp.json "$WORKTREE_DIR/.mcp.json"
+
+# Audit log
+echo "{\"event\":\"worktree_create\",\"name\":\"$NAME\",\"path\":\"$WORKTREE_DIR\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+  >> logs/worktree-audit.jsonl
+
+# Required: print path on stdout
+echo "$WORKTREE_DIR"
+```
+
+**Security guarantees:**
+- CLAUDE.md (scope enforcement, HITL gates, host isolation) travels with every agent
+- `.mcp.json` ensures Kali backend connectivity in the worktree
+- Audit trail of every worktree created
+
+### G2: WorktreeRemove Audit Hook
+
+**Priority: HIGH | Effort: 1-2 hours**
+
+Before cleanup, scan for credential leakage and evidence integrity:
+
+```bash
+# hooks/worktree-cleanup-audit.sh (WorktreeRemove — non-blocking)
+
+INPUT=$(cat /dev/stdin)
+WORKTREE_PATH=$(echo "$INPUT" | jq -r '.worktree_path')
+
+# Scan for leaked credentials in worktree
+CRED_HITS=$(grep -rEn '(password|api[_-]?key|secret|token)\s*[:=]' \
+  "$WORKTREE_PATH" --include='*.md' --include='*.json' --include='*.txt' 2>/dev/null | wc -l)
+
+# Log audit
+echo "{\"event\":\"worktree_remove\",\"path\":\"$WORKTREE_PATH\",\"credential_hits\":$CRED_HITS,\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+  >> logs/worktree-audit.jsonl
+
+# Alert if credentials found
+if [ "$CRED_HITS" -gt 0 ]; then
+  echo "WARNING: $CRED_HITS potential credential patterns in worktree $WORKTREE_PATH" >&2
+fi
+```
+
+### G3: Agent Definition Updates
+
+Update agent definitions to use `isolation: "worktree"`:
+
+```python
+# In server.py agent orchestration:
+agents = [
+    {"name": "AR-Recon",     "isolation": "worktree", "model": "sonnet"},
+    {"name": "WV-WebVuln",   "isolation": "worktree", "model": "sonnet"},
+    {"name": "VS-VulnScan",  "isolation": "worktree", "model": "sonnet"},
+    {"name": "EX-Exploit",   "isolation": "worktree", "model": "opus"},  # needs deep reasoning
+    {"name": "PE-PostExploit","isolation": "worktree", "model": "sonnet"},
+    {"name": "CV-Verify",    "isolation": "worktree", "model": "sonnet"},
+    {"name": "RP-Report",    "isolation": "worktree", "model": "sonnet"},  # runs last, merges all
+]
+```
+
+**RP-Report agent** runs last in the main working directory (not worktree) — it merges evidence from all agent worktrees into the final engagement report.
+
+### G4: Evidence Merge Pipeline
+
+After parallel agents complete, merge their evidence:
+
+```
+Each agent's worktree:
+  engagements/active/{eid}/03-scanning/agent-{name}-*.md
+  engagements/active/{eid}/08-evidence/agent-{name}-*.png
+
+Merge to main:
+  git merge --no-ff worktree/ar-recon worktree/wv-webscan ...
+  OR: Copy evidence files from worktrees → main → commit
+  OR: Write directly to Neo4j (preferred — no file merge needed)
+```
+
+**Preferred pattern:** Agents write findings/evidence to Neo4j (already the source of truth), not to filesystem. Worktree file isolation is for scan output scratch space. Final report generation (RP agent) reads from Neo4j.
+
+### Dependencies
+
+- [ ] Phase F bilateral messaging (F2) — agents need to communicate across worktrees
+- [ ] Claude Code Agent SDK worktree support tested
+- [ ] WorktreeCreate/Remove hook events validated with ATHENA's hooks.json
+- [ ] Neo4j as evidence source of truth (already in place since Phase B)
+
+### Risks
+
+| Risk | Mitigation |
+|------|-----------|
+| Worktree agents can't access Neo4j | Neo4j is network-accessible (port 7687), not filesystem — works across worktrees |
+| MCP tools not available in worktree | `.mcp.json` propagated by WorktreeCreate hook |
+| Git merge conflicts on evidence | Use Neo4j as primary store, filesystem is scratch only |
+| WorktreeCreate hook overhead | <1s per worktree (just git + cp + log) |
+| Claude Code worktree bugs (pre-1.0 feature) | Test thoroughly with Juice Shop before client work |
+
+### Success Metrics
+
+| Metric | Phase F (Sequential) | Phase G Target |
+|--------|---------------------|----------------|
+| Engagement duration | ~30-45 min | <15 min (3x faster) |
+| Agent parallelism | 1-2 concurrent | 4-5 concurrent |
+| File conflicts | Occasional | Zero (isolated) |
+| Evidence integrity | Manual review | Automated audit (G2 hook) |
+| Security propagation | Assumed | Verified (G1 hook) |
+
+---
+
 *0K ATHENA — Offense. Defense. Intel. End-to-end.* 🦖⚡

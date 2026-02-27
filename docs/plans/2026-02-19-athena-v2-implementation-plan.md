@@ -1330,3 +1330,23 @@ Task 16 (BloodHound) is independent stretch goal
 
 **Estimated Effort:** 4 weeks (solo + AI), ~80-120 hours total
 **Stage 2 (Productize) plan:** Created separately after Stage 1 dry run validates architecture
+
+---
+
+## Phase G: Parallel Agent Isolation (Worktrees)
+
+**Added:** February 27, 2026
+**Prerequisite:** Phase F bilateral messaging (F2)
+**Effort:** 1-2 weeks | **Impact:** 3-5x engagement speed
+
+Uses Claude Code `isolation: "worktree"` (v2.1.49+) to give each agent its own git worktree — true parallel execution with zero file conflicts.
+
+**Components:**
+- **G1:** WorktreeCreate security hook — propagates CLAUDE.md, .mcp.json, security constraints to isolated agents (BLOCKING)
+- **G2:** WorktreeRemove audit hook — scans for credential leakage before cleanup
+- **G3:** Agent definition updates — add `isolation: "worktree"` to agent configs
+- **G4:** Evidence merge pipeline — Neo4j as primary store, worktree filesystem is scratch only
+
+**Target:** 4-5 concurrent agents, <15 min engagement duration (vs ~30-45 min sequential)
+
+**Full plan:** `docs/PHASE-F-PLAN.md` (Phase G section)
