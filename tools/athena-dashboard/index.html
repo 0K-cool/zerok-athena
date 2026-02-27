@@ -10362,7 +10362,7 @@
 
       // Bottom info bar
       const infoBar = document.createElement('div');
-      infoBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:10002;padding:12px 24px;background:rgba(0,0,0,0.85);border-top:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-between;align-items:center;font-size:0.85em;';
+      infoBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:10002;padding:12px 24px;background:rgba(0,0,0,0.85);border-top:1px solid rgba(255,255,255,0.1);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;font-size:0.85em;';
 
       innerRow.appendChild(leftArrow);
       innerRow.appendChild(contentWrap);
@@ -10382,13 +10382,13 @@
         const typeIcons = { screenshot: '📷', http_pair: '📋', command_output: '🖥️', tool_log: '📄', response_diff: '🔄' };
         const icon = typeIcons[art.type] || '📎';
         infoBar.innerHTML = `
-          <span style="color:#aaa;">${idx + 1} / ${total}</span>
-          <span style="display:flex;align-items:center;gap:8px;">
+          <span style="display:flex;align-items:center;gap:10px;justify-self:start;">
+            <span style="color:#aaa;">${idx + 1} / ${total}</span>
             <span style="background:${sevColor};color:#fff;padding:2px 8px;border-radius:4px;font-size:0.8em;text-transform:uppercase;font-weight:600;">${art.severity || 'N/A'}</span>
-            <span>${icon} ${(art.type || '').replace('_', ' ')}</span>
+            <span style="color:#aaa;">${icon} ${(art.type || '').replace('_', ' ')}</span>
           </span>
-          <span style="color:#aaa;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${art.caption || art.type || ''}</span>
-          <span style="color:#666;font-size:0.8em;">ESC to close &middot; ← → to navigate</span>
+          <span style="color:#aaa;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${art.caption || art.type || ''}</span>
+          <span style="color:#666;font-size:0.8em;justify-self:end;">ESC to close &middot; ← → to navigate</span>
         `;
       }
 
