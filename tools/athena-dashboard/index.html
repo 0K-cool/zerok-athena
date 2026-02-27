@@ -1088,16 +1088,16 @@
     /* Layer Grid */
     .layer-grid {
       display: grid;
-      grid-template-columns: repeat(10, 1fr);
-      gap: 6px;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
     }
 
     .layer-cell {
-      aspect-ratio: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      padding: 12px 0;
       border: 1px solid color-mix(in srgb, var(--zerok-primary) 25%, transparent);
       border-radius: 0;
       background: color-mix(in srgb, var(--zerok-primary) 8%, transparent);
@@ -5045,8 +5045,9 @@
                 <button class="widget-action" onclick="switchView('scans')">See All</button>
               </div>
             </div>
-            <div class="widget-body">
-              <div class="layer-grid" id="agent-status-grid">
+            <div class="widget-body" style="display:flex;align-items:center;">
+              <div class="layer-grid" id="agent-status-grid" style="width:100%">
+                <!-- Row 1: Command & Recon (7) -->
                 <div class="layer-cell" data-agent="ST" title="Strategy — Red Team Lead (cross-phase)" onclick="toggleStrategyPanel()"><span class="layer-id">ST</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="PL" title="Planning — Pre-Engagement Scope &amp; Rules"><span class="layer-id">PL</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="OR" title="Orchestrator — Phase Control &amp; Agent Dispatch"><span class="layer-id">OR</span><span class="layer-blocks">Idle</span></div>
@@ -5054,12 +5055,15 @@
                 <div class="layer-cell" data-agent="AR" title="Active Recon — Port Scanning &amp; Service Enum"><span class="layer-id">AR</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="CV" title="CVE Researcher — Vulnerability Database Lookup"><span class="layer-id">CV</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="AP" title="Attack Path Analyzer — Graph-based Path Finding"><span class="layer-id">AP</span><span class="layer-blocks">Idle</span></div>
+                <!-- Row 2: Analysis & Exploitation (7) -->
                 <div class="layer-cell" data-agent="WV" title="Web Vuln Scanner — OWASP Top 10 Testing"><span class="layer-id">WV</span><span class="layer-blocks">Idle</span></div>
+                <div class="layer-cell" data-agent="SC" title="Source Code Analyst — Static Analysis &amp; Code Review"><span class="layer-id">SC</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="EC" title="Exploit Crafter — Custom Exploit Development"><span class="layer-id">EC</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="EX" title="Exploitation — Validated Exploit Execution"><span class="layer-id">EX</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="VF" title="Verification — Finding Validation &amp; PoC"><span class="layer-id">VF</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="PE" title="Post-Exploitation — Privilege Escalation &amp; Pivoting"><span class="layer-id">PE</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="DV" title="Detection Validator — Blue Team Detection Check"><span class="layer-id">DV</span><span class="layer-blocks">Idle</span></div>
+                <!-- Row 3: Specialized & Reporting (7) -->
                 <div class="layer-cell" data-agent="JS" title="JS Analyzer — JavaScript &amp; Client-side Analysis"><span class="layer-id">JS</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="PD" title="Param Discovery — Hidden Parameter Fuzzing"><span class="layer-id">PD</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="WA" title="Web App Fuzzer — Input Mutation &amp; Fuzzing"><span class="layer-id">WA</span><span class="layer-blocks">Idle</span></div>
@@ -6077,6 +6081,7 @@
       <span class="agent-chip" data-agent="CV" onclick="toggleChipFilter('CV')">CV<span class="chip-event-count" data-agent-count="CV">0</span></span>
       <span class="agent-chip" data-agent="AP" onclick="toggleChipFilter('AP')">AP<span class="chip-event-count" data-agent-count="AP">0</span></span>
       <span class="agent-chip" data-agent="WV" onclick="toggleChipFilter('WV')">WV<span class="chip-event-count" data-agent-count="WV">0</span></span>
+      <span class="agent-chip" data-agent="SC" onclick="toggleChipFilter('SC')">SC<span class="chip-event-count" data-agent-count="SC">0</span></span>
       <span class="agent-chip" data-agent="EC" onclick="toggleChipFilter('EC')">EC<span class="chip-event-count" data-agent-count="EC">0</span></span>
       <span class="agent-chip" data-agent="EX" onclick="toggleChipFilter('EX')">EX<span class="chip-event-count" data-agent-count="EX">0</span></span>
       <span class="agent-chip" data-agent="VF" onclick="toggleChipFilter('VF')">VF<span class="chip-event-count" data-agent-count="VF">0</span></span>
@@ -6625,11 +6630,11 @@
     const AGENT_NAMES = {
       PL: 'Planning Agent', OR: 'Orchestrator', PO: 'Passive OSINT',
       AR: 'Active Recon', CV: 'CVE Researcher', AP: 'Attack Path Analyzer',
-      WV: 'Web Vuln Scanner', EC: 'Exploit Crafter', EX: 'Exploitation',
-      VF: 'Verification', PE: 'Post-Exploitation', DV: 'Detection Validator',
-      JS: 'JS Analyzer', PD: 'Param Discovery', WA: 'Web App Fuzzer',
-      AT: 'Auth Tester', AA: 'API Attacker', LM: 'Lateral Mover',
-      RP: 'Reporting'
+      WV: 'Web Vuln Scanner', SC: 'Source Code Analyst', EC: 'Exploit Crafter',
+      EX: 'Exploitation', VF: 'Verification', PE: 'Post-Exploitation',
+      DV: 'Detection Validator', JS: 'JS Analyzer', PD: 'Param Discovery',
+      WA: 'Web App Fuzzer', AT: 'Auth Tester', AA: 'API Attacker',
+      LM: 'Lateral Mover', RP: 'Reporting', ST: 'Strategy'
     };
 
     const EVENT_ICONS = {

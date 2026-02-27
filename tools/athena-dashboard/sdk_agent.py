@@ -201,6 +201,14 @@ def detect_agent(tool_name: str, command: str = "") -> str:
     ]
     if any(kw in text for kw in strategy_keywords):
         return "ST"
+    # Source Code Analyst detection: static analysis and code review
+    sc_keywords = [
+        "semgrep", "bandit", "codeql", "gosec", "njsscan", "source code",
+        "static analysis", "code review", "code audit", "sast",
+        "code path", "taint analysis", "dataflow",
+    ]
+    if any(kw in text for kw in sc_keywords):
+        return "SC"
     for keyword, agent_code in TOOL_TO_AGENT.items():
         if keyword in text:
             return agent_code

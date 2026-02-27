@@ -104,8 +104,9 @@ class AgentCode(str, Enum):
     AUTH_TESTER = "AT"
     API_ATTACKER = "AA"
     LATERAL_MOVER = "LM"
-    # Phase F: Strategy Agent (Red Team Lead)
+    # Phase F: Strategy Agent (Red Team Lead) + Source Code Analyst
     STRATEGY = "ST"
+    SOURCE_CODE = "SC"
 
 
 AGENT_NAMES = {
@@ -131,6 +132,7 @@ AGENT_NAMES = {
     "LM": "Lateral Mover",
     # Phase F
     "ST": "Strategy",
+    "SC": "Source Code Analyst",
 }
 
 AGENT_PTES_PHASE = {
@@ -141,6 +143,8 @@ AGENT_PTES_PHASE = {
     "JS": 2, "PD": 4, "WA": 4, "AT": 4, "AA": 5, "LM": 6,
     # Phase F: Cross-phase (runs at phase gates)
     "ST": 0,
+    # Phase F: Source Code Analyst (vuln analysis phase)
+    "SC": 3,
 }
 
 
@@ -779,12 +783,13 @@ class AgentMessagePayload(BaseModel):
 # Communication rules: who can message whom and for what
 AGENT_COMM_RULES: dict[str, list[str]] = {
     # Event → allowed recipients
-    "discovery":      ["CV", "WV", "AP", "ST"],      # Recon agents → vuln + strategy
-    "vulnerability":  ["EX", "EC", "ST"],             # Vuln agents → exploit + strategy
-    "credential":     ["PE", "LM", "ST"],             # Exploit → post-exploit + strategy
-    "verification":   ["ST", "RP"],                   # Verify → strategy + report
-    "strategy":       list(AGENT_NAMES.keys()),       # Strategy → anyone
-    "pivot":          ["PO", "AR", "WV", "ST"],       # PostExploit → recon + strategy
+    "discovery":      ["CV", "WV", "AP", "SC", "ST"],  # Recon agents → vuln + code + strategy
+    "vulnerability":  ["EX", "EC", "VF", "ST"],        # Vuln agents → exploit + verify + strategy
+    "credential":     ["PE", "LM", "ST"],              # Exploit → post-exploit + strategy
+    "verification":   ["ST", "RP"],                    # Verify → strategy + report
+    "strategy":       list(AGENT_NAMES.keys()),        # Strategy → anyone
+    "pivot":          ["PO", "AR", "WV", "SC", "ST"],  # PostExploit → recon + code + strategy
+    "code_finding":   ["VF", "EX", "EC", "ST"],        # SC → verify + exploit + strategy
 }
 
 # Rate limit: max messages per agent per engagement phase
