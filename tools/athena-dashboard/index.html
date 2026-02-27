@@ -3658,6 +3658,62 @@
       background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
     }
 
+    /* F3: Verification event styles */
+    .verification-badge {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 3px;
+      letter-spacing: 0.5px;
+    }
+
+    .verification-badge.zerok-low {
+      color: var(--zerok-low);
+      background: color-mix(in srgb, var(--zerok-low) 15%, transparent);
+    }
+
+    .verification-badge.zerok-medium {
+      color: var(--zerok-medium);
+      background: color-mix(in srgb, var(--zerok-medium) 15%, transparent);
+    }
+
+    .verification-badge.zerok-high {
+      color: var(--zerok-high);
+      background: color-mix(in srgb, var(--zerok-high) 15%, transparent);
+    }
+
+    .verification-badge.zerok-primary {
+      color: var(--zerok-primary);
+      background: color-mix(in srgb, var(--zerok-primary) 15%, transparent);
+    }
+
+    .verification-confidence {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--zerok-low);
+    }
+
+    .verification-attempt {
+      font-size: 10px;
+      color: #888;
+    }
+
+    .verification-poc {
+      margin-top: 4px;
+      padding: 4px 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 3px;
+      font-size: 11px;
+      overflow-x: auto;
+    }
+
+    .verification-poc code {
+      color: var(--zerok-low);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
     .timeline-content {
       flex: 1;
       min-width: 0;
@@ -6653,6 +6709,8 @@
       strategy_decision:  { icon: '*', cls: 'system',   label: 'Strategy' },
       strategy_redirect:  { icon: '>', cls: 'tool',     label: 'Redirect' },
       agent_message:      { icon: '→', cls: 'message',  label: 'Message' },
+      verification_queued:  { icon: '?', cls: 'tool',     label: 'Verify' },
+      verification_result:  { icon: '!', cls: 'complete', label: 'Verified' },
     };
 
     let ws = null;
@@ -6954,6 +7012,28 @@
       if (type === 'strategy_redirect') {
         bumpAgentCount('ST');
         addTimelineEvent(msg);
+        return;
+      }
+
+      // F3: Verification pipeline events
+      if (type === 'verification_queued') {
+        updateAgentStatusTile('VF', 'running');
+        updateAgentChip('VF', 'running');
+        bumpAgentCount('VF');
+        addTimelineEvent(msg);
+        return;
+      }
+      if (type === 'verification_result') {
+        const meta = msg.metadata || {};
+        const vrfStatus = meta.status || 'unknown';
+        if (vrfStatus === 'confirmed') {
+          updateAgentStatusTile('VF', 'completed');
+          updateAgentChip('VF', 'completed');
+        }
+        bumpAgentCount('VF');
+        addVerificationEvent(msg);
+        // Refresh KPI — confirmed exploits count may have changed
+        if (currentEngagementId) loadDashboardFromAPI();
         return;
       }
 
@@ -7641,6 +7721,51 @@
             '<span class="timeline-time">' + time + '</span>' +
           '</div>' +
           '<div class="timeline-text">' + renderMarkdown(msg.content || '') + '</div>' +
+        '</div>';
+
+      timeline.appendChild(el);
+      smartScroll(timeline);
+    }
+
+    // ── F3: Verification Event Rendering ──
+    function addVerificationEvent(msg) {
+      const timeline = document.getElementById('aiTimeline');
+      const empty = document.getElementById('aiEmpty');
+      if (empty) empty.style.display = 'none';
+
+      const meta = msg.metadata || {};
+      const time_str = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+      const vrfStatus = meta.status || 'unknown';
+      const method = (meta.method || '').replace(/_/g, ' ');
+      const confidence = meta.confidence ? (meta.confidence * 100).toFixed(0) + '%' : '';
+      const attempt = meta.attempt || '';
+      const confirmed = meta.confirmed_count || 0;
+
+      const statusCls = vrfStatus === 'confirmed' ? 'zerok-low' :
+                         vrfStatus === 'likely' ? 'zerok-medium' :
+                         vrfStatus === 'unverified' ? 'zerok-high' : 'zerok-primary';
+
+      const statusIcon = vrfStatus === 'confirmed' ? '+' :
+                          vrfStatus === 'likely' ? '~' : 'x';
+
+      const el = document.createElement('div');
+      el.className = 'timeline-event verification-event';
+      el.setAttribute('data-agent', 'VF');
+      if (activeChipFilter && activeChipFilter !== 'VF') {
+        el.classList.add('filtered-out');
+      }
+      el.innerHTML =
+        '<div class="timeline-icon ' + (vrfStatus === 'confirmed' ? 'complete' : vrfStatus === 'likely' ? 'tool' : 'finding') + '">' + statusIcon + '</div>' +
+        '<div class="timeline-content">' +
+          '<div class="timeline-header">' +
+            '<span class="timeline-agent">Verification</span>' +
+            '<span class="verification-badge ' + statusCls + '">' + escHtml(vrfStatus.toUpperCase()) + '</span>' +
+            (confidence ? '<span class="verification-confidence">' + confidence + '</span>' : '') +
+            (attempt ? '<span class="verification-attempt">' + confirmed + '/' + attempt + '</span>' : '') +
+            '<span class="timeline-time">' + time_str + '</span>' +
+          '</div>' +
+          '<div class="timeline-text">' + renderMarkdown(msg.content || '') + '</div>' +
+          (meta.poc_script ? '<div class="verification-poc"><code>' + escHtml(meta.poc_script) + '</code></div>' : '') +
         '</div>';
 
       timeline.appendChild(el);

@@ -1220,6 +1220,417 @@ async def create_finding(payload: FindingPayload):
     return {"ok": True, "finding_id": finding_id}
 
 
+# ── F3: Validation Pipeline ("The Moat") ─────────────────────
+
+class VerificationStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    CONFIRMED = "confirmed"      # PoC works 3/3
+    LIKELY = "likely"            # 2/3 or strong indicators
+    UNVERIFIED = "unverified"    # Couldn't reproduce
+    FALSE_POSITIVE = "false_positive"
+
+
+class VerificationMethod(str, Enum):
+    INDEPENDENT_RETEST = "independent_retest"  # Different tool than discovery
+    CANARY_CALLBACK = "canary_callback"        # OOB via interactsh
+    POC_EXECUTION = "poc_execution"            # Run generated PoC script
+    CODE_REVIEW = "code_review"                # SC agent confirms in source
+    MANUAL = "manual"                          # Operator manual verification
+
+
+class VerificationRequest(BaseModel):
+    """Submit a finding for verification through The Moat."""
+    finding_id: str
+    engagement_id: str = "eng-001"
+    priority: str = "medium"  # low, medium, high, critical
+    methods: Optional[list[str]] = None  # Override auto-selected methods
+    canary_url: Optional[str] = None     # Pre-generated interactsh URL
+    source_path: Optional[str] = None    # Source code path for code_review
+
+
+class VerificationResult(BaseModel):
+    """Result of a verification attempt."""
+    finding_id: str
+    verification_id: str
+    status: str  # VerificationStatus value
+    method: str  # VerificationMethod value
+    confidence: float  # 0.0 - 1.0
+    poc_script: Optional[str] = None       # Runnable PoC command
+    poc_output: Optional[str] = None       # PoC execution output
+    evidence_package: Optional[dict] = None  # {screenshot, response, trace}
+    impact_demonstrated: Optional[str] = None
+    canary_id: Optional[str] = None        # interactsh correlation ID
+    canary_callback: Optional[dict] = None  # Callback details if received
+    reproduction_results: Optional[list[dict]] = None  # 3x reproduction
+    notes: Optional[str] = None
+    timestamp: float = 0.0
+
+
+# Verification method selection by vulnerability category
+VULN_VERIFICATION_METHODS: dict[str, list[str]] = {
+    # OWASP category → recommended verification methods
+    "A01": ["independent_retest", "poc_execution"],                    # Broken Access Control
+    "A02": ["independent_retest", "poc_execution"],                    # Cryptographic Failures
+    "A03": ["independent_retest", "poc_execution", "canary_callback"], # Injection (SQLi, XSS, etc.)
+    "A04": ["independent_retest", "poc_execution"],                    # Insecure Design
+    "A05": ["independent_retest", "poc_execution"],                    # Security Misconfiguration
+    "A06": ["independent_retest"],                                      # Vulnerable Components
+    "A07": ["independent_retest", "poc_execution"],                    # Auth Failures
+    "A08": ["independent_retest", "code_review"],                      # Software/Data Integrity
+    "A09": ["independent_retest"],                                      # Logging Failures
+    "A10": ["independent_retest", "canary_callback"],                  # SSRF
+    # Specific vuln types (more granular)
+    "sqli":       ["independent_retest", "poc_execution", "canary_callback"],
+    "xss":        ["independent_retest", "poc_execution", "canary_callback"],
+    "rce":        ["independent_retest", "poc_execution", "canary_callback"],
+    "ssrf":       ["canary_callback", "independent_retest"],
+    "lfi":        ["independent_retest", "poc_execution"],
+    "idor":       ["independent_retest", "poc_execution"],
+    "auth_bypass": ["independent_retest", "poc_execution"],
+    "file_upload": ["independent_retest", "poc_execution", "canary_callback"],
+    "xxe":        ["canary_callback", "independent_retest"],
+    "default":    ["independent_retest", "poc_execution"],
+}
+
+# Alternative tools for independent re-testing
+RETEST_ALTERNATIVES: dict[str, list[str]] = {
+    # If discovered by tool X, verify with one of these alternatives
+    "nuclei":     ["curl", "httpx", "sqlmap"],
+    "sqlmap":     ["curl", "nuclei", "custom_script"],
+    "nikto":      ["curl", "nuclei", "httpx"],
+    "ffuf":       ["curl", "gobuster", "nuclei"],
+    "nmap":       ["masscan", "netcat", "curl"],
+    "gobuster":   ["ffuf", "dirsearch", "curl"],
+    "wpscan":     ["nuclei", "curl", "custom_script"],
+    "xsstrike":   ["curl", "nuclei", "custom_script"],
+    "dalfox":     ["curl", "xsstrike", "nuclei"],
+    "semgrep":    ["bandit", "codeql", "manual"],
+    "bandit":     ["semgrep", "codeql", "manual"],
+    "default":    ["curl", "nuclei", "custom_script"],
+}
+
+# In-memory verification store
+_verifications: dict[str, dict] = {}  # verification_id → verification data
+_finding_verifications: dict[str, list[str]] = {}  # finding_id → [verification_ids]
+
+
+@app.post("/api/verify")
+async def submit_verification(req: VerificationRequest):
+    """
+    Submit a finding for verification through The Moat.
+
+    The Moat ensures every finding has independent verification before
+    it goes into the final report. This endpoint queues the verification
+    and returns recommended methods.
+
+    Example:
+        curl -X POST http://localhost:8080/api/verify \\
+          -H 'Content-Type: application/json' \\
+          -d '{"finding_id":"abc123","engagement_id":"eng-001","priority":"high"}'
+    """
+    # Look up the finding
+    finding = None
+    for f in state.findings:
+        if f.id == req.finding_id:
+            finding = f
+            break
+    if not finding:
+        return JSONResponse(status_code=404, content={"error": f"Finding {req.finding_id} not found"})
+
+    verification_id = f"vrf-{str(uuid.uuid4())[:8]}"
+
+    # Auto-select verification methods based on vuln category
+    category = finding.category.lower() if finding.category else "default"
+    methods = req.methods or VULN_VERIFICATION_METHODS.get(
+        category, VULN_VERIFICATION_METHODS["default"]
+    )
+
+    # Determine alternative tool for independent retest
+    discovery_agent = finding.agent
+    alt_tools = RETEST_ALTERNATIVES.get(discovery_agent, RETEST_ALTERNATIVES["default"])
+
+    verification = {
+        "id": verification_id,
+        "finding_id": req.finding_id,
+        "engagement_id": req.engagement_id,
+        "finding_title": finding.title,
+        "finding_severity": finding.severity.value,
+        "finding_category": finding.category,
+        "finding_target": finding.target,
+        "discovery_agent": finding.agent,
+        "status": VerificationStatus.PENDING.value,
+        "priority": req.priority,
+        "methods": methods,
+        "alt_tools": alt_tools,
+        "canary_url": req.canary_url,
+        "source_path": req.source_path,
+        "results": [],
+        "final_confidence": 0.0,
+        "final_status": VerificationStatus.PENDING.value,
+        "created_at": time.time(),
+        "updated_at": time.time(),
+    }
+
+    _verifications[verification_id] = verification
+    _finding_verifications.setdefault(req.finding_id, []).append(verification_id)
+
+    # Emit verification event
+    await _emit("verification_queued", "VF", f"Queued: {finding.title}", {
+        "verification_id": verification_id,
+        "finding_id": req.finding_id,
+        "methods": methods,
+        "priority": req.priority,
+    })
+
+    # Update VF agent status
+    await state.update_agent_status("VF", AgentStatus.RUNNING,
+        f"Verifying: {finding.title}")
+
+    return {
+        "ok": True,
+        "verification_id": verification_id,
+        "finding_id": req.finding_id,
+        "recommended_methods": methods,
+        "alt_tools": alt_tools,
+        "canary_url": req.canary_url,
+    }
+
+
+@app.post("/api/verify/{verification_id}/result")
+async def submit_verification_result(verification_id: str, result: VerificationResult):
+    """
+    Submit a verification result (called by VF agent after each verification attempt).
+
+    The VF agent runs the verification and reports back with evidence.
+
+    Example:
+        curl -X POST http://localhost:8080/api/verify/vrf-abc123/result \\
+          -H 'Content-Type: application/json' \\
+          -d '{"finding_id":"abc123","verification_id":"vrf-abc123",
+               "status":"confirmed","method":"poc_execution",
+               "confidence":0.95,"poc_script":"curl -X POST ...",
+               "impact_demonstrated":"Full auth bypass"}'
+    """
+    if verification_id not in _verifications:
+        return JSONResponse(status_code=404, content={
+            "error": f"Verification {verification_id} not found"
+        })
+
+    v = _verifications[verification_id]
+    result.timestamp = time.time()
+    v["results"].append(result.model_dump())
+    v["updated_at"] = time.time()
+    v["status"] = VerificationStatus.IN_PROGRESS.value
+
+    # Calculate aggregate confidence from all results
+    results = v["results"]
+    confirmed_count = sum(1 for r in results if r["status"] == "confirmed")
+    total_attempts = len(results)
+
+    if total_attempts >= 3 and confirmed_count >= 3:
+        v["final_status"] = VerificationStatus.CONFIRMED.value
+        v["final_confidence"] = max(r["confidence"] for r in results)
+    elif total_attempts >= 2 and confirmed_count >= 2:
+        v["final_status"] = VerificationStatus.LIKELY.value
+        v["final_confidence"] = sum(r["confidence"] for r in results) / total_attempts
+    elif confirmed_count >= 1:
+        v["final_status"] = VerificationStatus.LIKELY.value
+        v["final_confidence"] = sum(r["confidence"] for r in results) / total_attempts
+    elif total_attempts >= 3 and confirmed_count == 0:
+        v["final_status"] = VerificationStatus.UNVERIFIED.value
+        v["final_confidence"] = 0.0
+    # else: still in progress
+
+    # Update Neo4j Finding node with verification data
+    if neo4j_available and neo4j_driver and result.status in ("confirmed", "likely"):
+        try:
+            with neo4j_driver.session() as session:
+                session.run("""
+                    MATCH (f:Finding {id: $finding_id})
+                    SET f.verified = $verified,
+                        f.verification_status = $status,
+                        f.confidence = $confidence,
+                        f.poc_script = $poc_script,
+                        f.impact_demonstrated = $impact,
+                        f.verification_id = $vrf_id,
+                        f.verified_at = datetime()
+                """, finding_id=result.finding_id,
+                     verified=result.status == "confirmed",
+                     status=result.status,
+                     confidence=result.confidence,
+                     poc_script=result.poc_script,
+                     impact=result.impact_demonstrated,
+                     vrf_id=verification_id)
+        except Exception as e:
+            print(f"Neo4j verification update error: {e}")
+
+    # Emit verification result event
+    status_label = result.status.upper()
+    event_content = f"{status_label}: {v['finding_title']} ({result.method}, {result.confidence:.0%})"
+    await _emit("verification_result", "VF", event_content, {
+        "verification_id": verification_id,
+        "finding_id": result.finding_id,
+        "status": result.status,
+        "method": result.method,
+        "confidence": result.confidence,
+        "poc_script": result.poc_script,
+        "impact": result.impact_demonstrated,
+        "attempt": total_attempts,
+        "confirmed_count": confirmed_count,
+    })
+
+    # If verification complete (3 attempts or confirmed), update agent status
+    if v["final_status"] in ("confirmed", "unverified", "false_positive"):
+        status_msg = f"{'CONFIRMED' if v['final_status'] == 'confirmed' else 'UNVERIFIED'}: {v['finding_title']}"
+        await state.update_agent_status("VF", AgentStatus.COMPLETED, status_msg)
+
+    return {
+        "ok": True,
+        "verification_id": verification_id,
+        "attempt": total_attempts,
+        "result_status": result.status,
+        "aggregate": {
+            "final_status": v["final_status"],
+            "final_confidence": v["final_confidence"],
+            "confirmed_count": confirmed_count,
+            "total_attempts": total_attempts,
+        },
+    }
+
+
+@app.post("/api/verify/{verification_id}/canary")
+async def report_canary_callback(verification_id: str, callback: dict):
+    """
+    Report an interactsh/OOB canary callback (called by canary monitor).
+
+    When a canary URL is triggered by the target, this endpoint records
+    the callback as verification evidence.
+
+    Example:
+        curl -X POST http://localhost:8080/api/verify/vrf-abc123/canary \\
+          -H 'Content-Type: application/json' \\
+          -d '{"canary_id":"abc.oast.fun","protocol":"http",
+               "source_ip":"10.1.1.20","timestamp":1709000000,
+               "raw_request":"GET / HTTP/1.1..."}'
+    """
+    if verification_id not in _verifications:
+        return JSONResponse(status_code=404, content={
+            "error": f"Verification {verification_id} not found"
+        })
+
+    v = _verifications[verification_id]
+    callback["received_at"] = time.time()
+
+    # Auto-create a confirmed result from canary callback
+    canary_result = VerificationResult(
+        finding_id=v["finding_id"],
+        verification_id=verification_id,
+        status=VerificationStatus.CONFIRMED.value,
+        method=VerificationMethod.CANARY_CALLBACK.value,
+        confidence=0.95,  # Canary callbacks are high-confidence
+        canary_id=callback.get("canary_id"),
+        canary_callback=callback,
+        impact_demonstrated=f"OOB callback received from {callback.get('source_ip', 'target')} via {callback.get('protocol', 'unknown')}",
+        notes=f"Canary triggered: {callback.get('canary_id', 'unknown')}",
+        timestamp=time.time(),
+    )
+
+    # Process as a regular verification result
+    v["results"].append(canary_result.model_dump())
+    v["updated_at"] = time.time()
+    v["final_status"] = VerificationStatus.CONFIRMED.value
+    v["final_confidence"] = 0.95
+
+    # Update Neo4j
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run("""
+                    MATCH (f:Finding {id: $finding_id})
+                    SET f.verified = true,
+                        f.verification_status = 'confirmed',
+                        f.confidence = 0.95,
+                        f.canary_callback = true,
+                        f.impact_demonstrated = $impact,
+                        f.verified_at = datetime()
+                """, finding_id=v["finding_id"],
+                     impact=canary_result.impact_demonstrated)
+        except Exception as e:
+            print(f"Neo4j canary update error: {e}")
+
+    # Emit high-priority event
+    await _emit("verification_result", "VF",
+        f"CANARY CONFIRMED: {v['finding_title']} — OOB callback received", {
+            "verification_id": verification_id,
+            "finding_id": v["finding_id"],
+            "status": "confirmed",
+            "method": "canary_callback",
+            "confidence": 0.95,
+            "canary": callback,
+        })
+
+    await state.update_agent_status("VF", AgentStatus.COMPLETED,
+        f"CANARY CONFIRMED: {v['finding_title']}")
+
+    return {
+        "ok": True,
+        "verification_id": verification_id,
+        "status": "confirmed",
+        "confidence": 0.95,
+        "canary_callback": callback,
+    }
+
+
+@app.get("/api/verify")
+async def get_verifications(
+    finding_id: Optional[str] = None,
+    status: Optional[str] = None,
+    engagement_id: Optional[str] = None,
+    limit: int = 50,
+):
+    """
+    Get verification records, optionally filtered.
+
+    Query params:
+      ?finding_id=abc123       — verifications for a specific finding
+      ?status=confirmed        — only confirmed verifications
+      ?engagement_id=eng-001   — filter by engagement
+    """
+    results = []
+    for v in sorted(_verifications.values(), key=lambda x: x["updated_at"], reverse=True):
+        if finding_id and v["finding_id"] != finding_id:
+            continue
+        if status and v["final_status"] != status:
+            continue
+        if engagement_id and v.get("engagement_id") != engagement_id:
+            continue
+        results.append(v)
+        if len(results) >= limit:
+            break
+    return {
+        "verifications": results,
+        "count": len(results),
+        "summary": {
+            "confirmed": sum(1 for v in _verifications.values() if v["final_status"] == "confirmed"),
+            "likely": sum(1 for v in _verifications.values() if v["final_status"] == "likely"),
+            "unverified": sum(1 for v in _verifications.values() if v["final_status"] == "unverified"),
+            "pending": sum(1 for v in _verifications.values() if v["final_status"] == "pending"),
+            "in_progress": sum(1 for v in _verifications.values() if v["final_status"] == "in_progress"),
+        },
+    }
+
+
+@app.get("/api/verify/{verification_id}")
+async def get_verification(verification_id: str):
+    """Get a single verification record with full details."""
+    if verification_id not in _verifications:
+        return JSONResponse(status_code=404, content={
+            "error": f"Verification {verification_id} not found"
+        })
+    return _verifications[verification_id]
+
+
 # ──────────────────────────────────────────────
 # REST API — Query endpoints
 # ──────────────────────────────────────────────

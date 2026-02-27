@@ -303,6 +303,77 @@ class AthenaAgentSession:
             meta["neo4j_ref"] = neo4j_ref
         await self._emit("agent_message", from_agent, content, meta)
 
+    # ── F3: Verification Pipeline ────────────
+
+    async def submit_for_verification(
+        self,
+        finding_id: str,
+        priority: str = "medium",
+        canary_url: str | None = None,
+        source_path: str | None = None,
+    ):
+        """Submit a finding to The Moat for independent verification (F3).
+
+        This emits a verification_queued event and triggers the VF agent
+        to independently re-test the finding using different tools.
+
+        Args:
+            finding_id: ID of the finding to verify
+            priority: low, medium, high, critical
+            canary_url: Optional interactsh URL for OOB verification
+            source_path: Optional source code path for code review
+        """
+        meta = {
+            "finding_id": finding_id,
+            "priority": priority,
+            "verification_type": "moat",
+        }
+        if canary_url:
+            meta["canary_url"] = canary_url
+        if source_path:
+            meta["source_path"] = source_path
+        await self._emit("verification_queued", "VF",
+            f"Finding {finding_id} submitted for verification", meta)
+
+    async def report_verification_result(
+        self,
+        finding_id: str,
+        status: str,
+        method: str,
+        confidence: float,
+        poc_script: str | None = None,
+        impact: str | None = None,
+        canary_callback: dict | None = None,
+    ):
+        """Report a verification result from the VF agent (F3).
+
+        Args:
+            finding_id: Finding being verified
+            status: confirmed, likely, unverified, false_positive
+            method: independent_retest, canary_callback, poc_execution,
+                    code_review, manual
+            confidence: 0.0 - 1.0
+            poc_script: Runnable PoC command
+            impact: What was demonstrated
+            canary_callback: OOB callback details if applicable
+        """
+        meta = {
+            "finding_id": finding_id,
+            "status": status,
+            "method": method,
+            "confidence": confidence,
+        }
+        if poc_script:
+            meta["poc_script"] = poc_script
+        if impact:
+            meta["impact"] = impact
+        if canary_callback:
+            meta["canary"] = canary_callback
+
+        label = status.upper()
+        await self._emit("verification_result", "VF",
+            f"{label}: Finding {finding_id} ({method}, {confidence:.0%})", meta)
+
     # ── Internal Helpers ──────────────────────
 
     async def _emit(self, event_type: str, agent: str, content: str,
