@@ -1222,17 +1222,19 @@
       color: var(--zerok-text);
     }
 
-    /* ST tile — complementary color to accent (--zerok-strategy per theme) */
+    /* ST tile — cyan only when Strategy Agent is actively running (.st-active) */
     .layer-cell[data-agent="ST"] {
-      border-color: color-mix(in srgb, var(--zerok-strategy) 50%, transparent);
-      background: color-mix(in srgb, var(--zerok-strategy) 10%, transparent);
       cursor: pointer;
     }
-    .layer-cell[data-agent="ST"]:hover {
+    .layer-cell[data-agent="ST"].st-active {
+      border-color: color-mix(in srgb, var(--zerok-strategy) 50%, transparent);
+      background: color-mix(in srgb, var(--zerok-strategy) 10%, transparent);
+    }
+    .layer-cell[data-agent="ST"].st-active:hover {
       border-color: var(--zerok-strategy);
       background: color-mix(in srgb, var(--zerok-strategy) 18%, transparent);
     }
-    .layer-cell[data-agent="ST"] .layer-id {
+    .layer-cell[data-agent="ST"].st-active .layer-id {
       color: var(--zerok-strategy);
     }
 
@@ -8685,6 +8687,11 @@
       statusSpan.textContent = s.text;
       statusSpan.style.cssText = s.color;
 
+      // ST tile: cyan only when Strategy Agent is actively running
+      if (agent === 'ST') {
+        cell.classList.toggle('st-active', status === 'running');
+      }
+
       // Update PTES matrix for the agent phase
       updatePtesFromAgent(agent, status);
     }
@@ -9462,6 +9469,9 @@
           s.textContent = 'Idle';
           s.style.cssText = '';
         });
+        // Reset ST cyan highlight
+        const stCell = agentGrid.querySelector('[data-agent="ST"]');
+        if (stCell) stCell.classList.remove('st-active');
       }
 
       // ── Reset Scan Coverage to 0% ──
