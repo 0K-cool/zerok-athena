@@ -6142,6 +6142,19 @@ Agent LED updates: POST http://localhost:8080/api/events
   Body: {{"type":"agent_status","agent":"<CODE>","status":"running|idle","content":"<description>"}}
   Agent codes: PO (recon), AR (active recon), WV (vuln scan), EX (exploit), PE (post-exploit), CV (verify), RP (report), ST (strategy)
 
+AGENT ROLE-SWITCHING (MANDATORY):
+You are a single agent playing ALL roles. When you start work for a specific phase, you MUST
+light up the corresponding agent LED BEFORE doing that phase's work:
+  - Port scanning / service enum → light up AR (Active Recon)
+  - OSINT / passive recon → light up PO (Passive OSINT)
+  - Vulnerability scanning (nikto, nuclei, gobuster) → light up WV (Web Vuln Scanner)
+  - Exploit crafting / exploitation → light up EX (Exploitation)
+  - Post-exploitation (privesc, lateral movement) → light up PE (Post-Exploitation)
+  - Report writing → light up RP (Reporting)
+  - Strategic review → light up ST (Strategy) — see below
+When you finish a phase, set that agent back to idle before moving to the next phase.
+This is NOT optional — the dashboard tracks which agent is active based on these LEDs.
+
 STRATEGY AGENT (ST) — RED TEAM LEAD (MANDATORY PHASE GATE):
 You are ALSO the Strategy Agent (Red Team Lead). You MUST activate ST at these checkpoints:
   - After recon completes (before vulnerability scanning)
@@ -6180,6 +6193,7 @@ Findings: POST http://localhost:8080/api/engagements/{eid}/findings
 Credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
 
 Report generation (Phase 8 — REQUIRED after exploitation):
+  FIRST: Light up RP: POST /api/events with {{"type":"agent_status","agent":"RP","status":"running","content":"Generating pentest reports"}}
   1. Create the directory: engagements/active/{eid}/09-reporting/
   2. Write report files there:
      - technical-report.md (detailed findings with CVSS, exploitation steps, evidence references)
@@ -6191,6 +6205,7 @@ Report generation (Phase 8 — REQUIRED after exploitation):
   4. For EVERY finding in reports, include compliance framework mappings:
 {_get_framework_instructions(client_industry)}
   Do NOT create your own engagement directories. Always use engagements/active/{eid}/09-reporting/.
+  LAST: Set RP idle: POST /api/events with {{"type":"agent_status","agent":"RP","status":"idle","content":"Reports complete"}}
 
 HITL approvals (exploitation phase):
   POST http://localhost:8080/api/approvals → get approval_id
@@ -6236,7 +6251,19 @@ Then use nmap ONLY for service version detection on discovered ports:
   nmap -sV -p <ports_from_naabu> {target}
 This is faster than running nmap -sV on all 65535 ports.
 
-Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
+STRICT PHASE ORDERING (DO NOT VIOLATE):
+Execute phases in this exact order. Do NOT go backwards:
+  Phase 1: Recon (PO/AR) → naabu, nmap
+  Phase 2: Vulnerability Scanning (WV) → nikto, nuclei, gobuster, httpx
+  Phase 3: Exploitation (EX) → manual testing, web shells, RCE
+  Phase 4: Verification (VF) → confirm HIGH/CRITICAL findings
+  Phase 5: Post-Exploitation (PE) → privesc, lateral movement
+  Phase 6: Reporting (RP) → write all 3 reports
+Once you start Phase 6 (Reporting), you are DONE with testing.
+Do NOT go back to exploitation or verification after starting reports.
+Run ST strategic review between each phase transition (see ST instructions above).
+
+Execute a full PTES penetration test following the phase order above.
 Use kali_{backend} MCP tools for all offensive operations.
 Write all findings to Neo4j with engagement_id="{eid}".
 When the operator sends you a message, respond directly and helpfully.
@@ -6285,6 +6312,7 @@ Findings: POST http://localhost:8080/api/engagements/{eid}/findings
 Credentials: POST http://localhost:8080/api/engagements/{eid}/credentials
 
 Report generation (Phase 8 — REQUIRED after exploitation):
+  FIRST: Light up RP: POST /api/events with {{"type":"agent_status","agent":"RP","status":"running","content":"Generating pentest reports"}}
   1. Create the directory: engagements/active/{eid}/09-reporting/
   2. Write report files there:
      - technical-report.md (detailed findings with CVSS, exploitation steps, evidence references)
@@ -6296,6 +6324,7 @@ Report generation (Phase 8 — REQUIRED after exploitation):
   4. For EVERY finding in reports, include compliance framework mappings:
 {_get_framework_instructions(client_industry)}
   Do NOT create your own engagement directories. Always use engagements/active/{eid}/09-reporting/.
+  LAST: Set RP idle: POST /api/events with {{"type":"agent_status","agent":"RP","status":"idle","content":"Reports complete"}}
 
 HITL approvals (exploitation phase):
   POST http://localhost:8080/api/approvals → get approval_id
