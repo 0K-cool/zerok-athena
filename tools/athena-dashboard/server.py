@@ -1032,7 +1032,7 @@ async def get_approval_status(request_id: str):
 
 
 @app.post("/api/approvals/{request_id}/resolve")
-async def resolve_approval_api(request_id: str, approved: bool = True, reason: str = ""):
+async def resolve_approval_api(request_id: str, approved: bool, reason: str = ""):
     """Resolve a HITL approval via REST (alternative to WebSocket)."""
     ok = await state.resolve_approval(request_id, approved, reason)
     if not ok:
@@ -1051,6 +1051,7 @@ class FindingPayload(BaseModel):
     cve: Optional[str] = None
     evidence: Optional[str] = None
     engagement: str = "eng-001"
+    scan_id: Optional[str] = None  # Link finding to originating scan
     # Explicit relationship hints (optional — extracted from target if not provided)
     host_ip: Optional[str] = None
     service_port: Optional[int] = None
@@ -1177,6 +1178,19 @@ async def create_finding(payload: FindingPayload):
                          protocol=svc_proto, engagement=payload.engagement,
                          finding_id=finding_id)
 
+                # Step 4: Link Finding to originating Scan (Fix 5b)
+                if payload.scan_id:
+                    session.run(
+                        "MATCH (s:Scan {id: $sid}), (f:Finding {id: $fid}) "
+                        "MERGE (s)-[:HAS_FINDING]->(f)",
+                        sid=payload.scan_id, fid=finding_id
+                    )
+                    session.run(
+                        "MATCH (s:Scan {id: $sid}) "
+                        "SET s.findings_count = coalesce(s.findings_count, 0) + 1",
+                        sid=payload.scan_id
+                    )
+
         except Exception as e:
             print(f"Neo4j finding write error: {e}")
 
@@ -1197,6 +1211,13 @@ async def create_finding(payload: FindingPayload):
     )
     await state.add_finding(finding)
 
+    # Fix 5b: Increment in-memory scan findings_count when scan_id provided
+    if payload.scan_id:
+        for scan in state.scans:
+            if scan["id"] == payload.scan_id:
+                scan["findings_count"] = scan.get("findings_count", 0) + 1
+                break
+
     # Broadcast stat_update so KPI cards update in real-time
     eid = payload.engagement or state.active_engagement_id
     if eid:
@@ -1205,7 +1226,12 @@ async def create_finding(payload: FindingPayload):
         hosts = set()
         for f in eng_findings:
             if f.target:
-                host = f.target.split(":")[0].split("/")[0]
+                raw = f.target.strip()
+                if raw.startswith(("http://", "https://")):
+                    from urllib.parse import urlparse
+                    host = urlparse(raw).hostname or ""
+                else:
+                    host = raw.split(":")[0].split("/")[0]
                 if host:
                     hosts.add(host)
         await state.broadcast({
@@ -3134,7 +3160,12 @@ async def get_engagement_summary(eid: str):
                         mem_hosts = set()
                         for f in mem_findings:
                             if f.target:
-                                h = f.target.split(":")[0].split("/")[0]
+                                raw = f.target.strip()
+                                if raw.startswith(("http://", "https://")):
+                                    from urllib.parse import urlparse
+                                    h = urlparse(raw).hostname or ""
+                                else:
+                                    h = raw.split(":")[0].split("/")[0]
                                 if h:
                                     mem_hosts.add(h)
                         mem_ports = sum(s.get("findings_count", 0) for s in state.scans
@@ -3171,7 +3202,12 @@ async def get_engagement_summary(eid: str):
     hosts = set()
     for f in eng_findings:
         if f.target:
-            host = f.target.split(":")[0].split("/")[0]
+            raw = f.target.strip()
+            if raw.startswith(("http://", "https://")):
+                from urllib.parse import urlparse
+                host = urlparse(raw).hostname or ""
+            else:
+                host = raw.split(":")[0].split("/")[0]
             if host:
                 hosts.add(host)
     # Count open ports from scan data
@@ -3793,6 +3829,17 @@ async def get_web_findings(eid: str):
     }
 
 
+@app.post("/api/engagements/{eid}/findings")
+async def create_engagement_finding(eid: str, payload: FindingPayload):
+    """Alias: POST finding scoped to an engagement.
+
+    Delegates to the main create_finding() handler after injecting the
+    engagement ID from the URL path (overrides payload.engagement).
+    """
+    payload.engagement = eid
+    return await create_finding(payload)
+
+
 @app.delete("/api/engagements/{eid}/findings")
 async def clear_engagement_findings(eid: str):
     """Delete all findings and evidence for an engagement."""
@@ -4154,10 +4201,11 @@ async def list_artifacts(
     type: Optional[str] = None,
     backend: Optional[str] = None,
     capture_mode: Optional[str] = None,
+    linked_only: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ):
-    """List artifacts with optional filters."""
+    """List artifacts with optional filters. linked_only=true returns only finding-linked artifacts."""
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
@@ -4178,6 +4226,16 @@ async def list_artifacts(
                 if capture_mode:
                     conditions.append("a.capture_mode = $capture_mode")
                     params["capture_mode"] = capture_mode
+
+                # When linked_only=true, only return artifacts linked to findings
+                # via relationships (HAS_ARTIFACT, EVIDENCED_BY, SUPPORTS) or finding_id property
+                if linked_only and linked_only.lower() == "true":
+                    conditions.append(
+                        "(EXISTS { MATCH (f2:Finding)-[:HAS_ARTIFACT]->(a) } "
+                        "OR EXISTS { MATCH (f2:Finding)-[:EVIDENCED_BY]->(a) } "
+                        "OR EXISTS { MATCH (f2:Finding)-[:SUPPORTS]->(a) } "
+                        "OR (a.finding_id IS NOT NULL AND a.finding_id <> ''))"
+                    )
 
                 where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
                 query = f"""
@@ -4332,6 +4390,66 @@ async def delete_artifact(artifact_id: str):
             deleted_files.append(str(tp))
 
     return {"ok": True, "artifact_id": artifact_id, "deleted_files": deleted_files}
+
+
+@app.delete("/api/engagements/{eid}/artifacts")
+async def delete_all_artifacts(eid: str):
+    """Delete ALL artifacts and evidence packages for an engagement from Neo4j and disk."""
+    if not neo4j_available or not neo4j_driver:
+        return JSONResponse(status_code=503, content={"error": "Neo4j unavailable"})
+
+    athena_dir = Path(__file__).parent.parent.parent
+    deleted_count = 0
+    deleted_files = []
+
+    try:
+        with neo4j_driver.session() as session:
+            # 1. Collect file paths before deletion
+            result = session.run(
+                "MATCH (a:Artifact {engagement_id: $eid}) "
+                "RETURN a.file_path AS file_path, a.thumbnail_path AS thumbnail_path",
+                eid=eid,
+            )
+            file_paths = []
+            for record in result:
+                fp = record.get("file_path")
+                tp = record.get("thumbnail_path")
+                if fp:
+                    file_paths.append(fp)
+                if tp:
+                    file_paths.append(tp)
+
+            # 2. Count artifacts
+            count_result = session.run(
+                "MATCH (a:Artifact {engagement_id: $eid}) RETURN count(a) AS cnt",
+                eid=eid,
+            )
+            count_record = count_result.single()
+            deleted_count = count_record["cnt"] if count_record else 0
+
+            # 3. Delete EvidencePackage nodes for this engagement
+            session.run(
+                "MATCH (ep:EvidencePackage {engagement_id: $eid}) DETACH DELETE ep",
+                eid=eid,
+            )
+
+            # 4. Delete all Artifact nodes for this engagement
+            session.run(
+                "MATCH (a:Artifact {engagement_id: $eid}) DETACH DELETE a",
+                eid=eid,
+            )
+
+        # 5. Delete files + thumbnails from disk
+        for rel_path in file_paths:
+            fp = athena_dir / rel_path
+            if fp.exists():
+                fp.unlink()
+                deleted_files.append(str(fp))
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    return {"ok": True, "deleted": deleted_count, "deleted_files": len(deleted_files), "engagement": eid}
 
 
 # ──────────────────────────────────────────────
@@ -4663,6 +4781,11 @@ async def update_scan(scan_id: str, request: dict):
         if field in request:
             scan[field] = request[field]
 
+    # BUG-021b + Fix 5a: Normalize "complete" → "completed" for frontend consistency
+    # Frontend checks s.status === 'completed'; agents sometimes send "complete" (no "d")
+    if scan.get("status") == "complete":
+        scan["status"] = "completed"
+
     # Auto-set completed_at if status changed to completed/error
     # BUG-021b: Agent sends "complete" (no "d") — accept both variants
     if request.get("status") in ("completed", "complete", "error") and not scan.get("completed_at"):
@@ -4832,6 +4955,18 @@ async def get_reports(engagement: Optional[str] = None, include_archived: bool =
                     stem_lower = f.stem.lower()
                     if any(kw in stem_lower for kw in ("report", "pentest", "executive", "remediation", "technical", "summary")):
                         report_files.append((f, root_meta))
+
+            # Fix 6: Deduplicate by absolute path — same file may appear under both
+            # scan_roots (active/ and engagements/ root share the same eng_dir via symlink or
+            # direct inclusion), causing 2x or 3x duplicates.
+            seen_paths: set = set()
+            unique_reports = []
+            for rf, m in report_files:
+                abs_path = rf.resolve()
+                if abs_path not in seen_paths:
+                    seen_paths.add(abs_path)
+                    unique_reports.append((rf, m))
+            report_files = unique_reports
 
             for report_file, meta in report_files:
                 file_id = f"file-{report_file.stem}"
@@ -6214,7 +6349,12 @@ async def _sync_neo4j_findings(eid: str):
                 hosts = set()
                 for f in eng_findings:
                     if f.target:
-                        host = f.target.split(":")[0].split("/")[0]
+                        raw = f.target.strip()
+                        if raw.startswith(("http://", "https://")):
+                            from urllib.parse import urlparse
+                            host = urlparse(raw).hostname or ""
+                        else:
+                            host = raw.split(":")[0].split("/")[0]
                         if host:
                             hosts.add(host)
                 findings_display = len(eng_findings) if eng_findings else neo4j_vuln_count
@@ -6694,6 +6834,15 @@ async def stop_engagement(eid: str):
         "engagement_id": eid,
         "status": "completed",
         "timestamp": time.time(),
+    })
+
+    # Broadcast final cost so the frontend cost display is accurate at session end
+    await state.broadcast({
+        "type": "cost_update",
+        "engagement_cost": round(_engagement_cost, 4),
+        "tool_calls": 0,
+        "max_tool_calls": 0,
+        "final": True,
     })
 
     await state.broadcast({

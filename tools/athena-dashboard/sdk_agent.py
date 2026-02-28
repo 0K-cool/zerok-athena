@@ -403,6 +403,9 @@ class AthenaAgentSession:
         """Create a chain link between two findings/hosts (F6).
 
         Relationship types: ENABLES, PIVOTS_TO, ESCALATES_TO, EXPOSES
+
+        Emits the chain_link WebSocket event AND persists to Neo4j via
+        the /api/chains/link endpoint (Fix 11).
         """
         await self._emit("system", "ST",
             f"Chain: {from_label} —[{relationship}]→ {to_label}",
@@ -410,6 +413,28 @@ class AthenaAgentSession:
              "from_id": from_id, "from_label": from_label,
              "to_id": to_id, "to_label": to_label,
              "description": description, "confidence": confidence})
+
+        # Fix 11: Persist attack link to Neo4j via server API
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as http_session:
+                await http_session.post(
+                    f"{self._budget_server_url}/api/chains/link",
+                    json={
+                        "engagement_id": self.engagement_id,
+                        "from_finding_id": from_id,
+                        "from_label": from_label,
+                        "to_finding_id": to_id,
+                        "to_label": to_label,
+                        "relationship": relationship,
+                        "description": description,
+                        "confidence": confidence,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
+        except Exception:
+            # Non-critical — don't interrupt the main engagement flow
+            pass
 
     async def register_attack_chain(
         self,
@@ -429,6 +454,9 @@ class AthenaAgentSession:
             impact: What the full chain achieves
             blast_radius: How much damage is possible
             priority: 1=highest
+
+        Emits the attack_chain WebSocket event AND persists to Neo4j via
+        the /api/chains endpoint (Fix 11).
         """
         chain_str = " → ".join(steps)
         await self._emit("system", "ST",
@@ -437,6 +465,27 @@ class AthenaAgentSession:
              "chain_name": name, "steps_count": len(steps),
              "steps": steps, "impact": impact,
              "blast_radius": blast_radius, "priority": priority})
+
+        # Fix 11: Persist full attack chain to Neo4j via server API
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as http_session:
+                await http_session.post(
+                    f"{self._budget_server_url}/api/chains",
+                    json={
+                        "engagement_id": self.engagement_id,
+                        "chain_id": chain_id,
+                        "chain_name": name,
+                        "steps": steps,
+                        "impact": impact,
+                        "blast_radius": blast_radius,
+                        "priority": priority,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
+        except Exception:
+            # Non-critical — don't interrupt the main engagement flow
+            pass
 
     # ── F5: Budget Tracking ─────────────────
 
@@ -464,6 +513,67 @@ class AthenaAgentSession:
         except Exception:
             # Non-critical — budget tracking is best-effort
             pass
+
+    # ── Fix 9: Exploitation Evidence Capture ─
+
+    EXPLOIT_INDICATORS = [
+        'uid=', 'root:', 'www-data', 'nt authority',  # RCE confirmation
+        'shell>', 'meterpreter>', 'reverse shell',      # Shell access
+        'uploaded successfully', 'webshell',             # File upload
+        'password:', 'credentials found',                # Credential access
+    ]
+
+    def _is_exploitation_result(self, tool_name: str, output: str) -> bool:
+        """Detect if a tool result indicates successful exploitation."""
+        if tool_name not in ('bash', 'execute_command', 'run_command',
+                             'mcp__kali_external__bash', 'mcp__kali_internal__bash',
+                             'mcp__kali_external__execute_command',
+                             'mcp__kali_internal__execute_command'):
+            return False
+        output_lower = output.lower()
+        return any(indicator in output_lower for indicator in self.EXPLOIT_INDICATORS)
+
+    async def _capture_exploitation_evidence(self, tool_name: str, output: str):
+        """Capture exploitation result as an artifact via the dashboard API.
+
+        Called when a bash/command tool result contains exploitation indicators.
+        Creates an artifact and links it to the most recent finding via
+        HAS_ARTIFACT relationship.
+        """
+        try:
+            import aiohttp
+            artifact_payload = {
+                "engagement_id": self.engagement_id,
+                "type": "exploitation_output",
+                "title": f"Exploitation evidence — {tool_name}",
+                "content": output[:8000],  # cap to avoid oversized payloads
+                "agent": self._current_agent,
+                "auto_link_latest_finding": True,
+                "relationship": "HAS_ARTIFACT",
+            }
+            async with aiohttp.ClientSession() as http_session:
+                async with http_session.post(
+                    f"{self._budget_server_url}/api/artifacts",
+                    json=artifact_payload,
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status in (200, 201):
+                        data = await resp.json()
+                        artifact_id = data.get("artifact_id", "")
+                        await self._emit("system", self._current_agent,
+                            f"Exploitation evidence captured: {artifact_id}",
+                            {"artifact_captured": True,
+                             "artifact_id": artifact_id,
+                             "tool": tool_name})
+                    else:
+                        logger.warning(
+                            "Artifact API returned %d for exploitation capture",
+                            resp.status)
+        except ImportError:
+            logger.warning("aiohttp not available — exploitation evidence capture skipped")
+        except Exception as e:
+            # Non-critical — don't interrupt the main engagement flow
+            logger.warning("Exploitation evidence capture failed: %s", e)
 
     # ── F4: CTF Mode Helpers ─────────────────
 
@@ -682,7 +792,9 @@ class AthenaAgentSession:
             await self._emit("system", "OR",
                 f"AI engagement session ended. "
                 f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} total cost.",
-                {"control": "engagement_ended"})
+                {"control": "engagement_ended",
+                 "cost_usd": round(self._total_cost_usd, 4),
+                 "tool_calls": self._tool_count})
             await self._cleanup_orphan_scans()
 
     async def _cleanup_orphan_scans(self):
@@ -878,6 +990,9 @@ class AthenaAgentSession:
                         })
                     # F4: Check tool output for CTF flags
                     await self._check_for_flags(output, self._current_agent)
+                    # Fix 9: Capture exploitation evidence as artifact
+                    if not block.is_error and self._is_exploitation_result(tool_name, output):
+                        await self._capture_exploitation_evidence(tool_name, output)
         elif msg.tool_use_result:
             raw = msg.tool_use_result.get("content", "")
             output = _extract_tool_output(raw)
@@ -892,3 +1007,7 @@ class AthenaAgentSession:
                 })
             # F4: Check tool output for CTF flags
             await self._check_for_flags(output, self._current_agent)
+            # Fix 9: Capture exploitation evidence as artifact
+            if not msg.tool_use_result.get("is_error", False) and \
+                    self._is_exploitation_result(tool_name, output):
+                await self._capture_exploitation_evidence(tool_name, output)
