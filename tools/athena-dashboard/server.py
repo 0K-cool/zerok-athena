@@ -2860,7 +2860,7 @@ async def get_engagements(include_archived: bool = False):
                     MATCH (e:Engagement)
                     OPTIONAL MATCH (f:Finding {engagement_id: e.id})
                     RETURN e.id AS id, e.name AS name, e.client AS client,
-                           e.scope AS scope, e.types AS type, e.status AS status,
+                           e.target AS target, e.scope AS scope, e.types AS type, e.status AS status,
                            e.start_date AS start_date,
                            count(DISTINCT f) AS findings_count
                     ORDER BY e.start_date DESC
@@ -2881,7 +2881,7 @@ async def get_engagements(include_archived: bool = False):
                         "name": record["name"],
                         "client": record.get("client", "Unknown"),
                         "scope": record.get("scope", ""),
-                        "target": record.get("scope", ""),
+                        "target": record.get("target") or record.get("scope", ""),
                         "type": record.get("type", "external"),
                         "status": status,
                         "start_date": record.get("start_date", ""),
@@ -2907,6 +2907,7 @@ class CreateEngagementPayload(BaseModel):
     name: str
     client: str
     scope: str
+    target: str = ""  # URL/IP/CIDR of the target (e.g., http://example.com:3030)
     types: list[str] = ["external"]
     authorization: str = "manual"  # "documented" (SoW/RoE uploaded) or "manual" (operator assertion)
     evidence_mode: str = "exploitable"  # "exploitable" (only confirmed vulns) or "all" (capture everything)
@@ -2970,6 +2971,7 @@ async def create_engagement(payload: CreateEngagementPayload):
                         id: $id,
                         name: $name,
                         client: $client,
+                        target: $target,
                         scope: $scope,
                         scope_doc: $scope_doc,
                         types: $types,
@@ -2980,7 +2982,8 @@ async def create_engagement(payload: CreateEngagementPayload):
                         start_date: $start_date
                     })
                 """, id=engagement_id, name=payload.name, client=payload.client,
-                     scope=payload.scope, scope_doc=payload.scope_doc, types=types_str,
+                     target=payload.target, scope=payload.scope,
+                     scope_doc=payload.scope_doc, types=types_str,
                      authorization=payload.authorization,
                      evidence_mode=payload.evidence_mode,
                      client_industry=payload.client_industry, start_date=start_date)
@@ -3003,7 +3006,7 @@ async def create_engagement(payload: CreateEngagementPayload):
     new_engagement = Engagement(
         id=engagement_id,
         name=payload.name,
-        target=payload.scope,
+        target=payload.target or payload.scope,
         type=types_str,
         status="active",
         start_date=start_date,
@@ -6431,12 +6434,14 @@ async def start_engagement_ai(
             try:
                 with neo4j_driver.session() as session:
                     result = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry",
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.target AS target, e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry",
                         eid=eid,
                     )
                     record = result.single()
                     if record:
-                        if not target and record.get("scope"):
+                        if not target and record.get("target"):
+                            target = record["target"]
+                        elif not target and record.get("scope"):
                             target = record["scope"]
                         if record.get("scope_doc"):
                             scope_doc = record["scope_doc"]
