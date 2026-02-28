@@ -4773,10 +4773,13 @@ async def get_reports(engagement: Optional[str] = None, include_archived: bool =
     """Get reports by scanning engagement 09-reporting/ directories and in-memory state."""
     eid = None if all_engagements else (engagement or state.active_engagement_id)
     # Filter in-memory reports by engagement (consistent with DELETE filtering)
+    # If no engagement ID is resolved and not requesting all, return empty
     if eid:
         reports = [r for r in state._reports if r.get("engagement_id") == eid]
-    else:
+    elif all_engagements:
         reports = list(state._reports)
+    else:
+        return []
 
     # Also scan filesystem for report files in engagement directories
     # BUG-028: Scan multiple locations — AI may write reports at engagement root
@@ -4804,31 +4807,9 @@ async def get_reports(engagement: Optional[str] = None, include_archived: bool =
             # Skip non-engagement directories at engagements/ root
             if scan_root == engagements_base and eng_dir.name in skip_dirs:
                 continue
-            # Match engagement ID if provided (dir name starts with eid)
-            # Also match by engagement name/target keywords for AI-created dirs
+            # Strict match: directory name must start with the engagement ID
             if eid and not eng_dir.name.startswith(eid):
-                # Check if this dir was created by the AI for the active engagement
-                # by matching engagement name keywords in the directory name
-                if not _eid_name_cache.get(eid):
-                    # Try in-memory state first, then Neo4j
-                    eng_obj = next((e for e in state.engagements if getattr(e, 'id', None) == eid), None)
-                    if eng_obj:
-                        _eid_name_cache[eid] = (getattr(eng_obj, 'name', '') or '').lower()
-                    elif NEO4J_AVAILABLE:
-                        try:
-                            with neo4j_driver.session() as session:
-                                rec = session.run("MATCH (e:Engagement {id: $eid}) RETURN e.name AS name", eid=eid).single()
-                                _eid_name_cache[eid] = (rec["name"] or "").lower() if rec else ""
-                        except Exception:
-                            _eid_name_cache[eid] = ""
-                    else:
-                        _eid_name_cache[eid] = ""
-                eng_target_name = _eid_name_cache.get(eid, "")
-                dir_name_lower = eng_dir.name.lower()
-                # Match any word from engagement name (e.g., "acme gym" → "gym" matches "gymwebapp")
-                name_words = [w for w in eng_target_name.split() if len(w) >= 3]
-                if not any(w in dir_name_lower for w in name_words):
-                    continue
+                continue
             parts = eng_dir.name.split("_")
             eng_name = parts[-1] if len(parts) >= 3 else eng_dir.name
 
