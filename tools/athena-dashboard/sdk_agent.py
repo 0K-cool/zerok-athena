@@ -388,6 +388,56 @@ class AthenaAgentSession:
         await self._emit("verification_result", "VF",
             f"{label}: Finding {finding_id} ({method}, {confidence:.0%})", meta)
 
+    # ── F6: Attack Chain Reasoning ──────────
+
+    async def create_attack_link(
+        self,
+        from_id: str,
+        from_label: str,
+        to_id: str,
+        to_label: str,
+        relationship: str,
+        description: str = "",
+        confidence: float = 0.8,
+    ):
+        """Create a chain link between two findings/hosts (F6).
+
+        Relationship types: ENABLES, PIVOTS_TO, ESCALATES_TO, EXPOSES
+        """
+        await self._emit("system", "ST",
+            f"Chain: {from_label} —[{relationship}]→ {to_label}",
+            {"chain_link": True, "relationship": relationship,
+             "from_id": from_id, "from_label": from_label,
+             "to_id": to_id, "to_label": to_label,
+             "description": description, "confidence": confidence})
+
+    async def register_attack_chain(
+        self,
+        chain_id: str,
+        name: str,
+        steps: list[str],
+        impact: str,
+        blast_radius: str = "",
+        priority: int = 1,
+    ):
+        """Register a full attack chain discovered by Strategy Agent (F6).
+
+        Args:
+            chain_id: Unique chain identifier
+            name: Short chain name (e.g. "SQLi → Admin → RCE")
+            steps: List of step labels for display
+            impact: What the full chain achieves
+            blast_radius: How much damage is possible
+            priority: 1=highest
+        """
+        chain_str = " → ".join(steps)
+        await self._emit("system", "ST",
+            f"ATTACK CHAIN [{priority}]: {chain_str} — {impact}",
+            {"attack_chain": True, "chain_id": chain_id,
+             "chain_name": name, "steps_count": len(steps),
+             "steps": steps, "impact": impact,
+             "blast_radius": blast_radius, "priority": priority})
+
     # ── F5: Budget Tracking ─────────────────
 
     async def _record_budget_tool_call(self, agent: str):

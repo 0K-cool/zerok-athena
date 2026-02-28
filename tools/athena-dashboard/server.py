@@ -2409,6 +2409,428 @@ async def reset_budgets():
     return {"ok": True, "message": "All budgets reset"}
 
 
+# ── F6: Attack Chain Reasoning via Neo4j ──────────────────────
+
+class AttackRelationType(str, Enum):
+    ENABLES = "ENABLES"              # Finding A enables exploitation of Finding B
+    PIVOTS_TO = "PIVOTS_TO"          # Compromised Host A can reach Host B
+    ESCALATES_TO = "ESCALATES_TO"    # Low-priv escalates to higher privilege
+    EXPOSES = "EXPOSES"              # Service exposes sensitive data/functionality
+
+
+class AttackChainLink(BaseModel):
+    """A single link in an attack chain."""
+    from_id: str           # Finding or Host ID
+    from_label: str        # Human-readable label
+    to_id: str
+    to_label: str
+    relationship: str      # AttackRelationType value
+    description: str = ""
+    confidence: float = 0.8
+
+
+class AttackChain(BaseModel):
+    """A multi-step attack chain discovered by Strategy Agent."""
+    id: str
+    engagement_id: str = "eng-001"
+    name: str                         # e.g. "SQLi → Admin → RCE"
+    links: list[AttackChainLink]
+    impact: str = ""                  # What the full chain achieves
+    blast_radius: str = ""            # How much damage possible
+    priority: int = 1                 # 1=highest
+    discovered_by: str = "ST"         # Agent that identified the chain
+
+
+@app.post("/api/chains/link")
+async def create_attack_link(link: AttackChainLink):
+    """
+    Create a relationship between two findings/hosts in Neo4j.
+
+    Used by agents when they discover that one finding enables another,
+    or when a compromised host can pivot to another target.
+    """
+    if not neo4j_available or not neo4j_driver:
+        return JSONResponse(status_code=503, content={
+            "error": "Neo4j unavailable — attack chain reasoning requires graph database"
+        })
+
+    rel_type = link.relationship.upper()
+    if rel_type not in [e.value for e in AttackRelationType]:
+        return JSONResponse(status_code=400, content={
+            "error": f"Invalid relationship type: {rel_type}. "
+                     f"Valid: {[e.value for e in AttackRelationType]}"
+        })
+
+    try:
+        with neo4j_driver.session() as session:
+            # Create relationship between existing nodes (Finding or Host)
+            # Use MERGE to avoid duplicates
+            session.run(f"""
+                MATCH (a {{id: $from_id}})
+                MATCH (b {{id: $to_id}})
+                MERGE (a)-[r:{rel_type}]->(b)
+                SET r.description = $description,
+                    r.confidence = $confidence,
+                    r.created_at = datetime()
+            """, from_id=link.from_id, to_id=link.to_id,
+                 description=link.description, confidence=link.confidence)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={
+            "error": f"Neo4j error: {str(e)[:300]}"
+        })
+
+    await _emit("system", "ST",
+        f"Chain link: {link.from_label} —[{rel_type}]→ {link.to_label}",
+        {"chain_link": True, "relationship": rel_type,
+         "from_id": link.from_id, "to_id": link.to_id})
+
+    return {"ok": True, "relationship": rel_type}
+
+
+@app.post("/api/chains")
+async def create_attack_chain(chain: AttackChain):
+    """
+    Register a full attack chain discovered by the Strategy Agent.
+
+    Creates the chain node in Neo4j and links it to its constituent findings.
+    Also broadcasts to dashboard for visualization.
+    """
+    if not neo4j_available or not neo4j_driver:
+        return JSONResponse(status_code=503, content={
+            "error": "Neo4j unavailable"
+        })
+
+    try:
+        with neo4j_driver.session() as session:
+            # Create AttackChain node
+            session.run("""
+                CREATE (ac:AttackChain {
+                    id: $id,
+                    engagement_id: $eid,
+                    name: $name,
+                    impact: $impact,
+                    blast_radius: $blast_radius,
+                    priority: $priority,
+                    discovered_by: $discovered_by,
+                    links_count: $links_count,
+                    created_at: datetime()
+                })
+            """, id=chain.id, eid=chain.engagement_id,
+                 name=chain.name, impact=chain.impact,
+                 blast_radius=chain.blast_radius,
+                 priority=chain.priority,
+                 discovered_by=chain.discovered_by,
+                 links_count=len(chain.links))
+
+            # Link to engagement
+            session.run("""
+                MATCH (e:Engagement {id: $eid})
+                MATCH (ac:AttackChain {id: $chain_id})
+                MERGE (e)-[:HAS_CHAIN]->(ac)
+            """, eid=chain.engagement_id, chain_id=chain.id)
+
+            # Create all chain link relationships
+            for link in chain.links:
+                rel_type = link.relationship.upper()
+                if rel_type in [e.value for e in AttackRelationType]:
+                    session.run(f"""
+                        MATCH (a {{id: $from_id}})
+                        MATCH (b {{id: $to_id}})
+                        MERGE (a)-[r:{rel_type}]->(b)
+                        SET r.description = $desc,
+                            r.confidence = $conf,
+                            r.chain_id = $chain_id,
+                            r.created_at = datetime()
+                    """, from_id=link.from_id, to_id=link.to_id,
+                         desc=link.description, conf=link.confidence,
+                         chain_id=chain.id)
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={
+            "error": f"Neo4j error: {str(e)[:300]}"
+        })
+
+    # Build chain summary for display
+    chain_steps = " → ".join(
+        [chain.links[0].from_label] +
+        [link.to_label for link in chain.links]
+    ) if chain.links else chain.name
+
+    await _emit("system", chain.discovered_by,
+        f"ATTACK CHAIN [{chain.priority}]: {chain_steps} — {chain.impact}",
+        {"attack_chain": True, "chain_id": chain.id,
+         "chain_name": chain.name, "steps": len(chain.links)})
+
+    await state.broadcast({
+        "type": "attack_chain",
+        "chain_id": chain.id,
+        "name": chain.name,
+        "steps": chain_steps,
+        "links_count": len(chain.links),
+        "impact": chain.impact,
+        "blast_radius": chain.blast_radius,
+        "priority": chain.priority,
+        "discovered_by": chain.discovered_by,
+        "timestamp": time.time(),
+    })
+
+    return {"ok": True, "chain_id": chain.id, "links": len(chain.links)}
+
+
+@app.get("/api/chains")
+async def get_attack_chains(engagement_id: str = "eng-001"):
+    """Get all attack chains for an engagement from Neo4j."""
+    if not neo4j_available or not neo4j_driver:
+        return {"chains": [], "message": "Neo4j unavailable"}
+
+    chains = []
+    try:
+        with neo4j_driver.session() as session:
+            result = session.run("""
+                MATCH (ac:AttackChain {engagement_id: $eid})
+                RETURN ac
+                ORDER BY ac.priority ASC
+            """, eid=engagement_id)
+            for record in result:
+                node = record["ac"]
+                chains.append({
+                    "id": node["id"],
+                    "name": node["name"],
+                    "impact": node.get("impact", ""),
+                    "blast_radius": node.get("blast_radius", ""),
+                    "priority": node.get("priority", 99),
+                    "discovered_by": node.get("discovered_by", "ST"),
+                    "links_count": node.get("links_count", 0),
+                })
+    except Exception as e:
+        return {"chains": [], "error": str(e)[:200]}
+
+    return {"chains": chains, "count": len(chains)}
+
+
+@app.get("/api/chains/graph")
+async def get_attack_graph(engagement_id: str = "eng-001"):
+    """
+    Get the full attack graph — all chain relationships for visualization.
+
+    Returns nodes (findings/hosts) and edges (ENABLES/PIVOTS_TO/etc.)
+    suitable for rendering as a force-directed graph or Sankey diagram.
+    """
+    if not neo4j_available or not neo4j_driver:
+        return {"nodes": [], "edges": [], "message": "Neo4j unavailable"}
+
+    nodes = {}
+    edges = []
+
+    try:
+        with neo4j_driver.session() as session:
+            # Get all chain relationships for this engagement
+            for rel_type in AttackRelationType:
+                result = session.run(f"""
+                    MATCH (a)-[r:{rel_type.value}]->(b)
+                    WHERE (a:Finding AND a.engagement_id = $eid)
+                       OR (a:Host AND EXISTS((a)<-[:HAS_HOST]-(:Engagement {{id: $eid}})))
+                       OR EXISTS(r.chain_id)
+                    RETURN a.id AS from_id,
+                           COALESCE(a.title, a.hostname, a.ip, a.id) AS from_label,
+                           labels(a)[0] AS from_type,
+                           b.id AS to_id,
+                           COALESCE(b.title, b.hostname, b.ip, b.id) AS to_label,
+                           labels(b)[0] AS to_type,
+                           type(r) AS rel_type,
+                           r.description AS description,
+                           r.confidence AS confidence
+                """, eid=engagement_id)
+
+                for record in result:
+                    from_id = record["from_id"]
+                    to_id = record["to_id"]
+
+                    if from_id not in nodes:
+                        nodes[from_id] = {
+                            "id": from_id,
+                            "label": record["from_label"],
+                            "type": record["from_type"],
+                        }
+                    if to_id not in nodes:
+                        nodes[to_id] = {
+                            "id": to_id,
+                            "label": record["to_label"],
+                            "type": record["to_type"],
+                        }
+
+                    edges.append({
+                        "from": from_id,
+                        "to": to_id,
+                        "relationship": record["rel_type"],
+                        "description": record.get("description", ""),
+                        "confidence": record.get("confidence", 0.8),
+                    })
+
+    except Exception as e:
+        return {"nodes": [], "edges": [], "error": str(e)[:200]}
+
+    return {
+        "nodes": list(nodes.values()),
+        "edges": edges,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+    }
+
+
+@app.get("/api/chains/shortest-path")
+async def get_shortest_attack_path(
+    engagement_id: str = "eng-001",
+    from_id: str = "",
+    to_id: str = "",
+):
+    """
+    Find shortest attack path between two nodes in the engagement graph.
+
+    If from_id/to_id not specified, finds path from initial access to
+    highest-value target (PII/admin/root).
+    """
+    if not neo4j_available or not neo4j_driver:
+        return {"path": [], "message": "Neo4j unavailable"}
+
+    try:
+        with neo4j_driver.session() as session:
+            if from_id and to_id:
+                # Specific path request
+                result = session.run("""
+                    MATCH path = shortestPath(
+                        (a {id: $from_id})-[*]-(b {id: $to_id})
+                    )
+                    RETURN [n IN nodes(path) |
+                        {id: n.id, label: COALESCE(n.title, n.hostname, n.ip, n.id),
+                         type: labels(n)[0]}
+                    ] AS nodes,
+                    [r IN relationships(path) |
+                        {type: type(r), description: r.description}
+                    ] AS rels
+                """, from_id=from_id, to_id=to_id)
+            else:
+                # Auto-detect: initial access → sensitive target
+                result = session.run("""
+                    MATCH (entry:Host)
+                    WHERE entry.access_level = 'initial'
+                       OR entry.compromised = true
+                    MATCH (target)
+                    WHERE (target:Service AND (target.contains_pii = true OR target.admin = true))
+                       OR (target:Host AND target.root_access = true)
+                    MATCH path = shortestPath((entry)-[*]-(target))
+                    RETURN [n IN nodes(path) |
+                        {id: n.id, label: COALESCE(n.title, n.hostname, n.ip, n.id),
+                         type: labels(n)[0]}
+                    ] AS nodes,
+                    [r IN relationships(path) |
+                        {type: type(r), description: r.description}
+                    ] AS rels
+                    LIMIT 1
+                """, eid=engagement_id)
+
+            record = result.single()
+            if not record:
+                return {"path": [], "message": "No path found"}
+
+            return {
+                "nodes": record["nodes"],
+                "relationships": record["rels"],
+                "length": len(record["rels"]),
+            }
+
+    except Exception as e:
+        return {"path": [], "error": str(e)[:200]}
+
+
+@app.get("/api/chains/blast-radius")
+async def get_blast_radius(finding_id: str, engagement_id: str = "eng-001"):
+    """
+    Calculate the blast radius of a specific finding.
+
+    Traverses the graph outward from the finding to determine what
+    an attacker could reach if this finding is exploited.
+    """
+    if not neo4j_available or not neo4j_driver:
+        return {"reachable": [], "message": "Neo4j unavailable"}
+
+    try:
+        with neo4j_driver.session() as session:
+            result = session.run("""
+                MATCH (f:Finding {id: $fid})
+                OPTIONAL MATCH path = (f)-[:ENABLES|PIVOTS_TO|ESCALATES_TO|EXPOSES*1..4]->(target)
+                RETURN COLLECT(DISTINCT {
+                    id: target.id,
+                    label: COALESCE(target.title, target.hostname, target.ip, target.id),
+                    type: labels(target)[0],
+                    distance: length(path)
+                }) AS reachable
+            """, fid=finding_id)
+
+            record = result.single()
+            reachable = record["reachable"] if record else []
+            # Filter out nulls (from OPTIONAL MATCH with no results)
+            reachable = [r for r in reachable if r.get("id")]
+
+            return {
+                "finding_id": finding_id,
+                "reachable": reachable,
+                "blast_radius": len(reachable),
+                "max_depth": max((r.get("distance", 0) for r in reachable), default=0),
+            }
+
+    except Exception as e:
+        return {"reachable": [], "error": str(e)[:200]}
+
+
+@app.get("/api/chains/lateral")
+async def get_lateral_movement(engagement_id: str = "eng-001"):
+    """
+    Find lateral movement opportunities — compromised hosts that can
+    reach untested hosts/services.
+    """
+    if not neo4j_available or not neo4j_driver:
+        return {"opportunities": [], "message": "Neo4j unavailable"}
+
+    try:
+        with neo4j_driver.session() as session:
+            result = session.run("""
+                MATCH (h1:Host {compromised: true})-[:PIVOTS_TO|NETWORK_ACCESS]->(h2:Host)
+                WHERE NOT h2.compromised
+                OPTIONAL MATCH (h2)-[:HAS_SERVICE]->(s:Service)
+                WHERE NOT s.tested = true
+                RETURN h1.id AS from_host,
+                       COALESCE(h1.hostname, h1.ip, h1.id) AS from_label,
+                       h2.id AS to_host,
+                       COALESCE(h2.hostname, h2.ip, h2.id) AS to_label,
+                       COLLECT(DISTINCT {
+                           id: s.id,
+                           name: s.name,
+                           port: s.port
+                       }) AS untested_services
+            """)
+
+            opportunities = []
+            for record in result:
+                services = [s for s in record["untested_services"] if s.get("id")]
+                opportunities.append({
+                    "from_host": record["from_host"],
+                    "from_label": record["from_label"],
+                    "to_host": record["to_host"],
+                    "to_label": record["to_label"],
+                    "untested_services": services,
+                    "service_count": len(services),
+                })
+
+            return {
+                "opportunities": opportunities,
+                "count": len(opportunities),
+            }
+
+    except Exception as e:
+        return {"opportunities": [], "error": str(e)[:200]}
+
+
 # ──────────────────────────────────────────────
 # REST API — Query endpoints
 # ──────────────────────────────────────────────

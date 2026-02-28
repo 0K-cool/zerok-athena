@@ -3715,6 +3715,52 @@
       word-break: break-all;
     }
 
+    /* F6: Attack chain events */
+    .chain-event {
+      padding: 6px 10px;
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.08), rgba(59, 130, 246, 0.08));
+      border-left: 3px solid var(--zerok-purple, #a855f7);
+      border-radius: 3px;
+      margin-top: 4px;
+    }
+    .chain-steps {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-wrap: wrap;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+    .chain-step {
+      padding: 1px 6px;
+      background: rgba(168, 85, 247, 0.15);
+      border-radius: 3px;
+      color: var(--zerok-primary);
+      font-weight: 600;
+    }
+    .chain-arrow {
+      color: var(--text-secondary);
+      font-size: 10px;
+    }
+    .chain-impact {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+    .chain-priority {
+      display: inline-block;
+      padding: 0 5px;
+      border-radius: 2px;
+      font-size: 9px;
+      font-weight: 700;
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--zerok-high);
+      margin-right: 6px;
+    }
+    .chain-priority.p1 { background: rgba(239, 68, 68, 0.2); color: var(--zerok-high); }
+    .chain-priority.p2 { background: rgba(245, 158, 11, 0.2); color: var(--zerok-medium); }
+    .chain-priority.p3 { background: rgba(59, 130, 246, 0.2); color: var(--zerok-info); }
+
     /* F5: Budget badges on agent tiles */
     .budget-badge {
       position: absolute;
@@ -6850,6 +6896,8 @@
       // F5: Budget events
       budget_exhausted:     { icon: 'x', cls: 'finding',  label: 'Budget' },
       cost_update:          { icon: '$', cls: 'system',   label: 'Cost' },
+      // F6: Attack chain events
+      attack_chain:         { icon: '!', cls: 'finding',  label: 'Chain' },
     };
 
     let ws = null;
@@ -7233,6 +7281,13 @@
       }
       if (type === 'ctf_hint_added') {
         addTimelineEvent(msg);
+        return;
+      }
+
+      // F6: Attack chain events
+      if (type === 'attack_chain') {
+        bumpAgentCount(msg.discovered_by || 'ST');
+        addAttackChainEvent(msg);
         return;
       }
 
@@ -12418,6 +12473,51 @@
     // Check on load and every 30s
     document.addEventListener('DOMContentLoaded', checkNeo4jStatus);
     setInterval(checkNeo4jStatus, 30000);
+
+    // ── F6: Attack Chain Functions ─────────────
+
+    function addAttackChainEvent(msg) {
+      const drawer = document.getElementById('aiDrawerEvents');
+      if (!drawer) return;
+      const el = document.createElement('div');
+      el.className = 'timeline-event';
+      const ts = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString() : '';
+      const agent = msg.discovered_by || 'ST';
+      const priority = msg.priority || 1;
+      const pCls = priority <= 1 ? 'p1' : priority <= 2 ? 'p2' : 'p3';
+
+      // Build step chain visualization
+      const steps = msg.steps || msg.name || '';
+      let stepsHtml = '';
+      if (typeof steps === 'string') {
+        // "SQLi → Admin → RCE" format
+        const parts = steps.split(/\s*→\s*/);
+        stepsHtml = parts.map(function(s) {
+          return '<span class="chain-step">' + escHtml(s) + '</span>';
+        }).join('<span class="chain-arrow">→</span>');
+      } else {
+        stepsHtml = '<span class="chain-step">' + escHtml(String(steps)) + '</span>';
+      }
+
+      el.innerHTML =
+        '<div class="timeline-header">' +
+          '<span class="timeline-icon finding">!</span>' +
+          '<span class="timeline-agent">' + escHtml(agent) + '</span>' +
+          '<span class="timeline-label">CHAIN</span>' +
+          '<span class="timeline-time">' + ts + '</span>' +
+        '</div>' +
+        '<div class="timeline-text">' +
+          '<div class="chain-event">' +
+            '<div class="chain-steps">' +
+              '<span class="chain-priority ' + pCls + '">P' + priority + '</span>' +
+              stepsHtml +
+            '</div>' +
+            (msg.impact ? '<div class="chain-impact">' + escHtml(msg.impact) + '</div>' : '') +
+            (msg.blast_radius ? '<div class="chain-impact" style="opacity:0.7;">Blast radius: ' + escHtml(msg.blast_radius) + '</div>' : '') +
+          '</div>' +
+        '</div>';
+      drawer.prepend(el);
+    }
 
     // ── F5: Budget Badge Functions ─────────────
 
