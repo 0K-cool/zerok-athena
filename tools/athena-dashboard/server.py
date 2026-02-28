@@ -968,6 +968,13 @@ class ApprovalPayload(BaseModel):
     target: Optional[str] = None
 
 
+class AgentRequestPayload(BaseModel):
+    """Request body for spawning a worker agent (called by ST via curl)."""
+    agent: str
+    task: str = ""
+    priority: str = "medium"
+
+
 @app.post("/api/approvals")
 async def create_approval(payload: ApprovalPayload):
     """
@@ -1209,6 +1216,9 @@ async def create_finding(payload: FindingPayload):
         engagement=payload.engagement,
     )
     await state.add_finding(finding)
+
+    # Auto-queue HIGH/CRITICAL findings for VF verification (F3 pipeline)
+    await _auto_queue_verification(finding_id, payload.severity, payload.engagement)
 
     # Fix 5b: Increment in-memory scan findings_count when scan_id provided
     if payload.scan_id:
@@ -6008,6 +6018,11 @@ async def _sync_neo4j_findings(eid: str):
                 )
                 await state.add_finding(finding)
 
+                # Auto-queue HIGH/CRITICAL findings for VF verification
+                rec_severity = (rec.get("severity") or "info").lower()
+                if rec_severity in ("high", "critical"):
+                    await _auto_queue_verification(rec["id"], rec_severity, eid)
+
             if new_findings or neo4j_vuln_count > 0:
                 # Broadcast updated counts. When no formal Finding nodes exist yet
                 # (vuln discovery phase), fall back to Vulnerability node count so
@@ -6047,6 +6062,70 @@ async def _sync_neo4j_findings(eid: str):
         print(f"Findings sync error: {e}")
 
 
+async def _auto_queue_verification(finding_id: str, finding_severity: str, engagement_id: str):
+    """Auto-queue HIGH/CRITICAL findings for VF verification (F3 pipeline).
+
+    Called from create_finding() and _sync_neo4j_findings() to automatically
+    queue findings for independent verification through The Moat.
+    """
+    if finding_severity.lower() not in ("high", "critical"):
+        return
+    # Skip if already queued
+    if finding_id in _finding_verifications:
+        return
+    # Find the finding in state
+    finding = next((f for f in state.findings if f.id == finding_id), None)
+    if not finding:
+        return
+
+    verification_id = f"vrf-{str(uuid.uuid4())[:8]}"
+    category = finding.category.lower() if finding.category else "default"
+    methods = VULN_VERIFICATION_METHODS.get(category, VULN_VERIFICATION_METHODS["default"])
+    alt_tools = RETEST_ALTERNATIVES.get(finding.agent, RETEST_ALTERNATIVES["default"])
+
+    verification = {
+        "id": verification_id,
+        "finding_id": finding_id,
+        "engagement_id": engagement_id,
+        "finding_title": finding.title,
+        "finding_severity": finding.severity.value,
+        "finding_category": finding.category,
+        "finding_target": finding.target,
+        "discovery_agent": finding.agent,
+        "status": VerificationStatus.PENDING.value,
+        "priority": "high" if finding_severity.lower() == "critical" else "medium",
+        "methods": methods,
+        "alt_tools": alt_tools,
+        "canary_url": None,
+        "source_path": None,
+        "results": [],
+        "final_confidence": 0.0,
+        "final_status": VerificationStatus.PENDING.value,
+        "created_at": time.time(),
+        "updated_at": time.time(),
+    }
+    _verifications[verification_id] = verification
+    _finding_verifications.setdefault(finding_id, []).append(verification_id)
+
+    await _emit("verification_queued", "VF", f"Auto-queued: {finding.title}", {
+        "verification_id": verification_id,
+        "finding_id": finding_id,
+        "auto_triggered": True,
+        "methods": methods,
+        "priority": verification["priority"],
+    })
+
+    # Request VF agent spawn if multi-agent session is active
+    if _active_session_manager and _active_session_manager.is_running:
+        vf_session = _active_session_manager.agents.get("VF")
+        if not vf_session or not vf_session.is_running:
+            _active_session_manager.request_agent("VF",
+                f"Verify finding: {finding.title} ({finding_severity}) — "
+                f"use different tools than {finding.agent}. "
+                f"Verification ID: {verification_id}",
+                priority="high")
+
+
 async def _sdk_event_to_dashboard(event: dict, eid: str):
     """Bridge SDK events to the dashboard state + WebSocket broadcast.
 
@@ -6078,6 +6157,15 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
                 "agent": agent_code,
                 "timestamp": time.time(),
             })
+
+    # Handle system events from AgentSessionManager (engagement lifecycle)
+    elif event_type == "system":
+        control = metadata.get("control")
+        if control == "engagement_ended":
+            # Reset all agent LEDs to idle on engagement completion
+            for ac in ("AR", "WV", "EX", "VF", "RP", "ST"):
+                await state.update_agent_status(ac, AgentStatus.IDLE)
+            await _sync_neo4j_findings(eid)
 
     # Also update LED on tool_start (agent is actively working)
     elif event_type == "tool_start":
@@ -7119,34 +7207,32 @@ async def _handle_multi_agent_operator_command(cmd_text: str):
 # ── Phase F1a: Agent Request API ──────────────
 
 @app.post("/api/agents/request")
-async def request_agent_spawn(
-    agent: str = "",
-    task: str = "",
-    priority: str = "medium",
-):
+async def request_agent_spawn(payload: AgentRequestPayload):
     """Request a worker agent to be spawned (called by ST via dashboard API).
 
-    This is how the Strategy Agent requests workers. ST posts to this
-    endpoint, the session manager picks it up and spawns the agent.
+    This is how the Strategy Agent requests workers. ST posts JSON body:
+        curl -X POST http://localhost:8080/api/agents/request \\
+          -H 'Content-Type: application/json' \\
+          -d '{"agent":"AR","task":"Port scan target","priority":"high"}'
     """
     if not _active_session_manager or not _active_session_manager.is_running:
         return JSONResponse(status_code=400, content={
             "error": "No active multi-agent session. Start an engagement first."
         })
 
-    if not agent:
+    if not payload.agent:
         return JSONResponse(status_code=400, content={
             "error": "Agent code required (e.g. AR, WV, EX, VF, RP)"
         })
 
-    _active_session_manager.request_agent(agent, task, priority)
+    _active_session_manager.request_agent(payload.agent, payload.task, payload.priority)
 
     return {
         "ok": True,
-        "agent": agent,
-        "task": task[:200],
-        "priority": priority,
-        "message": f"Agent {agent} spawn requested.",
+        "agent": payload.agent,
+        "task": payload.task[:200],
+        "priority": payload.priority,
+        "message": f"Agent {payload.agent} spawn requested.",
     }
 
 
