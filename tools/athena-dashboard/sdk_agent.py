@@ -260,6 +260,9 @@ class AthenaAgentSession:
         self._tool_count = 0
         self._total_cost_usd: float = 0.0
         self._pending_tools: dict[str, str] = {}  # tool_use_id → tool_name
+        # F5: Per-agent budget tracking
+        self._agent_tool_counts: dict[str, int] = {}  # agent_code → tool_calls
+        self._budget_server_url = "http://localhost:8080"
         # F4: CTF mode
         self.ctf_mode = False
         self._ctf_flag_patterns = [
@@ -384,6 +387,33 @@ class AthenaAgentSession:
         label = status.upper()
         await self._emit("verification_result", "VF",
             f"{label}: Finding {finding_id} ({method}, {confidence:.0%})", meta)
+
+    # ── F5: Budget Tracking ─────────────────
+
+    async def _record_budget_tool_call(self, agent: str):
+        """Record a tool call against the agent's budget via server API."""
+        self._agent_tool_counts[agent] = self._agent_tool_counts.get(agent, 0) + 1
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self._budget_server_url}/api/budget/tool-call",
+                    params={"agent": agent},
+                    timeout=aiohttp.ClientTimeout(total=2),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("early_stop"):
+                            await self._emit("system", agent,
+                                f"EARLY STOP: {agent} budget exhausted — "
+                                f"{data.get('tool_calls', '?')}/{data.get('max_tool_calls', '?')} calls",
+                                {"budget_early_stop": True, "agent": agent})
+        except ImportError:
+            # aiohttp not available — budget tracking via server skipped
+            pass
+        except Exception:
+            # Non-critical — budget tracking is best-effort
+            pass
 
     # ── F4: CTF Mode Helpers ─────────────────
 
@@ -734,6 +764,9 @@ class AthenaAgentSession:
                 self._tool_count += 1
                 command = str(block.input.get("command", ""))
                 new_agent = detect_agent(block.name, command)
+
+                # F5: Record tool call against agent budget
+                await self._record_budget_tool_call(new_agent)
 
                 # Emit agent transition if changed
                 if new_agent != self._current_agent:
