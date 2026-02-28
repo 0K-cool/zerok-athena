@@ -6004,7 +6004,13 @@
         <!-- Evidence Gallery View -->
         <div id="evidenceView" class="findings-view">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h2 style="margin: 0; color: var(--zerok-text);">Evidence Gallery</h2>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <h2 style="margin: 0; color: var(--zerok-text);">Evidence Gallery</h2>
+              <button class="btn-danger-sm" onclick="clearAllEvidence()" title="Delete all evidence for this engagement">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                Delete Evidence
+              </button>
+            </div>
             <div style="display: flex; gap: 8px;">
               <select id="evidence-filter-type" onchange="loadEvidenceGallery()" style="background: var(--zerok-bg-alt); color: var(--zerok-text); border: 1px solid var(--zerok-border); border-radius: 4px; padding: 4px 8px; font-size: 0.85em;">
                 <option value="">All Types</option>
@@ -6027,6 +6033,11 @@
             </div>
           </div>
           <div id="evidence-stats-bar" style="display: flex; gap: 16px; margin-bottom: 16px; padding: 10px; background: var(--zerok-bg-alt); border-radius: 8px; font-size: 0.85em; flex-wrap: wrap;"></div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <span style="font-size: 0.8em; color: var(--zerok-text-dim);">Show:</span>
+            <button id="evidence-linked-btn" onclick="toggleEvidenceLinkedFilter(true)" style="padding: 4px 10px; font-size: 0.78em; border-radius: 12px; border: 1px solid var(--zerok-primary); background: var(--zerok-primary); color: white; cursor: pointer; transition: all 0.2s;">Linked to Findings</button>
+            <button id="evidence-all-btn" onclick="toggleEvidenceLinkedFilter(false)" style="padding: 4px 10px; font-size: 0.78em; border-radius: 12px; border: 1px solid var(--zerok-border); background: transparent; color: var(--zerok-text-dim); cursor: pointer; transition: all 0.2s;">All Artifacts</button>
+          </div>
           <div id="evidence-gallery-grid" class="evidence-gallery-grid"></div>
           <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
             <button onclick="downloadEvidenceManifest()" style="background: var(--zerok-bg-alt); color: var(--zerok-text); border: 1px solid var(--zerok-border); border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85em;">Generate Manifest</button>
@@ -7042,6 +7053,18 @@
       }
     }
 
+    // ── FIX-8: Debounced Dashboard Refresh ──
+    // Prevents dashboard counter lag (previously 3+ min delay) by triggering
+    // loadDashboardFromAPI after finding/scan/stat events with a 2s debounce.
+    let _dashboardRefreshTimer = null;
+    function debouncedDashboardRefresh() {
+      if (_dashboardRefreshTimer) clearTimeout(_dashboardRefreshTimer);
+      _dashboardRefreshTimer = setTimeout(() => {
+        _dashboardRefreshTimer = null;
+        if (typeof loadDashboardFromAPI === 'function') loadDashboardFromAPI();
+      }, 2000);
+    }
+
     // ── WebSocket Connection ──
     function connectWebSocket() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -7180,6 +7203,8 @@
 
       if (type === 'stat_update') {
         handleStatUpdate(msg);
+        // FIX-8: Trigger debounced dashboard refresh so KPI counters stay current
+        debouncedDashboardRefresh();
         return;
       }
 
@@ -7388,6 +7413,8 @@
         if (['JS','PD','WA','AT','AA','LM'].includes(msg.agent) && currentEngagementId) {
           loadAttackChains(currentEngagementId);
         }
+        // FIX-8: Trigger debounced dashboard refresh so counters update promptly
+        debouncedDashboardRefresh();
         return;
       }
 
@@ -7423,6 +7450,8 @@
             scansBadge.textContent = count;
             scansBadge.style.display = '';
           }
+          // FIX-8: Trigger debounced dashboard refresh on scan completion
+          debouncedDashboardRefresh();
         }
         return;
       }
@@ -9012,6 +9041,21 @@
           if (runningTools[tid] && runningTools[tid].timerInterval) clearInterval(runningTools[tid].timerInterval);
           delete runningTools[tid];
         });
+        // FIX-2B: Update Engagement Cost KPI on session end
+        if (msg.metadata && msg.metadata.cost_usd) {
+          const costEl = document.getElementById('kpi-cost');
+          if (costEl) costEl.textContent = '$' + msg.metadata.cost_usd.toFixed(2);
+        }
+        // FIX-3: Reset all agent chips to completed and stop AI pulse dot
+        document.querySelectorAll('.agent-chip').forEach(chip => {
+          chip.classList.remove('running', 'waiting');
+          chip.classList.add('completed');
+        });
+        const _endPulse = document.getElementById('aiPulseDot');
+        if (_endPulse) {
+          _endPulse.classList.remove('active');
+          _endPulse.classList.add('completed');
+        }
         // BUG-017: Auto-generate engagement summary when AI didn't reach report phase
         // BUG-020: Guard against duplicate summary (engagement_ended + engagement_stopped both fire)
         // Flag stays true until next engagement starts (reset in startEngage)
@@ -9430,9 +9474,11 @@
         mtteSparkline.data.datasets[0].data = [];
         mtteSparkline.update();
       }
-      // Reset Open Ports KPI
-      const openPortsVal = document.getElementById('kpi-open-ports');
-      if (openPortsVal) openPortsVal.textContent = '0';
+      // Reset Open Ports KPI — FIX-7: only reset when no active engagement to prevent 0↔1 flicker
+      if (!currentEngagementId) {
+        const openPortsVal = document.getElementById('kpi-open-ports');
+        if (openPortsVal) openPortsVal.textContent = '0';
+      }
       // Reset findings accumulator
       window._dashFindingsAccum = [];
       // Reset OWASP cells
@@ -11188,6 +11234,53 @@
     // EVIDENCE GALLERY
     // ────────────────────────────────────────
 
+    let showLinkedOnly = true;
+
+    function toggleEvidenceLinkedFilter(linked) {
+      showLinkedOnly = linked;
+      const linkedBtn = document.getElementById('evidence-linked-btn');
+      const allBtn = document.getElementById('evidence-all-btn');
+      if (linked) {
+        linkedBtn.style.background = 'var(--zerok-primary)';
+        linkedBtn.style.color = 'white';
+        linkedBtn.style.borderColor = 'var(--zerok-primary)';
+        allBtn.style.background = 'transparent';
+        allBtn.style.color = 'var(--zerok-text-dim)';
+        allBtn.style.borderColor = 'var(--zerok-border)';
+      } else {
+        allBtn.style.background = 'var(--zerok-primary)';
+        allBtn.style.color = 'white';
+        allBtn.style.borderColor = 'var(--zerok-primary)';
+        linkedBtn.style.background = 'transparent';
+        linkedBtn.style.color = 'var(--zerok-text-dim)';
+        linkedBtn.style.borderColor = 'var(--zerok-border)';
+      }
+      loadEvidenceGallery();
+    }
+
+    async function clearAllEvidence() {
+      const eid = currentEngagementId;
+      if (!eid) { showToast('warning', 'No Engagement', 'Select an engagement first'); return; }
+      const confirmed = await showConfirmModal({
+        title: 'Delete All Evidence',
+        message: 'Permanently delete all evidence artifacts for <strong>' + escHtml(eid) + '</strong>? Files will be removed from disk and Neo4j. This cannot be undone.',
+        actionLabel: 'Delete Evidence',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
+      try {
+        const res = await fetch('/api/engagements/' + encodeURIComponent(eid) + '/artifacts', { method: 'DELETE' });
+        if (!res.ok) { showToast('warning', 'Error', 'Server returned ' + res.status); return; }
+        const data = await res.json();
+        showToast('success', 'Evidence Cleared', data.deleted + ' artifacts deleted (' + data.deleted_files + ' files removed)');
+        loadEvidenceGallery();
+        resetDashboardFindingWidgets();
+        await loadDashboardFromAPI();
+      } catch (e) {
+        showToast('warning', 'Error', 'Failed to delete evidence: ' + e.message);
+      }
+    }
+
     async function loadEvidenceGallery() {
       if (!currentEngagementId) return;
       const typeFilter = document.getElementById('evidence-filter-type')?.value || '';
@@ -11197,6 +11290,7 @@
       if (typeFilter) url += `&type=${typeFilter}`;
       if (backendFilter) url += `&backend=${backendFilter}`;
       if (modeFilter) url += `&capture_mode=${modeFilter}`;
+      if (showLinkedOnly) url += `&linked_only=true`;
       try {
         const [statsResp, artResp] = await Promise.all([
           fetch(`/api/evidence/stats?engagement_id=${currentEngagementId}`),

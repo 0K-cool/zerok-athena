@@ -582,6 +582,67 @@ class AgentRunner:
         })
         self.ctx.finding_count += 1
 
+        # FIX-VF: Auto-submit high/critical findings for verification
+        if severity.lower() in ("high", "critical"):
+            try:
+                from server import (
+                    _verifications, _finding_verifications,
+                    VerificationStatus, VULN_VERIFICATION_METHODS, RETEST_ALTERNATIVES,
+                    AgentStatus,
+                )
+                verification_id = f"vrf-{str(uuid.uuid4())[:8]}"
+                cat_key = category.lower() if category else "default"
+                methods = VULN_VERIFICATION_METHODS.get(
+                    cat_key, VULN_VERIFICATION_METHODS["default"]
+                )
+                alt_tools = RETEST_ALTERNATIVES.get(
+                    self.agent, RETEST_ALTERNATIVES["default"]
+                )
+                _verifications[verification_id] = {
+                    "id": verification_id,
+                    "finding_id": finding_id,
+                    "engagement_id": self.ctx.engagement_id,
+                    "finding_title": title,
+                    "finding_severity": severity,
+                    "finding_category": category,
+                    "finding_target": target,
+                    "discovery_agent": self.agent,
+                    "status": VerificationStatus.PENDING.value,
+                    "priority": "high" if severity.lower() == "critical" else "medium",
+                    "methods": methods,
+                    "alt_tools": alt_tools,
+                    "canary_url": None,
+                    "source_path": None,
+                    "results": [],
+                    "final_confidence": 0.0,
+                    "final_status": VerificationStatus.PENDING.value,
+                    "created_at": time.time(),
+                    "updated_at": time.time(),
+                }
+                _finding_verifications.setdefault(finding_id, []).append(verification_id)
+                await self.state.update_agent_status(
+                    "VF", AgentStatus.RUNNING, f"Verifying: {title}"
+                )
+                await self.state.add_event(__import__("server").AgentEvent(
+                    id=str(uuid.uuid4())[:8],
+                    type="verification_queued",
+                    agent="VF",
+                    content=f"Queued: {title}",
+                    timestamp=time.time(),
+                    metadata={
+                        "verification_id": verification_id,
+                        "finding_id": finding_id,
+                        "methods": methods,
+                        "priority": _verifications[verification_id]["priority"],
+                    },
+                ))
+                await self.think(
+                    thought=f"Submitted {severity} finding for independent verification.",
+                    reasoning=f"Finding '{title}' queued as {verification_id} for VF agent verification.",
+                )
+            except Exception:
+                pass  # Non-critical — don't block finding creation
+
         # Increment findings_count on the most recent scan for this agent
         for scan in reversed(self.state.scans):
             if scan["agent"] == self.agent and scan["engagement_id"] == self.ctx.engagement_id:
@@ -1198,6 +1259,23 @@ class Orchestrator:
         """Create an AgentRunner for an agent."""
         return AgentRunner(agent, self.state, self.kali, ctx)
 
+    async def _strategy_review(self, ctx: EngagementContext, phase_name: str):
+        """Invoke Strategy Agent to review findings after a phase and guide next steps."""
+        if ctx.finding_count == 0:
+            return  # Nothing to review yet
+
+        st = self._runner("ST", ctx)
+        await st.think(
+            thought=f"Strategy review after {phase_name} phase.",
+            reasoning=(
+                f"Reviewing {ctx.finding_count} finding(s) across "
+                f"{ctx.host_count} host(s). Evaluating attack chains, "
+                f"prioritizing next steps, and checking for pivot opportunities."
+            ),
+            action="strategy_review",
+        )
+        await st.complete(f"Strategy review for {phase_name} complete.")
+
     async def run_engagement(self, engagement_id: str, backend_override: str = ""):
         """Run a full PTES engagement against real targets.
 
@@ -1270,10 +1348,13 @@ class Orchestrator:
 
             await self._phase_threat_modeling(ctx)
             await self._phase_vuln_analysis(ctx)
+            await self._strategy_review(ctx, "Vulnerability Analysis")  # FIX-7
             await self._phase_webapp_testing(ctx)
             await self._phase_exploitation(ctx)
+            await self._strategy_review(ctx, "Exploitation")  # FIX-7
             await self._phase_post_exploitation(ctx)
             await self._phase_lateral_movement(ctx)
+            await self._strategy_review(ctx, "Post-Exploitation")  # FIX-7
             await self._phase_reporting(ctx)
 
             await self._emit_phase("COMPLETE")
@@ -3038,6 +3119,26 @@ class Orchestrator:
         web_targets = [u for u in ctx.discovered_urls if u.startswith("http")]
         if not web_targets and not ctx.discovered_endpoints:
             return
+
+        # FIX-10: HITL gate for scope expansion on external-only engagements
+        if ctx.target_type == "external":
+            or_runner = self._runner("OR", ctx)
+            approved = await or_runner.request_approval(
+                action="Expand scope to web application testing",
+                description=(
+                    f"Discovered {len(web_targets)} web service(s) and "
+                    f"{len(ctx.discovered_endpoints)} endpoint(s) on target. "
+                    f"Engagement type is 'external' — web application testing "
+                    f"was not in original scope. Request approval to expand."
+                ),
+                risk_level="medium",
+                target=", ".join(web_targets[:3]),
+            )
+            if not approved:
+                await self._emit_system(
+                    "Operator declined web app testing scope expansion. Skipping Phase E."
+                )
+                return
 
         await self._emit_phase("WEB APP TESTING")
 
