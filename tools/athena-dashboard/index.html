@@ -1103,6 +1103,7 @@
       background: color-mix(in srgb, var(--zerok-primary) 8%, transparent);
       cursor: pointer;
       transition: all 0.15s ease;
+      position: relative; /* F5: for budget badge positioning */
     }
 
     .layer-cell:hover {
@@ -3714,6 +3715,24 @@
       word-break: break-all;
     }
 
+    /* F5: Budget badges on agent tiles */
+    .budget-badge {
+      position: absolute;
+      top: 1px;
+      right: 1px;
+      font-size: 7px;
+      font-weight: 700;
+      padding: 0 3px;
+      border-radius: 2px;
+      background: rgba(0, 0, 0, 0.5);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      line-height: 1.4;
+      pointer-events: none;
+    }
+    .budget-badge.warning { color: var(--zerok-medium); }
+    .budget-badge.exhausted { color: var(--zerok-high); background: rgba(239, 68, 68, 0.2); }
+
     /* F4: CTF Mode */
     .ctf-bar {
       display: none;
@@ -5155,6 +5174,15 @@
             </div>
             <div class="stat-value-row">
               <span class="stat-value" id="kpi-mtte" style="color: var(--zerok-info);">—</span>
+            </div>
+          </div>
+          <!-- F5: Engagement Cost KPI Card -->
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Engagement Cost</span>
+            </div>
+            <div class="stat-value-row">
+              <span class="stat-value" id="kpi-cost" style="color: var(--zerok-purple, #a855f7);">$0.00</span>
             </div>
           </div>
         </div>
@@ -6819,6 +6847,9 @@
       ctf_challenge_added:  { icon: '+', cls: 'complete', label: 'Challenge' },
       ctf_challenge_skipped:{ icon: 'x', cls: 'finding',  label: 'Skipped' },
       ctf_hint_added:       { icon: '?', cls: 'thinking', label: 'Hint' },
+      // F5: Budget events
+      budget_exhausted:     { icon: 'x', cls: 'finding',  label: 'Budget' },
+      cost_update:          { icon: '$', cls: 'system',   label: 'Cost' },
     };
 
     let ws = null;
@@ -7201,6 +7232,19 @@
         return;
       }
       if (type === 'ctf_hint_added') {
+        addTimelineEvent(msg);
+        return;
+      }
+
+      // F5: Budget events
+      if (type === 'cost_update') {
+        updateBudgetBadge(msg.agent, msg.tool_calls, msg.max_tool_calls, msg.estimated_cost);
+        const costEl = document.getElementById('kpi-cost');
+        if (costEl) costEl.textContent = '$' + (msg.engagement_cost || 0).toFixed(2);
+        return;  // Don't add to timeline — too noisy
+      }
+      if (type === 'budget_exhausted') {
+        updateBudgetBadge(msg.agent, msg.tool_calls, msg.tool_calls, msg.estimated_cost, true);
         addTimelineEvent(msg);
         return;
       }
@@ -12374,6 +12418,28 @@
     // Check on load and every 30s
     document.addEventListener('DOMContentLoaded', checkNeo4jStatus);
     setInterval(checkNeo4jStatus, 30000);
+
+    // ── F5: Budget Badge Functions ─────────────
+
+    function updateBudgetBadge(agent, toolCalls, maxCalls, cost, exhausted) {
+      const tile = document.querySelector('.layer-cell[data-agent="' + agent + '"]');
+      if (!tile) return;
+      let badge = tile.querySelector('.budget-badge');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'budget-badge';
+        tile.appendChild(badge);
+      }
+      const pct = maxCalls > 0 ? Math.round(toolCalls / maxCalls * 100) : 0;
+      badge.textContent = toolCalls + '/' + maxCalls;
+      badge.classList.remove('warning', 'exhausted');
+      if (exhausted || pct >= 100) {
+        badge.classList.add('exhausted');
+      } else if (pct >= 80) {
+        badge.classList.add('warning');
+      }
+      badge.title = agent + ': ' + toolCalls + '/' + maxCalls + ' calls ($' + (cost || 0).toFixed(3) + ')';
+    }
 
     // ── F4: CTF Mode Functions ──────────────────
 

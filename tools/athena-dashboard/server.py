@@ -2158,6 +2158,257 @@ async def detect_flags_in_text(text: str):
     return {"flags": flags, "count": len(flags)}
 
 
+# ── F5: Cost Optimization & Early-Stopping ────────────────────
+
+# Per-agent budget allocation (from MAPTA research: failed attempts cost 5x more)
+AGENT_BUDGETS: dict[str, dict] = {
+    # Recon agents — need broad scanning
+    "PO": {"max_tool_calls": 60, "max_cost": 0.75, "label": "Passive OSINT"},
+    "AR": {"max_tool_calls": 60, "max_cost": 0.75, "label": "Active Recon"},
+    # Vuln analysis — standard
+    "CV": {"max_tool_calls": 40, "max_cost": 0.50, "label": "CVE Researcher"},
+    "AP": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Attack Path"},
+    "WV": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Web Vuln Scanner"},
+    "SC": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Source Code Analyst"},
+    # Exploitation — higher per-call cost (Opus reasoning)
+    "EC": {"max_tool_calls": 30, "max_cost": 1.00, "label": "Exploit Crafter"},
+    "EX": {"max_tool_calls": 30, "max_cost": 1.00, "label": "Exploitation"},
+    # Verification — focused re-testing
+    "VF": {"max_tool_calls": 20, "max_cost": 0.30, "label": "Verification"},
+    # Post-exploitation — depends on access
+    "PE": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Post-Exploitation"},
+    "LM": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Lateral Mover"},
+    # Strategy — pure reasoning, few tools
+    "ST": {"max_tool_calls": 10, "max_cost": 0.50, "label": "Strategy"},
+    # Reporting — writing-heavy (Opus)
+    "RP": {"max_tool_calls": 15, "max_cost": 0.75, "label": "Reporting"},
+    # Web app testing agents
+    "JS": {"max_tool_calls": 40, "max_cost": 0.50, "label": "JS Analyzer"},
+    "PD": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Param Discovery"},
+    "WA": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Web App Fuzzer"},
+    "AT": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Auth Tester"},
+    "AA": {"max_tool_calls": 40, "max_cost": 0.50, "label": "API Attacker"},
+    "DV": {"max_tool_calls": 30, "max_cost": 0.50, "label": "Detection Validator"},
+    # Management agents — minimal tools
+    "PL": {"max_tool_calls": 10, "max_cost": 0.30, "label": "Planning"},
+    "OR": {"max_tool_calls": 10, "max_cost": 0.30, "label": "Orchestrator"},
+}
+
+# Default budget for unlisted agents
+DEFAULT_BUDGET = {"max_tool_calls": 40, "max_cost": 0.50}
+
+# Token pricing: Sonnet 4.6 rates (per million tokens)
+# SDK agents use Sonnet by default, Opus for Strategy/Exploit
+PRICING = {
+    "sonnet": {"input": 3.0, "output": 15.0},
+    "opus":   {"input": 15.0, "output": 75.0},
+}
+OPUS_AGENTS = {"ST", "EC", "EX", "RP"}  # Agents that use Opus
+
+# In-memory budget tracking: agent_code → {tool_calls, estimated_cost, findings}
+_agent_budgets: dict[str, dict] = {}
+_engagement_cost: float = 0.0
+
+
+def _get_agent_budget(agent: str) -> dict:
+    """Get or initialize budget tracker for an agent."""
+    if agent not in _agent_budgets:
+        limits = AGENT_BUDGETS.get(agent, DEFAULT_BUDGET)
+        _agent_budgets[agent] = {
+            "agent": agent,
+            "tool_calls": 0,
+            "estimated_cost": 0.0,
+            "findings_count": 0,
+            "max_tool_calls": limits["max_tool_calls"],
+            "max_cost": limits["max_cost"],
+            "exhausted": False,
+            "warnings_sent": 0,
+        }
+    return _agent_budgets[agent]
+
+
+def _estimate_tool_cost(agent: str) -> float:
+    """Estimate cost of a single tool call based on agent type.
+
+    Average tool call: ~500 input tokens, ~1500 output tokens.
+    MCP tool calls may be cheaper (less output), reasoning heavier.
+    """
+    pricing = PRICING["opus"] if agent in OPUS_AGENTS else PRICING["sonnet"]
+    input_cost = 500 * pricing["input"] / 1_000_000
+    output_cost = 1500 * pricing["output"] / 1_000_000
+    return input_cost + output_cost
+
+
+@app.post("/api/budget/tool-call")
+async def record_budget_tool_call(agent: str, finding: bool = False):
+    """
+    Record a tool call against an agent's budget.
+
+    Called by the SDK event handler on each tool_complete.
+    Returns budget status including early-stop signal.
+    """
+    global _engagement_cost
+
+    budget = _get_agent_budget(agent)
+    budget["tool_calls"] += 1
+    cost = _estimate_tool_cost(agent)
+    budget["estimated_cost"] += cost
+    _engagement_cost += cost
+
+    if finding:
+        budget["findings_count"] += 1
+
+    pct_calls = budget["tool_calls"] / budget["max_tool_calls"] * 100
+    pct_cost = budget["estimated_cost"] / budget["max_cost"] * 100 if budget["max_cost"] > 0 else 0
+
+    response = {
+        "ok": True,
+        "agent": agent,
+        "tool_calls": budget["tool_calls"],
+        "max_tool_calls": budget["max_tool_calls"],
+        "estimated_cost": round(budget["estimated_cost"], 4),
+        "max_cost": budget["max_cost"],
+        "pct_calls": round(pct_calls, 1),
+        "pct_cost": round(pct_cost, 1),
+        "engagement_cost": round(_engagement_cost, 4),
+        "early_stop": False,
+        "warning": None,
+    }
+
+    # 80% warning threshold
+    if pct_calls >= 80 and budget["warnings_sent"] == 0:
+        budget["warnings_sent"] = 1
+        response["warning"] = "approaching_limit"
+        await _emit("system", agent,
+            f"BUDGET WARNING: {AGENT_NAMES.get(agent, agent)} at "
+            f"{budget['tool_calls']}/{budget['max_tool_calls']} tool calls "
+            f"(${budget['estimated_cost']:.3f}/${budget['max_cost']})",
+            {"budget_warning": True, "pct_calls": pct_calls})
+
+    # Budget exhausted
+    if budget["tool_calls"] >= budget["max_tool_calls"] or \
+       budget["estimated_cost"] >= budget["max_cost"]:
+        budget["exhausted"] = True
+        response["early_stop"] = True
+
+        if budget["warnings_sent"] < 2:
+            budget["warnings_sent"] = 2
+            action = "with findings" if budget["findings_count"] > 0 else "WITHOUT findings"
+            await _emit("system", agent,
+                f"BUDGET EXHAUSTED: {AGENT_NAMES.get(agent, agent)} — "
+                f"{budget['tool_calls']} calls, ${budget['estimated_cost']:.3f} "
+                f"({action}). Strategy Agent notified.",
+                {"budget_exhausted": True, "findings_count": budget["findings_count"]})
+
+            await state.broadcast({
+                "type": "budget_exhausted",
+                "agent": agent,
+                "agentName": AGENT_NAMES.get(agent, agent),
+                "tool_calls": budget["tool_calls"],
+                "estimated_cost": round(budget["estimated_cost"], 4),
+                "findings_count": budget["findings_count"],
+                "timestamp": time.time(),
+            })
+
+    # Broadcast cost update for dashboard (throttled: every 5 tool calls)
+    if budget["tool_calls"] % 5 == 0:
+        await state.broadcast({
+            "type": "cost_update",
+            "agent": agent,
+            "tool_calls": budget["tool_calls"],
+            "max_tool_calls": budget["max_tool_calls"],
+            "estimated_cost": round(budget["estimated_cost"], 4),
+            "max_cost": budget["max_cost"],
+            "engagement_cost": round(_engagement_cost, 4),
+            "timestamp": time.time(),
+        })
+
+    return response
+
+
+@app.post("/api/budget/extend")
+async def extend_agent_budget(
+    agent: str,
+    extra_tool_calls: int = 20,
+    extra_cost: float = 0.25,
+):
+    """
+    Extend an agent's budget (called by Strategy Agent or operator).
+
+    Use when an agent is making progress but hit its limit.
+    """
+    budget = _get_agent_budget(agent)
+    budget["max_tool_calls"] += extra_tool_calls
+    budget["max_cost"] += extra_cost
+    budget["exhausted"] = False
+    budget["warnings_sent"] = 0
+
+    await _emit("system", "ST",
+        f"Budget extended for {AGENT_NAMES.get(agent, agent)}: "
+        f"+{extra_tool_calls} calls, +${extra_cost:.2f} "
+        f"(new limit: {budget['max_tool_calls']} calls, ${budget['max_cost']:.2f})",
+        {"budget_extended": True, "agent": agent})
+
+    return {
+        "ok": True,
+        "agent": agent,
+        "max_tool_calls": budget["max_tool_calls"],
+        "max_cost": budget["max_cost"],
+    }
+
+
+@app.get("/api/budget")
+async def get_budgets():
+    """Get all agent budget status and total engagement cost."""
+    agents = {}
+    for code in AGENT_NAMES:
+        b = _get_agent_budget(code)
+        agents[code] = {
+            "name": AGENT_NAMES[code],
+            "tool_calls": b["tool_calls"],
+            "max_tool_calls": b["max_tool_calls"],
+            "estimated_cost": round(b["estimated_cost"], 4),
+            "max_cost": b["max_cost"],
+            "pct_calls": round(b["tool_calls"] / b["max_tool_calls"] * 100, 1) if b["max_tool_calls"] > 0 else 0,
+            "findings_count": b["findings_count"],
+            "exhausted": b["exhausted"],
+        }
+    return {
+        "agents": agents,
+        "engagement_cost": round(_engagement_cost, 4),
+        "active_agents": sum(1 for b in _agent_budgets.values() if b["tool_calls"] > 0),
+        "exhausted_agents": sum(1 for b in _agent_budgets.values() if b["exhausted"]),
+    }
+
+
+@app.get("/api/budget/{agent}")
+async def get_agent_budget(agent: str):
+    """Get budget status for a specific agent."""
+    if agent not in AGENT_NAMES:
+        return JSONResponse(status_code=404, content={"error": f"Unknown agent: {agent}"})
+    b = _get_agent_budget(agent)
+    return {
+        "agent": agent,
+        "name": AGENT_NAMES[agent],
+        "tool_calls": b["tool_calls"],
+        "max_tool_calls": b["max_tool_calls"],
+        "estimated_cost": round(b["estimated_cost"], 4),
+        "max_cost": b["max_cost"],
+        "pct_calls": round(b["tool_calls"] / b["max_tool_calls"] * 100, 1),
+        "findings_count": b["findings_count"],
+        "exhausted": b["exhausted"],
+    }
+
+
+@app.post("/api/budget/reset")
+async def reset_budgets():
+    """Reset all agent budgets (called on new engagement)."""
+    global _agent_budgets, _engagement_cost
+    _agent_budgets = {}
+    _engagement_cost = 0.0
+    return {"ok": True, "message": "All budgets reset"}
+
+
 # ──────────────────────────────────────────────
 # REST API — Query endpoints
 # ──────────────────────────────────────────────
