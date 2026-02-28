@@ -60,11 +60,13 @@ class AgentSessionManager:
         backend: str = "external",
         dashboard_state: Any = None,
         athena_root: str | Path = "",
+        mode: str = "multi-agent",
     ):
         self.engagement_id = engagement_id
         self.target = target
         self.backend = backend
         self.dashboard_state = dashboard_state
+        self.mode = mode  # "multi-agent" or "ctf"
         self.athena_root = (
             Path(athena_root) if athena_root
             else Path(__file__).resolve().parent.parent.parent
@@ -344,7 +346,8 @@ class AgentSessionManager:
 
         # Build the initial prompt for the agent
         prompt = format_prompt(role, self.engagement_id, self.target,
-                               self.backend, prior_context)
+                               self.backend, prior_context,
+                               mode=self.mode)
         if task_prompt:
             prompt = f"{task_prompt}\n\n{prompt}"
 

@@ -1696,21 +1696,27 @@ class ChallengeStatus(str, Enum):
 
 
 class CTFChallenge(BaseModel):
-    """A single CTF challenge."""
+    """A single CTF challenge — from benchmark, agent discovery, or manual."""
     id: str
     name: str
-    category: CTFCategory
+    category: CTFCategory = CTFCategory.WEB
+    difficulty: int = 1              # 1-3 (XBOW scale)
     points: int = 0
     description: str = ""
     url: Optional[str] = None       # Challenge URL (for web challenges)
+    engagement_id: str = "eng-001"
     files: Optional[list[str]] = None  # Downloadable files
     hints: Optional[list[str]] = None  # Unlocked hints
+    tags: list[str] = []             # Vuln tags: sqli, xss, ssrf, etc.
     status: ChallengeStatus = ChallengeStatus.UNSOLVED
     flag: Optional[str] = None       # Captured flag value
     solved_by: Optional[str] = None  # Agent that solved it
     solved_at: Optional[float] = None
     tool_calls: int = 0              # Track tool call count for early-stopping
     assigned_agent: Optional[str] = None  # Agent currently working on it
+    attempts: int = 0
+    time_spent_sec: float = 0.0
+    cost_usd: float = 0.0
 
 
 class CTFSession(BaseModel):
@@ -1727,12 +1733,15 @@ class CTFSession(BaseModel):
 
 
 # Common CTF flag patterns (compiled once)
+# XBOW pattern first — most specific (exact 64 hex chars = SHA-256)
 FLAG_PATTERNS = [
+    re.compile(r"FLAG\{[a-fA-F0-9]{64}\}"),   # XBOW benchmark (SHA-256)
     re.compile(r"flag\{[^}]+\}", re.IGNORECASE),
     re.compile(r"CTF\{[^}]+\}", re.IGNORECASE),
     re.compile(r"picoCTF\{[^}]+\}"),
     re.compile(r"HTB\{[^}]+\}"),
     re.compile(r"THM\{[^}]+\}"),         # TryHackMe
+    re.compile(r"OWASP\{[^}]+\}"),       # OWASP challenges
     re.compile(r"FLAG-[A-Za-z0-9\-]+"),  # SANS style
     re.compile(r"0xL4BS\{[^}]+\}"),      # ZeroK Labs internal CTFs
 ]
@@ -2201,6 +2210,151 @@ async def detect_flags_in_text(text: str):
     """
     flags = detect_flags(text)
     return {"flags": flags, "count": len(flags)}
+
+
+@app.post("/api/ctf/benchmark/load")
+async def load_benchmark(file_path: str, engagement_id: str = "eng-001"):
+    """Load challenges from XBOW-format benchmark.json.
+
+    Expected format per challenge:
+      {"name": "XBEN-001", "description": "...", "difficulty": 2,
+       "tags": ["sqli"], "port": 8001}
+
+    The benchmark runner (external script) handles Docker compose up/down.
+    This endpoint just loads the challenge metadata into ATHENA's CTF state.
+    """
+    bench_path = Path(file_path)
+    if not bench_path.exists():
+        return JSONResponse(status_code=404, content={
+            "error": f"Benchmark file not found: {file_path}"
+        })
+
+    try:
+        data = json.loads(bench_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        return JSONResponse(status_code=400, content={
+            "error": f"Failed to parse benchmark file: {e}"
+        })
+
+    # Accept both {"challenges": [...]} and bare [...]
+    challenges_raw = data if isinstance(data, list) else data.get("challenges", [])
+    if not challenges_raw:
+        return JSONResponse(status_code=400, content={
+            "error": "No challenges found in benchmark file"
+        })
+
+    # Auto-start CTF session if none active
+    if not _ctf_session or not _ctf_session["active"]:
+        bench_name = data.get("name", bench_path.stem) if isinstance(data, dict) else bench_path.stem
+        await start_ctf_session(
+            engagement_id=engagement_id,
+            competition_name=f"Benchmark: {bench_name}",
+            time_limit_minutes=0,
+        )
+
+    loaded = []
+    for i, ch_raw in enumerate(challenges_raw):
+        ch_name = ch_raw.get("name", f"challenge-{i+1}")
+        ch_id = ch_raw.get("id", f"bench-{hashlib.sha256(ch_name.encode()).hexdigest()[:12]}")
+        port = ch_raw.get("port", 8000 + i)
+        difficulty = ch_raw.get("difficulty", 1)
+        tags = ch_raw.get("tags", [])
+        description = ch_raw.get("description", "")
+
+        # Auto-classify category from tags
+        category = "web"  # default for XBOW
+        if tags:
+            tag_text = " ".join(tags)
+            detected = classify_challenge(ch_name, f"{description} {tag_text}")
+            if detected != "misc":
+                category = detected
+
+        # Points: 100/200/300 by difficulty (XBOW standard)
+        points = ch_raw.get("points", difficulty * 100)
+
+        challenge = CTFChallenge(
+            id=ch_id,
+            name=ch_name,
+            category=CTFCategory(category),
+            difficulty=difficulty,
+            points=points,
+            description=description,
+            url=ch_raw.get("url", f"http://localhost:{port}"),
+            engagement_id=engagement_id,
+            tags=tags,
+        )
+
+        ch_dict = challenge.model_dump()
+        ch_dict["tool_calls"] = 0
+        agents = CTF_CATEGORY_AGENTS.get(category, ["EC"])
+        ch_dict["assigned_agent"] = agents[0] if agents else "EC"
+        _ctf_session["challenges"][ch_id] = ch_dict
+        _ctf_session["total_points"] += points
+        loaded.append({"id": ch_id, "name": ch_name, "difficulty": difficulty,
+                        "category": category, "points": points})
+
+    await _emit("system", "ST",
+        f"BENCHMARK LOADED: {len(loaded)} challenges from {bench_path.name} "
+        f"({_ctf_session['total_points']}pts total)",
+        {"benchmark_file": str(bench_path.name), "challenges_count": len(loaded)})
+
+    await state.broadcast({
+        "type": "ctf_benchmark_loaded",
+        "challenges_count": len(loaded),
+        "total_points": _ctf_session["total_points"],
+        "source": str(bench_path.name),
+        "timestamp": time.time(),
+    })
+
+    return {
+        "ok": True,
+        "loaded": len(loaded),
+        "total_points": _ctf_session["total_points"],
+        "challenges": loaded,
+    }
+
+
+@app.get("/api/ctf/scoreboard")
+async def get_ctf_scoreboard(engagement_id: str = ""):
+    """Get CTF scoreboard summary (XBOW-compatible format)."""
+    if not _ctf_session:
+        return JSONResponse(status_code=404, content={"error": "No active CTF session"})
+
+    elapsed = time.time() - _ctf_session["started_at"]
+    challenges = _ctf_session["challenges"]
+    solved = [c for c in challenges.values() if c.get("status") == "solved"]
+    total = len(challenges)
+    total_cost = sum(c.get("cost_usd", 0) for c in challenges.values())
+
+    # Per-difficulty breakdown
+    by_difficulty: dict[int, dict] = {}
+    for ch in challenges.values():
+        d = ch.get("difficulty", 1)
+        if d not in by_difficulty:
+            by_difficulty[d] = {"total": 0, "solved": 0, "points": 0}
+        by_difficulty[d]["total"] += 1
+        if ch.get("status") == "solved":
+            by_difficulty[d]["solved"] += 1
+            by_difficulty[d]["points"] += ch.get("points", 0)
+
+    return {
+        "engagement_id": _ctf_session["engagement_id"],
+        "competition_name": _ctf_session["competition_name"],
+        "elapsed_minutes": round(elapsed / 60, 1),
+        "challenges_solved": len(solved),
+        "challenges_total": total,
+        "solve_rate_pct": round(len(solved) / total * 100, 1) if total > 0 else 0,
+        "flags_captured": _ctf_session["flags_captured"],
+        "captured_points": _ctf_session["captured_points"],
+        "total_points": _ctf_session["total_points"],
+        "total_cost_usd": round(total_cost, 4),
+        "by_difficulty": by_difficulty,
+        "solved_challenges": [
+            {"id": c["id"], "name": c["name"], "points": c["points"],
+             "solved_by": c.get("solved_by"), "solved_at": c.get("solved_at")}
+            for c in solved
+        ],
+    }
 
 
 # ── F5: Cost Optimization & Early-Stopping ────────────────────
@@ -6492,6 +6646,81 @@ async def _auto_queue_verification(finding_id: str, finding_severity: str, engag
                 priority="high")
 
 
+async def _scan_for_flags(text: str, eid: str, agent_code: str = ""):
+    """Scan text for CTF flags and auto-register captures.
+
+    Called from _sdk_event_to_dashboard() on every agent event so flags
+    are captured automatically without agents needing to call the API.
+    """
+    if not _ctf_session or not _ctf_session["active"] or not text:
+        return
+
+    flags = detect_flags(text)
+    if not flags:
+        return
+
+    for flag_value in flags:
+        # Find matching challenge (by URL match or assign to first unsolved)
+        matched_challenge_id = None
+        for ch_id, ch in _ctf_session["challenges"].items():
+            if ch.get("status") == "solved":
+                continue
+            # Match if this agent is assigned to the challenge
+            if ch.get("assigned_agent") == agent_code:
+                matched_challenge_id = ch_id
+                break
+
+        # Fallback: assign to first unsolved challenge
+        if not matched_challenge_id:
+            for ch_id, ch in _ctf_session["challenges"].items():
+                if ch.get("status") != "solved":
+                    matched_challenge_id = ch_id
+                    break
+
+        if not matched_challenge_id:
+            # No unsolved challenges — log the flag anyway
+            await _emit("system", agent_code or "ST",
+                f"FLAG DETECTED (no matching challenge): {flag_value}",
+                {"ctf_flag_orphan": True, "flag": flag_value})
+            continue
+
+        ch = _ctf_session["challenges"][matched_challenge_id]
+        if ch.get("status") == "solved":
+            continue
+
+        # Register the flag capture
+        ch["status"] = "solved"
+        ch["flag"] = flag_value
+        ch["solved_by"] = agent_code or "unknown"
+        ch["solved_at"] = time.time()
+        _ctf_session["flags_captured"] += 1
+        _ctf_session["captured_points"] += ch.get("points", 0)
+
+        elapsed = time.time() - _ctf_session["started_at"]
+        await _emit("system", agent_code or "ST",
+            f"FLAG AUTO-CAPTURED: {ch['name']} ({ch.get('points', 0)}pts) — "
+            f"{_ctf_session['flags_captured']} flags, "
+            f"{_ctf_session['captured_points']}/{_ctf_session['total_points']}pts "
+            f"@ {elapsed/60:.1f}m",
+            {"ctf_flag": True, "challenge_id": matched_challenge_id,
+             "points": ch.get("points", 0), "auto_detected": True})
+
+        await state.broadcast({
+            "type": "ctf_flag_captured",
+            "challenge_id": matched_challenge_id,
+            "challenge_name": ch["name"],
+            "category": ch.get("category", "web"),
+            "points": ch.get("points", 0),
+            "flag": flag_value,
+            "agent": agent_code,
+            "auto_detected": True,
+            "flags_total": _ctf_session["flags_captured"],
+            "points_total": _ctf_session["captured_points"],
+            "points_max": _ctf_session["total_points"],
+            "timestamp": time.time(),
+        })
+
+
 async def _sdk_event_to_dashboard(event: dict, eid: str):
     """Bridge SDK events to the dashboard state + WebSocket broadcast.
 
@@ -6665,12 +6894,17 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
         # Sync new findings from Neo4j on every tool_complete (debounced)
         await _sync_neo4j_findings(eid)
 
+    # CTF flag auto-detection: scan every event's content for flag patterns
+    event_content = event.get("content", "")
+    if event_content and _ctf_session and _ctf_session.get("active"):
+        await _scan_for_flags(event_content, eid, agent_code)
+
     # Add to event timeline
     await state.add_event(AgentEvent(
         id=str(uuid.uuid4())[:8],
         type=event_type,
         agent=agent_code,
-        content=event.get("content", ""),
+        content=event_content,
         timestamp=event.get("timestamp", time.time()),
         metadata=metadata,
     ))
@@ -6773,35 +7007,81 @@ async def start_engagement_ai(
             "error": "Multi-agent system not available. Check agent_session_manager.py and claude_agent_sdk installation."
         })
 
+    is_ctf = mode == "ctf"
+    mode_label = "CTF" if is_ctf else "PTES"
+
     scope_info = f" Scope document loaded ({len(scope_doc)} chars)." if scope_doc else " No scope document — using target URL constraints only."
     await state.add_event(AgentEvent(
         id=str(uuid.uuid4())[:8],
         type="system",
         agent="OR",
-        content=f"Multi-Agent AI activated. PTES phases 1-7 against {target}. HITL required for exploitation.{scope_info}",
+        content=(
+            f"CTF MODE activated against {target}. Flag auto-detection enabled."
+            if is_ctf else
+            f"Multi-Agent AI activated. PTES phases 1-7 against {target}. HITL required for exploitation.{scope_info}"
+        ),
         timestamp=time.time(),
     ))
 
     await state.broadcast({
         "type": "engagement_started",
         "engagement_id": eid,
-        "mode": "ai-multi-agent",
+        "mode": "ai-ctf" if is_ctf else "ai-multi-agent",
         "engagement_active": True,
         "timestamp": time.time(),
     })
 
     athena_dir = str(Path(__file__).resolve().parent.parent.parent)
 
-    # Build initial context for ST (scope doc + engagement params)
-    st_context = f"""ENGAGEMENT: {eid}
+    if is_ctf:
+        # ── CTF Mode ──────────────────────────────────────────────
+        # Initialize CTF session if not already active
+        if not _ctf_session or not _ctf_session["active"]:
+            await start_ctf_session(
+                engagement_id=eid,
+                competition_name=f"CTF-{eid}",
+                time_limit_minutes=0,
+            )
+
+        # Build challenge list for ST context
+        challenge_list = ""
+        if _ctf_session and _ctf_session["challenges"]:
+            for ch_id, ch in _ctf_session["challenges"].items():
+                status = ch.get("status", "unsolved")
+                challenge_list += (
+                    f"  [{status.upper()}] {ch['name']} (id={ch_id}, "
+                    f"cat={ch.get('category','web')}, diff={ch.get('difficulty',1)}, "
+                    f"pts={ch.get('points',0)}, url={ch.get('url','')})\n"
+                    f"    Description: {ch.get('description','')[:200]}\n"
+                )
+        else:
+            challenge_list = "  No challenges pre-loaded. Discover challenges by exploring the target.\n"
+
+        st_context = f"""CTF ENGAGEMENT: {eid}
+Target: {target}
+Mode: CTF (Capture The Flag)
+Dashboard: http://localhost:8080
+
+CHALLENGE LIST:
+{challenge_list}
+SCORING: {_ctf_session.get('total_points', 0)} total points available.
+Prioritize difficulty 1 challenges first for quick points.
+
+Start by reviewing the challenge list above, then assign agents to solve them.
+Request workers via POST http://localhost:8080/api/agents/request
+Body: {{"agent":"WV","task":"Solve challenge <name>: <description>. Target: <url>","priority":"high"}}
+"""
+    else:
+        # ── Standard PTES Mode ────────────────────────────────────
+        st_context = f"""ENGAGEMENT: {eid}
 Target: {target}
 Type: {', '.join(engagement_types)}
 Backend: kali_{backend}
 Dashboard: http://localhost:8080
 """
-    if scope_doc:
-        st_context += f"\nSCOPE DOCUMENT:\n{scope_doc}\n"
-    st_context += f"""
+        if scope_doc:
+            st_context += f"\nSCOPE DOCUMENT:\n{scope_doc}\n"
+        st_context += f"""
 Start by querying Neo4j for existing engagement state, then begin with
 Active Recon (AR) — request it via POST http://localhost:8080/api/agents/request
 Body: {{"agent":"AR","task":"Port scan and service enumeration against {target}","priority":"high"}}
@@ -6813,6 +7093,7 @@ Body: {{"agent":"AR","task":"Port scan and service enumeration against {target}"
         backend=backend,
         dashboard_state=state,
         athena_root=athena_dir,
+        mode=mode if is_ctf else "multi-agent",
     )
     _active_session_manager.set_event_callback(
         lambda evt: _sdk_event_to_dashboard(evt, eid)
@@ -6830,15 +7111,23 @@ Body: {{"agent":"AR","task":"Port scan and service enumeration against {target}"
         id=str(uuid.uuid4())[:8],
         type="system",
         agent="OR",
-        content="Multi-agent session started. ST coordinating, workers on standby.",
+        content=(
+            f"CTF session started. ST coordinating flag capture against {target}."
+            if is_ctf else
+            "Multi-agent session started. ST coordinating, workers on standby."
+        ),
         timestamp=time.time(),
     ))
 
     return {
         "ok": True,
         "engagement_id": eid,
-        "mode": "ai-multi-agent",
-        "message": f"Multi-agent engagement started against {target}. ST is coordinating.",
+        "mode": "ai-ctf" if is_ctf else "ai-multi-agent",
+        "message": (
+            f"CTF engagement started against {target}. ST coordinating flag capture."
+            if is_ctf else
+            f"Multi-agent engagement started against {target}. ST is coordinating."
+        ),
     }
 
 
