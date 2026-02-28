@@ -8086,8 +8086,17 @@
       const kpiHosts = document.getElementById('kpi-hosts');
       const kpiFindings = document.getElementById('kpi-findings');
       const kpiOpenPorts = document.getElementById('kpi-open-ports');
-      if (msg.hosts !== undefined && kpiHosts) kpiHosts.textContent = msg.hosts;
-      if (msg.findings !== undefined && kpiFindings) kpiFindings.textContent = msg.findings;
+      // Don't decrease Hosts/Findings during active engagement (prevent flicker from sync timing)
+      if (msg.hosts !== undefined && kpiHosts) {
+        const newHosts = parseInt(msg.hosts) || 0;
+        const curHosts = parseInt(kpiHosts.textContent) || 0;
+        if (newHosts >= curHosts || !currentEngagementId) kpiHosts.textContent = msg.hosts;
+      }
+      if (msg.findings !== undefined && kpiFindings) {
+        const newFindings = parseInt(msg.findings) || 0;
+        const curFindings = parseInt(kpiFindings.textContent) || 0;
+        if (newFindings >= curFindings || !currentEngagementId) kpiFindings.textContent = msg.findings;
+      }
       // BUG-ports: Don't decrease Open Ports during active engagement (prevent flicker)
       if (msg.services !== undefined && kpiOpenPorts) {
         const newPorts = parseInt(msg.services) || 0;
@@ -8123,8 +8132,10 @@
         var totalNodes = gData.nodes ? gData.nodes.length : 0;
         var graphBadge = document.getElementById('nav-badge-attack-graph');
         if (graphBadge) {
-          graphBadge.textContent = totalNodes;
-          graphBadge.style.display = totalNodes > 0 ? '' : 'none';
+          var curCount = parseInt(graphBadge.textContent) || 0;
+          var newCount = Math.max(totalNodes, currentEngagementId ? curCount : 0);
+          graphBadge.textContent = newCount;
+          graphBadge.style.display = newCount > 0 ? '' : 'none';
         }
       }).catch(function() {});
     }
@@ -9813,7 +9824,12 @@
         updateExploitGauge(es.success_rate, es.confirmed_exploits, es.discovered_vulns);
         // Set Confirmed Exploits KPI from authoritative server count
         const kpiExploitsEl = document.getElementById('kpi-criticals');
-        if (kpiExploitsEl && es.confirmed_exploits !== undefined) kpiExploitsEl.textContent = es.confirmed_exploits;
+        // Don't decrease Confirmed Exploits during active engagement (prevent flicker)
+        if (kpiExploitsEl && es.confirmed_exploits !== undefined) {
+          const newExploits = parseInt(es.confirmed_exploits) || 0;
+          const curExploits = parseInt(kpiExploitsEl.textContent) || 0;
+          if (newExploits >= curExploits) kpiExploitsEl.textContent = es.confirmed_exploits;
+        }
         // Update MTTE KPI card
         const mtteEl = document.getElementById('kpi-mtte');
         if (mtteEl) mtteEl.textContent = es.mtte_display || '—';
@@ -10092,7 +10108,13 @@
         const gData = await gRes.json();
         const totalNodes = gData.nodes ? gData.nodes.length : 0;
         const graphBadge = document.getElementById('nav-badge-attack-graph');
-        if (graphBadge) { graphBadge.textContent = totalNodes; graphBadge.style.display = totalNodes > 0 ? '' : 'none'; }
+        // Don't hide badge during active engagement if it was previously showing
+        if (graphBadge) {
+          const curGraphCount = parseInt(graphBadge.textContent) || 0;
+          const newGraphCount = Math.max(totalNodes, currentEngagementId ? curGraphCount : 0);
+          graphBadge.textContent = newGraphCount;
+          graphBadge.style.display = newGraphCount > 0 ? '' : 'none';
+        }
         // Evidence badge
         if (currentEngagementId) {
           const evRes = await fetch(`/api/evidence/stats?engagement_id=${currentEngagementId}`);
@@ -10195,7 +10217,12 @@
         const kpiOpenPorts = document.getElementById('kpi-open-ports');
         const kpiCriticals = document.getElementById('kpi-criticals');
         const kpiMtte = document.getElementById('kpi-mtte');
-        if (kpiHosts) kpiHosts.textContent = summary.hosts || 0;
+        // Don't decrease Hosts during active engagement (prevent flicker)
+        if (kpiHosts) {
+          const summaryHosts = summary.hosts || 0;
+          const currentHosts = parseInt(kpiHosts.textContent) || 0;
+          if (summaryHosts >= currentHosts) kpiHosts.textContent = summaryHosts;
+        }
         // BUG-026: During active engagement, never decrease findings KPI (prevents flicker
         // when summary endpoint returns 0 but WebSocket stat_update already set correct value)
         const summaryFindings = summary.findings || 0;
@@ -10224,9 +10251,11 @@
           // BUG-026: Don't hide badge if it was already showing during engagement
         }
 
-        // Update Confirmed Exploits KPI
+        // Update Confirmed Exploits KPI — don't decrease during active engagement
         if (kpiCriticals) {
-          kpiCriticals.textContent = summary.exploits !== undefined ? summary.exploits : (summary.severity ? summary.severity.critical || 0 : 0);
+          const summaryExploits = summary.exploits !== undefined ? summary.exploits : (summary.severity ? summary.severity.critical || 0 : 0);
+          const curExploitsVal = parseInt(kpiCriticals.textContent) || 0;
+          if (summaryExploits >= curExploitsVal) kpiCriticals.textContent = summaryExploits;
         }
         // Update MTTE if available
         if (kpiMtte && summary.mtte !== undefined) {
