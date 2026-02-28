@@ -86,6 +86,8 @@ class AgentSessionManager:
         # Cost tracking across all agents
         self.total_cost_usd: float = 0.0
         self.total_tool_calls: int = 0
+        # F5: Budget-exhausted agents pending early-stop
+        self._early_stop_queue: set[str] = set()
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to dashboard."""
@@ -176,6 +178,17 @@ class AgentSessionManager:
             return await st.send_command(command)
         return "Error: Strategy Agent (ST) is not running."
 
+    def signal_early_stop(self, agent_code: str):
+        """Signal that an agent should be stopped due to budget exhaustion.
+
+        Called from server.py when _sdk_event_to_dashboard detects budget
+        exhaustion. The manager loop picks this up and stops the agent
+        gracefully, then notifies ST.
+        """
+        if agent_code != "ST":  # Never early-stop the coordinator
+            self._early_stop_queue.add(agent_code)
+            logger.info("Early-stop queued for %s (budget exhausted)", agent_code)
+
     def request_agent(self, agent_code: str, task: str,
                       priority: str = "medium"):
         """Queue an agent spawn request (called from dashboard API).
@@ -256,7 +269,33 @@ class AgentSessionManager:
                 f"Session manager error: {str(e)[:500]}")
 
     async def _check_agent_completions(self):
-        """Check if any spawned agents have completed and notify ST."""
+        """Check if any spawned agents have completed and notify ST.
+
+        Also processes early-stop signals from budget exhaustion (F5).
+        """
+        # F5: Process early-stop queue first
+        for code in list(self._early_stop_queue):
+            session = self.agents.get(code)
+            if session and session.is_running:
+                logger.info("Early-stopping %s due to budget exhaustion", code)
+                await session.stop()
+                self.total_cost_usd += session._total_cost_usd
+                self.total_tool_calls += session._tool_count
+                await self._emit("agent_status", code, "completed",
+                    {"status": "completed", "reason": "budget_exhausted"})
+                # Notify ST
+                st = self.agents.get("ST")
+                if st and st.is_running:
+                    cost = round(session._total_cost_usd, 4)
+                    tools = session._tool_count
+                    await st.send_command(
+                        f"Agent {code} was EARLY-STOPPED (budget exhausted). "
+                        f"({tools} tool calls, ${cost}). "
+                        f"Decide: extend its budget via POST /api/budget/extend, "
+                        f"assign a different agent, or mark this path as exhausted."
+                    )
+            self._early_stop_queue.discard(code)
+
         completed = []
         for code, task in list(self._agent_tasks.items()):
             if task.done():

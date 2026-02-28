@@ -2396,6 +2396,9 @@ AGENT_BUDGETS: dict[str, dict] = {
 # Default budget for unlisted agents
 DEFAULT_BUDGET = {"max_tool_calls": 40, "max_cost": 0.50}
 
+# Engagement-level cost cap (all agents combined)
+ENGAGEMENT_COST_CAP = 5.00  # $5 default, matches PHASE-F-PLAN target
+
 # Token pricing: Sonnet 4.6 rates (per million tokens)
 # SDK agents use Sonnet by default, Opus for Strategy/Exploit
 PRICING = {
@@ -2605,7 +2608,52 @@ async def reset_budgets():
     global _agent_budgets, _engagement_cost
     _agent_budgets = {}
     _engagement_cost = 0.0
+    if hasattr(state, '_engagement_cap_warned'):
+        state._engagement_cap_warned = False
     return {"ok": True, "message": "All budgets reset"}
+
+
+@app.get("/api/budget/engagement")
+async def get_engagement_budget():
+    """Get engagement-level cost summary with efficiency metrics."""
+    active = {k: v for k, v in _agent_budgets.items() if v["tool_calls"] > 0}
+    total_cost = sum(b["estimated_cost"] for b in active.values())
+    total_tools = sum(b["tool_calls"] for b in active.values())
+    total_findings = sum(b["findings_count"] for b in active.values())
+
+    # Cost efficiency metrics
+    cost_per_finding = round(total_cost / total_findings, 4) if total_findings > 0 else 0
+    tools_per_finding = round(total_tools / total_findings, 1) if total_findings > 0 else 0
+
+    # Per-agent efficiency
+    agent_efficiency = []
+    for code, b in active.items():
+        agent_efficiency.append({
+            "agent": code,
+            "name": AGENT_NAMES.get(code, code),
+            "tool_calls": b["tool_calls"],
+            "estimated_cost": round(b["estimated_cost"], 4),
+            "findings": b["findings_count"],
+            "cost_per_finding": round(b["estimated_cost"] / b["findings_count"], 4) if b["findings_count"] > 0 else None,
+            "exhausted": b["exhausted"],
+            "pct_budget_used": round(b["estimated_cost"] / b["max_cost"] * 100, 1) if b["max_cost"] > 0 else 0,
+        })
+    # Sort by cost efficiency (agents with findings first, then by cost)
+    agent_efficiency.sort(key=lambda a: (a["findings"] == 0, a["estimated_cost"]))
+
+    return {
+        "engagement_cost": round(total_cost, 4),
+        "engagement_cap": ENGAGEMENT_COST_CAP,
+        "pct_cap_used": round(total_cost / ENGAGEMENT_COST_CAP * 100, 1) if ENGAGEMENT_COST_CAP > 0 else 0,
+        "cap_exceeded": total_cost >= ENGAGEMENT_COST_CAP,
+        "total_tool_calls": total_tools,
+        "total_findings": total_findings,
+        "cost_per_finding": cost_per_finding,
+        "tools_per_finding": tools_per_finding,
+        "active_agents": len(active),
+        "exhausted_agents": sum(1 for b in active.values() if b["exhausted"]),
+        "agents": agent_efficiency,
+    }
 
 
 # ── F6: Attack Chain Reasoning via Neo4j ──────────────────────
@@ -6783,9 +6831,86 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
                 "timestamp": time.time(),
             })
 
-    # On tool_complete for Neo4j writes, query live counts and push stat_update
+    # On tool_complete: budget tracking + Neo4j stat sync
     elif event_type == "tool_complete":
+        # F5: Auto-track budget on every tool_complete
+        budget = _get_agent_budget(agent_code)
+        cost = _estimate_tool_cost(agent_code)
+        budget["tool_calls"] += 1
+        budget["estimated_cost"] += cost
+        _engagement_cost_live = sum(b["estimated_cost"] for b in _agent_budgets.values())
+
+        # Check if this tool produced a finding (Neo4j create_finding calls)
         tool_name = metadata.get("tool", "")
+        if "create_finding" in tool_name or "finding" in event.get("content", "").lower()[:200]:
+            budget["findings_count"] += 1
+
+        pct_calls = budget["tool_calls"] / budget["max_tool_calls"] * 100 if budget["max_tool_calls"] > 0 else 0
+
+        # 80% warning
+        if pct_calls >= 80 and budget["warnings_sent"] == 0:
+            budget["warnings_sent"] = 1
+            await _emit("system", agent_code,
+                f"BUDGET WARNING: {AGENT_NAMES.get(agent_code, agent_code)} at "
+                f"{budget['tool_calls']}/{budget['max_tool_calls']} tool calls "
+                f"(${budget['estimated_cost']:.3f}/${budget['max_cost']})",
+                {"budget_warning": True, "pct_calls": round(pct_calls, 1)})
+
+        # Budget exhausted
+        if budget["tool_calls"] >= budget["max_tool_calls"] or \
+           budget["estimated_cost"] >= budget["max_cost"]:
+            if not budget["exhausted"]:
+                budget["exhausted"] = True
+                action = "with findings" if budget["findings_count"] > 0 else "WITHOUT findings"
+                await _emit("system", agent_code,
+                    f"BUDGET EXHAUSTED: {AGENT_NAMES.get(agent_code, agent_code)} — "
+                    f"{budget['tool_calls']} calls, ${budget['estimated_cost']:.3f} "
+                    f"({action}). Early-stop signal sent.",
+                    {"budget_exhausted": True, "findings_count": budget["findings_count"]})
+                await state.broadcast({
+                    "type": "budget_exhausted",
+                    "agent": agent_code,
+                    "agentName": AGENT_NAMES.get(agent_code, agent_code),
+                    "tool_calls": budget["tool_calls"],
+                    "estimated_cost": round(budget["estimated_cost"], 4),
+                    "findings_count": budget["findings_count"],
+                    "timestamp": time.time(),
+                })
+                # F5: Signal early-stop to session manager
+                if _active_session_manager and _active_session_manager.is_running:
+                    _active_session_manager.signal_early_stop(agent_code)
+
+        # Engagement-level cost cap check
+        if _engagement_cost_live >= ENGAGEMENT_COST_CAP:
+            if not getattr(state, '_engagement_cap_warned', False):
+                state._engagement_cap_warned = True
+                await _emit("system", "OR",
+                    f"ENGAGEMENT COST CAP REACHED: ${_engagement_cost_live:.2f} >= "
+                    f"${ENGAGEMENT_COST_CAP:.2f}. All agents should wrap up.",
+                    {"engagement_cap": True, "cost": round(_engagement_cost_live, 4)})
+                await state.broadcast({
+                    "type": "engagement_budget_exhausted",
+                    "engagement_cost": round(_engagement_cost_live, 4),
+                    "cap": ENGAGEMENT_COST_CAP,
+                    "timestamp": time.time(),
+                })
+                # F5: Signal early-stop for all running non-ST agents
+                if _active_session_manager and _active_session_manager.is_running:
+                    for ac in list(_active_session_manager.agents.keys()):
+                        _active_session_manager.signal_early_stop(ac)
+
+        # Broadcast cost_update every 5 tool calls per agent
+        if budget["tool_calls"] % 5 == 0:
+            await state.broadcast({
+                "type": "cost_update",
+                "agent": agent_code,
+                "tool_calls": budget["tool_calls"],
+                "max_tool_calls": budget["max_tool_calls"],
+                "estimated_cost": round(budget["estimated_cost"], 4),
+                "max_cost": budget["max_cost"],
+                "engagement_cost": round(_engagement_cost_live, 4),
+                "timestamp": time.time(),
+            })
         if "neo4j" in tool_name or "create_" in tool_name:
             # Query Neo4j for live counts and broadcast immediately
             if neo4j_available and neo4j_driver:
@@ -6986,6 +7111,7 @@ async def start_engagement_ai(
     global _engagement_cost, _agent_budgets
     _agent_budgets = {}
     _engagement_cost = 0.0
+    state._engagement_cap_warned = False
 
     # Set engagement active
     state.active_engagement_id = eid
