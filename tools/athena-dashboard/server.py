@@ -6003,6 +6003,23 @@ Nmap usage: nmap {scope["nmap_target"]} (ALWAYS use this exact target — never 
 - If nmap discovers other ports, do NOT enumerate or probe them
 - Read CLAUDE.md section "1b. Antsle Cloud Infrastructure" for protected assets
 {scope_doc_block}
+KNOWLEDGE BASE (Read these files for attack techniques and methodology):
+  Playbooks (step-by-step attack guides):
+  - playbooks/sql-injection-testing.md — SQLi detection, exploitation, and data extraction
+  - docs/playbooks/web-application-attacks.md — OWASP Top 10 attack patterns and testing procedures
+  - docs/playbooks/credential-attacks.md — Password attacks, session hijacking, token abuse
+  - playbooks/cve-exploit-research-workflow.md — CVE lookup and exploit development workflow
+  - playbooks/skills/non-destructive-poc.md — Safe PoC generation without breaking targets
+  - playbooks/skills/evidence-collection.md — Evidence capture standards for reports
+  - playbooks/skills/kali-tool-parser.md — How to parse Kali tool output into structured findings
+
+  Knowledge References (attack payload libraries):
+  - docs/knowledge/2026-02-26-payloadsallthethings-reference.md — XSS, SQLi, SSRF, XXE payloads
+  - docs/knowledge/2026-02-26-praetorian-blog-pentest-knowledge-base.md — Advanced pentest techniques
+
+  IMPORTANT: Read the relevant playbook BEFORE starting each phase. For web app testing,
+  read web-application-attacks.md first. For SQLi findings, read sql-injection-testing.md.
+
 Execute a full PTES penetration test (phases 1-9 per CLAUDE.md methodology).
 Use kali_{backend} MCP tools for all offensive operations.
 Write all findings to Neo4j with engagement_id="{eid}".

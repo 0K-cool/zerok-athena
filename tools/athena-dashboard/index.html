@@ -10584,6 +10584,8 @@
         loadReports();
       } else if (viewName === 'attackGraph') {
         initAttackGraph();
+        // Re-fit graph after container is fully visible (CSS transition)
+        setTimeout(() => { if (graphNetwork) graphNetwork.fit({ animation: { duration: 300, easingFunction: 'easeInOutQuad' } }); }, 150);
       } else if (viewName === 'engagements') {
         loadEngagementsView();
       } else if (viewName === 'evidence') {

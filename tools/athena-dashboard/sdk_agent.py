@@ -533,6 +533,25 @@ class AthenaAgentSession:
             ],
             permission_mode="bypassPermissions",
             max_budget_usd=5.0,
+            # Auto-load ATHENA's CLAUDE.md which contains PTES methodology,
+            # tool documentation, security constraints, and HITL flow.
+            # This is the single source of truth for pentest methodology.
+            setting_sources=["project"],
+            # Use Claude Code preset as base, append ATHENA agent persona.
+            # Persona is compressed (~200 tokens) — full methodology comes
+            # from CLAUDE.md via setting_sources above.
+            system_prompt={
+                "type": "preset",
+                "preset": "claude_code",
+                "append": (
+                    "You are an ATHENA AI pentesting agent. You execute "
+                    "authorized penetration tests following PTES methodology. "
+                    "Read CLAUDE.md for full methodology, tool docs, and "
+                    "security constraints. Read the relevant playbook from "
+                    "playbooks/ BEFORE starting each attack phase. Report "
+                    "all findings to Neo4j and the dashboard API."
+                ),
+            },
             env={
                 # Prevent "nested session" error if started from Claude Code
                 "CLAUDECODE": "",
