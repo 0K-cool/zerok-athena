@@ -6049,13 +6049,17 @@ def _get_framework_instructions(client_industry: str) -> str:
 
 
 def _build_sdk_prompt(eid: str, target: str, backend: str,
-                      scope_doc: str = "", client_industry: str = "general") -> str:
+                      scope_doc: str = "", client_industry: str = "general",
+                      engagement_types: list[str] | None = None) -> str:
     """Build the engagement prompt for the Agent SDK.
 
     Minimal prompt — relies on CLAUDE.md (auto-loaded from cwd) for platform
     context, security constraints, PTES methodology, tool docs, and HITL flow.
     Only provides engagement-specific parameters and dashboard API formats.
     """
+    engagement_types = engagement_types or ["external"]
+    eng_type_str = ", ".join(engagement_types)
+    is_external_only = engagement_types == ["external"]
     scope = _parse_target_scope(target)
     scope_doc_block = ""
     if scope_doc:
@@ -6066,9 +6070,26 @@ RULES OF ENGAGEMENT (from uploaded scope document):
 Only test assets listed in the scope document above. Everything else is OFF-LIMITS.
 """
 
+    # FIX-10: HITL gate for scope expansion on external-only engagements
+    scope_expansion_block = ""
+    if is_external_only:
+        scope_expansion_block = """
+SCOPE EXPANSION REQUIRES HITL APPROVAL:
+This is an EXTERNAL-ONLY engagement. Web application testing (nikto, feroxbuster,
+sqlmap, XSS scanning, directory brute-forcing, parameter fuzzing) is NOT in the
+original scope. If you discover web services during recon, you MUST request HITL
+approval BEFORE running any web application testing tools:
+  POST http://localhost:8080/api/approvals
+  Body: {"agent":"OR","action":"Expand scope to web application testing",
+         "description":"Discovered web services. Requesting approval to test.",
+         "risk_level":"medium","target":"<discovered_url>"}
+Wait for approval before proceeding. If declined, skip web app testing entirely.
+"""
+
     return f"""ENGAGEMENT PARAMETERS:
 - Engagement ID: {eid}
 - Target: {target}
+- Engagement Type: {eng_type_str}
 - Backend: kali_{backend}
 - Dashboard: http://localhost:8080
 - Authorization: This is an authorized penetration test.
@@ -6080,7 +6101,31 @@ Pass engagement_id="{eid}" to every Neo4j MCP tool call.
 DASHBOARD API FORMATS:
 Agent LED updates: POST http://localhost:8080/api/events
   Body: {{"type":"agent_status","agent":"<CODE>","status":"running|idle","content":"<description>"}}
-  Agent codes: PO (recon), AR (active recon), WV (vuln scan), EX (exploit), PE (post-exploit), CV (verify), RP (report)
+  Agent codes: PO (recon), AR (active recon), WV (vuln scan), EX (exploit), PE (post-exploit), CV (verify), RP (report), ST (strategy)
+
+STRATEGY AGENT (ST) — RED TEAM LEAD:
+You are ALSO the Strategy Agent (Red Team Lead). After completing recon and after each
+major phase (vulnerability analysis, exploitation, post-exploitation), perform a
+strategic review:
+1. Light up the ST agent: POST /api/events with agent="ST", status="running"
+2. Review all findings so far — identify attack chains, pivot opportunities, and
+   high-value targets that need deeper investigation
+3. Decide: Should we continue to the next phase? Deprioritize any findings? Pivot?
+4. Log your strategic assessment via POST /api/events with agent="ST" and your analysis
+5. Set ST back to idle when done
+Think like a Red Team Lead: holistic view, adversarial reasoning, maximize impact.
+
+VERIFICATION (VF) — FINDING VALIDATION:
+For every HIGH or CRITICAL severity finding, independently verify it before moving on:
+1. Light up VF: POST /api/events with agent="VF", status="running"
+2. Attempt to reproduce the finding using a different technique or tool
+3. Submit verification: POST http://localhost:8080/api/verify
+   Body: {{"finding_id":"<id>","engagement_id":"{eid}","priority":"high"}}
+4. Report result: POST /api/verify/{{verification_id}}/result
+   Body: {{"status":"confirmed|false_positive","method":"independent_retest","confidence":0.9}}
+5. Set VF back to idle
+Do NOT skip verification for critical findings — false positives damage report credibility.
+{scope_expansion_block}
 
 Scan registration: POST http://localhost:8080/api/scans
   Body: {{"tool":"<name>","status":"running","target":"{target}","engagement_id":"{eid}"}}
@@ -6566,6 +6611,7 @@ async def start_engagement_ai(
 
     scope_doc = ""
     client_industry = "general"
+    engagement_types = ["external"]  # default
     if not target:
         eng = next((e for e in state.engagements if e.id == eid), None)
         if eng:
@@ -6574,7 +6620,7 @@ async def start_engagement_ai(
             try:
                 with neo4j_driver.session() as session:
                     result = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.target AS target, e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry",
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.target AS target, e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types",
                         eid=eid,
                     )
                     record = result.single()
@@ -6587,6 +6633,8 @@ async def start_engagement_ai(
                             scope_doc = record["scope_doc"]
                         if record.get("client_industry"):
                             client_industry = record["client_industry"]
+                        if record.get("types"):
+                            engagement_types = record["types"] if isinstance(record["types"], list) else [record["types"]]
             except Exception:
                 pass
         if not target:
@@ -6594,11 +6642,11 @@ async def start_engagement_ai(
                 "error": "Target scope required. Pass ?target=<ip/cidr/url>"
             })
     elif neo4j_available and neo4j_driver:
-        # Target was provided, but still fetch scope_doc and client_industry from Neo4j
+        # Target was provided, but still fetch scope_doc, client_industry, and types from Neo4j
         try:
             with neo4j_driver.session() as session:
                 result = session.run(
-                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc, e.client_industry AS client_industry",
+                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types",
                     eid=eid,
                 )
                 record = result.single()
@@ -6607,6 +6655,8 @@ async def start_engagement_ai(
                         scope_doc = record["scope_doc"]
                     if record.get("client_industry"):
                         client_industry = record["client_industry"]
+                    if record.get("types"):
+                        engagement_types = record["types"] if isinstance(record["types"], list) else [record["types"]]
         except Exception:
             pass
 
@@ -6661,7 +6711,7 @@ async def start_engagement_ai(
 
     # ── SDK Mode (Phase F) ──────────────────────
     if use_sdk:
-        prompt = _build_sdk_prompt(eid, target, backend, scope_doc=scope_doc, client_industry=client_industry)
+        prompt = _build_sdk_prompt(eid, target, backend, scope_doc=scope_doc, client_industry=client_industry, engagement_types=engagement_types)
         _active_sdk_session = AthenaAgentSession(
             engagement_id=eid,
             target=target,
