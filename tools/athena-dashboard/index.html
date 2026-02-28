@@ -7862,6 +7862,8 @@
     function toggleStrategyPanel() {
       const panel = document.getElementById('strategyPanel');
       panel.classList.toggle('open');
+      // Clear pulse when user reads the strategy intel
+      document.getElementById('strategyToggle').classList.remove('has-decision');
     }
 
     function updateStrategyPanel(msg) {
