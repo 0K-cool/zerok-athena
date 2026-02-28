@@ -8076,8 +8076,9 @@
         refreshAttackGraphLive();
       }
 
-      // Update Attack Graph nav badge in real-time
-      fetch('/api/attack-graph').then(r => r.json()).then(gData => {
+      // Update Attack Graph nav badge in real-time (scoped to current engagement)
+      var _gUrl = currentEngagementId ? '/api/attack-graph?engagement=' + encodeURIComponent(currentEngagementId) : '/api/attack-graph';
+      fetch(_gUrl).then(r => r.json()).then(gData => {
         var totalNodes = gData.nodes ? gData.nodes.length : 0;
         var graphBadge = document.getElementById('nav-badge-attack-graph');
         if (graphBadge) {
@@ -10019,8 +10020,9 @@
         const sCount = Array.isArray(sData) ? sData.length : 0;
         const sBadge = document.getElementById('nav-badge-scans');
         if (sBadge) { sBadge.textContent = sCount; sBadge.style.display = sCount > 0 ? '' : 'none'; }
-        // Attack Graph badge
-        const gRes = await fetch('/api/attack-graph');
+        // Attack Graph badge (scoped to current engagement)
+        const gUrl = currentEngagementId ? '/api/attack-graph?engagement=' + encodeURIComponent(currentEngagementId) : '/api/attack-graph';
+        const gRes = await fetch(gUrl);
         const gData = await gRes.json();
         const totalNodes = gData.nodes ? gData.nodes.length : 0;
         const graphBadge = document.getElementById('nav-badge-attack-graph');
