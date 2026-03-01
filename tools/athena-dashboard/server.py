@@ -479,24 +479,38 @@ def restore_state_from_neo4j():
 
             # Restore agent statuses from latest events per agent
             if state.active_engagement_id:
-                result = session.run("""
-                    MATCH (ev:Event {engagement_id: $eid})
-                    WHERE ev.type IN ['agent_status', 'scan_complete', 'finding', 'phase_change']
-                    WITH ev ORDER BY ev.timestamp DESC
-                    WITH ev.agent AS agent, collect(ev)[0] AS latest
-                    RETURN agent, latest.type AS type, latest.content AS content
-                """, eid=state.active_engagement_id)
-                for record in result:
-                    agent_code = record["agent"]
-                    if agent_code in state.agent_statuses:
-                        evt_type = record["type"]
-                        content = record.get("content", "")
-                        if evt_type == "agent_status" and "complete" in (content or "").lower():
-                            state.agent_statuses[agent_code] = AgentStatus.COMPLETED
-                        elif evt_type in ("scan_complete", "finding"):
-                            state.agent_statuses[agent_code] = AgentStatus.COMPLETED
-                        if content:
-                            state.agent_tasks[agent_code] = content
+                # Check if engagement is still active
+                eng_result = session.run(
+                    "MATCH (e:Engagement {id: $eid}) RETURN e.status AS status",
+                    eid=state.active_engagement_id,
+                )
+                eng_record = eng_result.single()
+                eng_status = eng_record["status"] if eng_record else "completed"
+
+                if eng_status in ("completed", "stopped", "archived"):
+                    # Engagement is done — all agents should be IDLE
+                    for code in AGENT_NAMES:
+                        state.agent_statuses[code] = AgentStatus.IDLE
+                        state.agent_tasks[code] = ""
+                else:
+                    result = session.run("""
+                        MATCH (ev:Event {engagement_id: $eid})
+                        WHERE ev.type IN ['agent_status', 'scan_complete', 'finding', 'phase_change']
+                        WITH ev ORDER BY ev.timestamp DESC
+                        WITH ev.agent AS agent, collect(ev)[0] AS latest
+                        RETURN agent, latest.type AS type, latest.content AS content
+                    """, eid=state.active_engagement_id)
+                    for record in result:
+                        agent_code = record["agent"]
+                        if agent_code in state.agent_statuses:
+                            evt_type = record["type"]
+                            content = record.get("content", "")
+                            if evt_type == "agent_status" and "complete" in (content or "").lower():
+                                state.agent_statuses[agent_code] = AgentStatus.COMPLETED
+                            elif evt_type in ("scan_complete", "finding"):
+                                state.agent_statuses[agent_code] = AgentStatus.COMPLETED
+                            if content:
+                                state.agent_tasks[agent_code] = content
     except Exception as e:
         print(f"State restore from Neo4j error: {e}")
 
@@ -1894,6 +1908,15 @@ async def stop_ctf_session():
     result = {"ok": True, "summary": summary}
     _ctf_session = None
     return result
+
+
+@app.get("/api/ctf/challenges")
+async def list_ctf_challenges(engagement_id: str = ""):
+    """List all challenges in the active CTF session."""
+    if not _ctf_session or not _ctf_session["active"]:
+        return {"challenges": [], "count": 0, "message": "No active CTF session"}
+    challenges = list(_ctf_session["challenges"].values())
+    return {"challenges": challenges, "count": len(challenges)}
 
 
 @app.post("/api/ctf/challenges")
@@ -4218,8 +4241,7 @@ async def get_services_summary(eid: str):
         try:
             with neo4j_driver.session() as session:
                 result = session.run("""
-                    MATCH (s:Service {engagement_id: $eid})
-                    OPTIONAL MATCH (s)<-[:HAS_SERVICE]-(h:Host)
+                    MATCH (h:Host {engagement_id: $eid})-[:HAS_SERVICE]->(s:Service)
                     RETURN s.port AS port, s.name AS name,
                            count(DISTINCT h) AS host_count,
                            collect(DISTINCT s.version)[..3] AS versions
@@ -7127,6 +7149,11 @@ async def start_engagement_ai(
     _engagement_cost = 0.0
     _engagement_types = engagement_types  # BUG-006: Store for agent request gating
     state._engagement_cap_warned = False
+
+    # Reset all agent statuses to IDLE before starting new engagement
+    for code in AGENT_NAMES:
+        state.agent_statuses[code] = AgentStatus.IDLE
+        state.agent_tasks[code] = ""
 
     # Set engagement active
     state.active_engagement_id = eid
