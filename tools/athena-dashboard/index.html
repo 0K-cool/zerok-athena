@@ -4876,8 +4876,167 @@
       color: var(--zerok-text-muted);
     }
 
-    /* ========== RESPONSIVE: AI DRAWER ========== */
-    /* BUG-014 fix: Tablet responsive (768px). Mobile not supported — use Discord for mobile status. */
+    /* ========== LANDSCAPE ENFORCEMENT FOR TABLETS ========== */
+    /* ATHENA requires landscape orientation on tablets. Show rotate overlay in portrait. */
+    #landscape-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--zerok-bg, #0d1117);
+      z-index: 99999;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      color: var(--zerok-text, #e6edf3);
+      text-align: center;
+      padding: 40px;
+    }
+    #landscape-overlay .rotate-icon {
+      width: 80px; height: 80px;
+      border: 3px solid var(--zerok-primary, #ff4444);
+      border-radius: 12px;
+      position: relative;
+      animation: rotate-hint 2s ease-in-out infinite;
+    }
+    #landscape-overlay .rotate-icon::after {
+      content: '↻';
+      font-size: 36px;
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--zerok-primary, #ff4444);
+    }
+    @keyframes rotate-hint {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(90deg); }
+    }
+    #landscape-overlay h2 {
+      font-size: 22px; font-weight: 700; margin: 0;
+      color: var(--zerok-primary, #ff4444);
+    }
+    #landscape-overlay p {
+      font-size: 14px; margin: 0;
+      color: var(--zerok-text-muted, #8b949e);
+      max-width: 320px; line-height: 1.5;
+    }
+
+    /* Show overlay ONLY on touch devices in portrait orientation (max-width ≤ 1024px) */
+    @media (max-width: 1024px) and (orientation: portrait) and (pointer: coarse) {
+      #landscape-overlay { display: flex !important; }
+      .dashboard { display: none !important; }
+    }
+
+    /* ========== RESPONSIVE: TABLET LANDSCAPE (≤1024px) ========== */
+    @media (max-width: 1024px) and (orientation: landscape) {
+      /* Sidebar: identical to desktop — no changes, user can manually collapse */
+
+      /* KPI cards: flexible grid, all 7 visible */
+      .stat-grid {
+        grid-template-columns: repeat(7, 1fr) !important;
+        gap: 4px !important;
+      }
+      .stat-card {
+        padding: 8px !important;
+      }
+      .stat-card .stat-label {
+        font-size: 9px !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .stat-card .stat-value {
+        font-size: 16px !important;
+      }
+      .stat-card .stat-sub {
+        font-size: 9px !important;
+      }
+
+      /* Widget grid: keep 3-col but let cards shrink */
+      .widget-grid {
+        gap: 4px !important;
+      }
+      .widget {
+        overflow: hidden !important;
+      }
+      .widget-header {
+        padding: 4px 10px !important;
+      }
+      .widget-header h3 {
+        font-size: 11px !important;
+      }
+      .widget-body {
+        padding: 6px !important;
+        overflow: auto !important;
+      }
+
+      /* Kill Chain labels: smaller, prevent overlap */
+      .kill-chain-labels span {
+        font-size: 8px !important;
+        white-space: nowrap;
+      }
+      .layer-grid {
+        gap: 2px !important;
+      }
+      .layer-cell {
+        padding: 6px 0 !important;
+        font-size: 10px !important;
+      }
+
+      /* Donut charts (Scan Coverage / Exploit Rate): scale down */
+      .donut-chart, .donut-chart canvas {
+        max-width: 100px !important;
+        max-height: 100px !important;
+      }
+      .donut-label {
+        font-size: 18px !important;
+      }
+
+      /* Methodology Coverage: horizontal scroll for overflow */
+      .full-width {
+        overflow-x: auto !important;
+      }
+      .framework-matrix {
+        min-width: 900px;
+      }
+      .methodology-coverage table {
+        font-size: 10px !important;
+      }
+      .methodology-coverage th,
+      .methodology-coverage td {
+        padding: 3px 5px !important;
+        white-space: nowrap;
+      }
+
+      /* AI Drawer */
+      .ai-drawer.open {
+        width: 360px !important;
+        min-width: 360px !important;
+      }
+
+      /* Scans table */
+      .scans-table th, .scans-table td {
+        padding: 5px 6px !important;
+        font-size: 10px !important;
+      }
+
+      /* Header bar */
+      .header-bar h1 {
+        font-size: 15px !important;
+      }
+      .header-bar .subtitle {
+        font-size: 10px !important;
+      }
+
+      /* Agent chips: smaller */
+      .agent-chip {
+        padding: 2px 6px !important;
+        font-size: 9px !important;
+      }
+    }
+
+    /* ========== RESPONSIVE: SMALL TABLET / LARGE PHONE (≤768px) ========== */
+    /* BUG-014 fix: Smallest supported landscape width. Portrait blocked by overlay. */
     @media (max-width: 768px) {
       .ai-drawer.open {
         position: fixed;
@@ -4889,78 +5048,39 @@
         box-shadow: -4px 0 24px rgba(0,0,0,0.3);
       }
 
-      /* Auto-collapse sidebar to icon-only on tablet */
-      .sidebar {
-        width: 64px !important;
-        min-width: 64px !important;
-      }
-      .sidebar .nav-label,
-      .sidebar .sidebar-section-header span,
-      .sidebar .sidebar-section-content,
-      .sidebar .brand-name,
-      .sidebar .pentester-info {
-        display: none !important;
-      }
-      .sidebar .nav-badge {
-        position: absolute;
-        top: 2px;
-        right: 2px;
-        font-size: 9px;
-        min-width: 14px;
-        height: 14px;
-        padding: 0 3px;
-      }
+      /* Sidebar: same as desktop — portrait blocked by landscape overlay */
 
-      /* KPI cards: smaller text, flexible grid */
-      .kpi-grid {
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
-        gap: 8px !important;
+      /* KPI cards: wrap to 2 rows if needed */
+      .stat-grid {
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) !important;
+        gap: 4px !important;
       }
-      .kpi-card .stat-label {
-        font-size: 10px !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .kpi-card .stat-value {
-        font-size: 18px !important;
-      }
-
-      /* Kill Chain + Credential Tracker labels */
-      .kill-chain-labels span,
-      .credential-tracker-labels span {
+      .stat-card .stat-label {
         font-size: 9px !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+      }
+      .stat-card .stat-value {
+        font-size: 14px !important;
       }
 
-      /* Methodology Coverage table */
-      .methodology-coverage table {
-        font-size: 11px !important;
+      /* Widget grid: 2 columns on narrow tablets */
+      .widget-grid {
+        grid-template-columns: 1fr 1fr !important;
       }
-      .methodology-coverage th,
-      .methodology-coverage td {
-        padding: 4px 6px !important;
-      }
-
-      /* Scans table */
-      .scans-table th, .scans-table td {
-        padding: 6px 8px !important;
-        font-size: 11px !important;
-      }
-
-      /* Header bar */
-      .header-bar h1 {
-        font-size: 16px !important;
-      }
-      .header-bar .subtitle {
-        display: none !important;
+      /* Third widget in each row: full width below */
+      .widget-grid > :nth-child(3n) {
+        grid-column: 1 / -1;
       }
     }
   </style>
 </head>
 <body>
+  <!-- Landscape enforcement overlay for tablets -->
+  <div id="landscape-overlay">
+    <div class="rotate-icon"></div>
+    <h2>Rotate to Landscape</h2>
+    <p>ATHENA Penetration Testing Dashboard requires landscape orientation for optimal data visualization.</p>
+  </div>
+
   <div class="dashboard">
     <!-- Sidebar - Full height, collapsible -->
     <aside class="sidebar" id="sidebar">
