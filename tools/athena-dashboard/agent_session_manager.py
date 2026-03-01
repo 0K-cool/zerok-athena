@@ -316,18 +316,30 @@ class AgentSessionManager:
                     await self._emit("agent_status", code, "completed",
                         {"status": "completed"})
 
-                # Notify ST that agent completed (so it can read Neo4j
-                # for new findings and decide next steps)
+                # F1: Notify ST with enriched completion summary
+                # Include Neo4j stats so ST can reason about next steps
+                # without making a separate query.
                 st = self.agents.get("ST")
                 if st and st.is_running and code != "ST":
                     status = "error" if exc else "completed"
                     cost = round(session._total_cost_usd, 4) if session else 0
                     tools = session._tool_count if session else 0
-                    await st.send_command(
+                    # Query Neo4j for a quick summary of what this agent produced
+                    neo4j_summary = await self._get_agent_production_summary(
+                        code)
+                    msg = (
                         f"Agent {code} has {status}. "
-                        f"({tools} tool calls, ${cost}). "
-                        f"Query Neo4j for their findings and decide next steps."
+                        f"({tools} tool calls, ${cost}).\n"
                     )
+                    if neo4j_summary:
+                        msg += f"PRODUCTION SUMMARY:\n{neo4j_summary}\n"
+                    # Include running agent statuses for situational awareness
+                    running = [c for c, t in self._agent_tasks.items()
+                               if not t.done() and c != "ST"]
+                    if running:
+                        msg += f"Still running: {', '.join(running)}. "
+                    msg += "Decide next steps: spawn new agents, pivot strategy, or wrap up."
+                    await st.send_command(msg)
 
         # Clean up completed tasks
         for code in completed:
@@ -361,6 +373,11 @@ class AgentSessionManager:
 
         # Build context from Neo4j for this agent
         prior_context = await self._build_context_from_neo4j(code)
+
+        # F2: Inject pending bilateral messages addressed to this agent
+        pending_msgs = await self._get_pending_messages(code)
+        if pending_msgs:
+            prior_context = f"PENDING MESSAGES FOR YOU:\n{pending_msgs}\n\n{prior_context}"
 
         # If ST provided specific task instructions, prepend them
         if task_prompt:
@@ -563,6 +580,117 @@ class AgentSessionManager:
             return "No prior findings yet. This is a fresh engagement."
 
         return "\n\n".join(parts)
+
+    # ── F2: Pending Message Retrieval ────────
+
+    async def _get_pending_messages(self, agent_code: str) -> str:
+        """Fetch bilateral messages addressed to this agent from the server.
+
+        Called when spawning an agent so it starts with awareness of
+        messages sent to it before it was running.
+        """
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as http:
+                async with http.get(
+                    "http://localhost:8080/api/messages",
+                    params={"agent": agent_code, "limit": "20"},
+                    timeout=aiohttp.ClientTimeout(total=3),
+                ) as resp:
+                    if resp.status != 200:
+                        return ""
+                    data = await resp.json()
+                    messages = data.get("messages", [])
+                    # Filter to messages addressed TO this agent (not FROM)
+                    incoming = [m for m in messages
+                                if m.get("to_agent") == agent_code]
+                    if not incoming:
+                        return ""
+                    lines = []
+                    for m in incoming[:10]:  # Cap at 10 most recent
+                        lines.append(
+                            f"[{m.get('msg_type','msg')}] "
+                            f"From {m.get('from_agent','?')} "
+                            f"(priority: {m.get('priority','medium')}): "
+                            f"{m.get('content','')[:300]}"
+                        )
+                    return "\n".join(lines)
+        except Exception:
+            return ""
+
+    # ── F1: Agent Production Summary ─────────
+
+    async def _get_agent_production_summary(self, agent_code: str) -> str:
+        """Quick Neo4j stats for what an agent produced during this engagement.
+
+        Returns a compact summary like:
+            "Hosts: 3, Services: 12, Findings: 5 (2 critical, 2 high, 1 medium)"
+
+        Used in ST completion notifications so the Strategy Agent can
+        immediately reason about next steps without querying Neo4j.
+        """
+        try:
+            import server
+            driver = getattr(server, "neo4j_driver", None)
+            if not driver:
+                return ""
+        except Exception:
+            return ""
+
+        eid = self.engagement_id
+        parts = []
+
+        try:
+            with driver.session() as session:
+                # Count hosts
+                result = session.run(
+                    "MATCH (h:Host {engagement_id: $eid}) RETURN count(h) AS c",
+                    eid=eid)
+                hosts = result.single()["c"]
+
+                # Count services
+                result = session.run(
+                    "MATCH (h:Host {engagement_id: $eid})-[:HAS_SERVICE]->(s:Service) "
+                    "RETURN count(s) AS c", eid=eid)
+                services = result.single()["c"]
+
+                # Findings by severity
+                result = session.run(
+                    "MATCH (f:Finding {engagement_id: $eid}) "
+                    "RETURN f.severity AS sev, count(f) AS c "
+                    "ORDER BY c DESC", eid=eid)
+                findings_by_sev = {r["sev"]: r["c"] for r in result}
+                total_findings = sum(findings_by_sev.values())
+
+                # Credentials
+                result = session.run(
+                    "MATCH (c:Credential {engagement_id: $eid}) "
+                    "RETURN count(c) AS c", eid=eid)
+                creds = result.single()["c"]
+
+                # Attack chains
+                result = session.run(
+                    "MATCH (c:AttackChain {engagement_id: $eid}) "
+                    "RETURN count(c) AS c", eid=eid)
+                chains = result.single()["c"]
+
+                parts.append(f"Hosts: {hosts}, Services: {services}")
+                if total_findings:
+                    sev_str = ", ".join(
+                        f"{c} {s}" for s, c in findings_by_sev.items() if c > 0)
+                    parts.append(f"Findings: {total_findings} ({sev_str})")
+                else:
+                    parts.append("Findings: 0")
+                if creds:
+                    parts.append(f"Credentials: {creds}")
+                if chains:
+                    parts.append(f"Attack Chains: {chains}")
+
+        except Exception as e:
+            logger.warning("Production summary query failed: %s", e)
+            return ""
+
+        return " | ".join(parts)
 
     # ── Internal Helpers ───────────────────────
 
