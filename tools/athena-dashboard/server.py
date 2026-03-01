@@ -878,12 +878,30 @@ async def post_agent_message(payload: AgentMessagePayload):
     )
     await state.add_event(event)
 
+    # F2: Deliver message to recipient agent's SDK session
+    # This is the critical bridge — without this, bilateral messages are
+    # display-only in the dashboard and never reach the recipient agent.
+    delivered = False
+    if _active_session_manager and _active_session_manager.is_running:
+        recipient_session = _active_session_manager.agents.get(payload.to_agent)
+        if recipient_session and recipient_session.is_running:
+            delivery_text = (
+                f"[BILATERAL MESSAGE from {payload.from_agent}] "
+                f"(type: {payload.msg_type}, priority: {payload.priority})\n"
+                f"{payload.content}"
+            )
+            if payload.neo4j_ref:
+                delivery_text += f"\n(Neo4j ref: {payload.neo4j_ref})"
+            await recipient_session.send_command(delivery_text)
+            delivered = True
+
     return {
         "ok": True,
         "event_id": event.id,
         "from": payload.from_agent,
         "to": payload.to_agent,
         "msg_type": payload.msg_type,
+        "delivered": delivered,
         "rate_remaining": AGENT_MSG_RATE_LIMIT - (count + 1),
     }
 
