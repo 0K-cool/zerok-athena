@@ -214,6 +214,8 @@ class Finding(BaseModel):
     timestamp: float
     engagement: str
     fingerprint: Optional[str] = None
+    discovered_at: Optional[float] = None
+    confirmed_at: Optional[float] = None
 
 
 class AgentEvent(BaseModel):
@@ -1507,6 +1509,11 @@ async def create_finding(payload: FindingPayload):
         merged_status = new_status if _STATUS_RANK.get(new_status, 0) > \
             _STATUS_RANK.get(old_status, 0) else old_status
 
+        # BUG-017: Set confirmed_at when status upgrades to confirmed during merge
+        merge_confirmed_at = None
+        if merged_status == "confirmed" and old_status != "confirmed":
+            merge_confirmed_at = timestamp
+
         old_evidence = existing.get("evidence") or ""
         new_evidence = payload.evidence or ""
         if new_evidence and new_evidence not in old_evidence:
@@ -1518,15 +1525,20 @@ async def create_finding(payload: FindingPayload):
         if neo4j_available and neo4j_driver:
             def _update_existing():
                 with neo4j_driver.session() as session:
-                    session.run("""
+                    cypher = """
                         MATCH (f:Finding {id: $id})
                         SET f.severity = $severity, f.status = $status,
                             f.evidence = $evidence, f.last_updated = $timestamp,
                             f.contributing_agents =
                                 coalesce(f.contributing_agents, []) + $agent
-                    """, id=finding_id, severity=merged_severity,
+                    """
+                    params = dict(id=finding_id, severity=merged_severity,
                          status=merged_status, evidence=merged_evidence,
                          timestamp=timestamp, agent=[payload.agent])
+                    if merge_confirmed_at is not None:
+                        cypher += ", f.confirmed_at = $confirmed_at"
+                        params["confirmed_at"] = merge_confirmed_at
+                    session.run(cypher, **params)
             try:
                 await neo4j_exec(_update_existing)
             except Exception as e:
@@ -1539,6 +1551,8 @@ async def create_finding(payload: FindingPayload):
                     f.severity = Severity(merged_severity)
                 if new_evidence and new_evidence not in (f.evidence or ""):
                     f.evidence = merged_evidence
+                if merge_confirmed_at is not None and not f.confirmed_at:
+                    f.confirmed_at = merge_confirmed_at
                 break
 
         # Broadcast update so dashboard reflects the merge
@@ -1575,14 +1589,15 @@ async def create_finding(payload: FindingPayload):
                         f.agent = $agent, f.description = $description,
                         f.cvss = $cvss, f.cve = $cve, f.evidence = $evidence,
                         f.timestamp = $timestamp, f.engagement_id = $engagement,
-                        f.status = 'open', f.fingerprint = $fingerprint
+                        f.status = 'open', f.fingerprint = $fingerprint,
+                        f.discovered_at = $discovered_at
                 """, id=finding_id, title=payload.title,
                      severity=payload.severity, category=payload.category,
                      target=payload.target, agent=payload.agent,
                      description=payload.description, cvss=payload.cvss,
                      cve=payload.cve, evidence=payload.evidence,
                      timestamp=timestamp, engagement=payload.engagement,
-                     fingerprint=fingerprint)
+                     fingerprint=fingerprint, discovered_at=timestamp)
 
                 # Step 2: Auto-create Host + FOUND_ON edge (MERGE = idempotent)
                 if host_ip:
@@ -1650,6 +1665,7 @@ async def create_finding(payload: FindingPayload):
         timestamp=timestamp,
         engagement=payload.engagement,
         fingerprint=fingerprint,
+        discovered_at=timestamp,
     )
     await state.add_finding(finding)
 
@@ -1699,6 +1715,24 @@ async def create_finding(payload: FindingPayload):
         })
 
     return {"ok": True, "finding_id": finding_id}
+
+
+@app.get("/api/kpi/mtte")
+async def get_mtte():
+    """BUG-017: Mean Time to Exploit — average seconds from discovery to confirmation."""
+    deltas = []
+    for f in state.findings:
+        d = getattr(f, "discovered_at", None)
+        c = getattr(f, "confirmed_at", None)
+        if d and c:
+            deltas.append(c - d)
+    if not deltas:
+        return {"mtte_seconds": None, "mtte_display": "\u2014", "sample_size": 0}
+    avg = sum(deltas) / len(deltas)
+    mins = int(avg // 60)
+    secs = int(avg % 60)
+    display = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+    return {"mtte_seconds": round(avg, 2), "mtte_display": display, "sample_size": len(deltas)}
 
 
 # ── F3: Validation Pipeline ("The Moat") ─────────────────────
@@ -1898,6 +1932,10 @@ async def submit_verification_result(verification_id: str, result: VerificationR
             "error": f"Verification {verification_id} not found"
         })
 
+    # BUG-010: Ensure verification_id from path is in the result object
+    if not result.verification_id or result.verification_id != verification_id:
+        result.verification_id = verification_id
+
     v = _verifications[verification_id]
     result.timestamp = time.time()
     v["results"].append(result.model_dump())
@@ -1923,11 +1961,21 @@ async def submit_verification_result(verification_id: str, result: VerificationR
         v["final_confidence"] = 0.0
     # else: still in progress
 
+    # BUG-017: Set confirmed_at on in-memory finding when status is confirmed
+    confirmed_ts = None
+    if result.status == "confirmed":
+        confirmed_ts = time.time()
+        for f in state.findings:
+            if f.id == result.finding_id and not f.confirmed_at:
+                f.confirmed_at = confirmed_ts
+                break
+
     # Update Neo4j Finding node with verification data
     if neo4j_available and neo4j_driver and result.status in ("confirmed", "likely"):
+        confirmed_at_val = confirmed_ts if result.status == "confirmed" else None
         def _update_verification():
             with neo4j_driver.session() as session:
-                session.run("""
+                cypher = """
                     MATCH (f:Finding {id: $finding_id})
                     SET f.verified = $verified,
                         f.verification_status = $status,
@@ -1936,13 +1984,18 @@ async def submit_verification_result(verification_id: str, result: VerificationR
                         f.impact_demonstrated = $impact,
                         f.verification_id = $vrf_id,
                         f.verified_at = datetime()
-                """, finding_id=result.finding_id,
+                """
+                if confirmed_at_val is not None:
+                    cypher += ", f.confirmed_at = $confirmed_at"
+                session.run(cypher,
+                     finding_id=result.finding_id,
                      verified=result.status == "confirmed",
                      status=result.status,
                      confidence=result.confidence,
                      poc_script=result.poc_script,
                      impact=result.impact_demonstrated,
-                     vrf_id=verification_id)
+                     vrf_id=verification_id,
+                     confirmed_at=confirmed_at_val)
         try:
             await neo4j_exec(_update_verification)
         except Exception as e:
@@ -2947,6 +3000,7 @@ async def record_budget_tool_call(agent: str, finding: bool = False):
         "pct_calls": round(pct_calls, 1),
         "pct_cost": round(pct_cost, 1),
         "engagement_cost": round(_engagement_cost, 4),
+        "engagement_remaining": round(max(ENGAGEMENT_COST_CAP - _engagement_cost, 0), 4),
         "early_stop": False,
         "warning": None,
     }
@@ -3027,11 +3081,15 @@ async def report_actual_cost(agent: str, cost_usd: float):
     # Re-check budget thresholds with actual cost
     pct_cost = cost_usd / budget["max_cost"] * 100 if budget["max_cost"] > 0 else 0
 
+    # BUG-016: Include engagement_remaining so agents can show accurate warnings
+    engagement_remaining = ENGAGEMENT_COST_CAP - _engagement_cost
+
     response = {
         "ok": True,
         "agent": agent,
         "actual_cost": round(cost_usd, 4),
         "engagement_cost": round(_engagement_cost, 4),
+        "engagement_remaining": round(max(engagement_remaining, 0), 4),
         "early_stop": False,
     }
 
@@ -6314,6 +6372,14 @@ async def create_report(payload: dict):
     report_id = payload.get("id", f"rpt-{str(uuid.uuid4())[:8]}")
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     eid = payload.get("engagement_id", state.active_engagement_id)
+    report_type = payload.get("type", "pentest")
+
+    # BUG-019: Dedup — check if a report with same type+engagement already exists
+    existing_report = None
+    for r in state._reports:
+        if r.get("type") == report_type and r.get("engagement_id") == eid:
+            existing_report = r
+            break
 
     # BUG-013 fix: If the RP agent sends zeroed-out findings data, auto-populate
     # from the live engagement summary so reports always reflect actual results.
@@ -6329,10 +6395,32 @@ async def create_report(payload: dict):
         except Exception:
             pass  # Use whatever RP agent provided
 
+    # BUG-019: Update existing report instead of creating duplicate
+    if existing_report:
+        existing_report["title"] = payload.get("title", existing_report.get("title", "Untitled Report"))
+        existing_report["status"] = payload.get("status", existing_report.get("status", "draft"))
+        existing_report["pages"] = payload.get("pages") or existing_report.get("pages")
+        existing_report["findings_included"] = findings_count or existing_report.get("findings_included", 0)
+        existing_report["exploits_confirmed"] = exploits_count or existing_report.get("exploits_confirmed", 0)
+        existing_report["severity"] = severity_data or existing_report.get("severity", {})
+        existing_report["engagement_name"] = payload.get("engagement_name") or existing_report.get("engagement_name", "")
+        existing_report["author"] = payload.get("author") or existing_report.get("author", "AI Generated")
+        existing_report["format"] = payload.get("format") or existing_report.get("format", "MD")
+        existing_report["file_path"] = payload.get("file_path") or existing_report.get("file_path")
+        existing_report["summary"] = payload.get("summary") or existing_report.get("summary")
+        existing_report["updated_at"] = now
+
+        await state.broadcast({
+            "type": "report_created",
+            "report": existing_report,
+        })
+
+        return {"ok": True, "report_id": existing_report["id"], "updated": True}
+
     report = {
         "id": report_id,
         "title": payload.get("title", "Untitled Report"),
-        "type": payload.get("type", "pentest"),
+        "type": report_type,
         "status": payload.get("status", "draft"),
         "pages": payload.get("pages"),
         "findings_included": findings_count,

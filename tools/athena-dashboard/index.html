@@ -7657,14 +7657,8 @@
       }
 
       if (type === 'report_created') {
-        // Update Reports sidebar badge
-        const reportsBadge = document.getElementById('nav-badge-reports');
-        if (reportsBadge) {
-          const count = parseInt(reportsBadge.textContent || '0') + 1;
-          reportsBadge.textContent = count;
-          reportsBadge.style.display = '';
-        }
-        // Refresh Reports view if visible
+        // Refresh Reports view and badge (loadReports updates badge accurately,
+        // avoiding over-count when server dedup updates an existing report)
         if (typeof loadReports === 'function') loadReports();
         showToast('success', 'Report Generated', msg.report?.title || 'New report available');
         incrementNotif();
@@ -8316,10 +8310,14 @@
       }
 
       // Nav badge for findings
+      // BUG-015: Don't decrease badge during active engagement to prevent toggling
       const findingsBadge = document.getElementById('nav-badge-findings');
       if (msg.findings !== undefined && findingsBadge) {
-        if (msg.findings > 0) {
-          findingsBadge.textContent = msg.findings;
+        const newVal = parseInt(msg.findings) || 0;
+        const curVal = parseInt(findingsBadge.textContent) || 0;
+        const badgeVal = currentEngagementId ? Math.max(newVal, curVal) : newVal;
+        if (badgeVal > 0) {
+          findingsBadge.textContent = badgeVal;
           findingsBadge.style.display = '';
         } else {
           findingsBadge.style.display = 'none';
@@ -9589,17 +9587,34 @@
     document.addEventListener('DOMContentLoaded', function() {
       // Try connecting — if server isn't running, it will retry silently
       setTimeout(connectWebSocket, 500);
-      // Load engagements list, then populate dashboard from API
-      loadEngagements().then(() => loadDashboardFromAPI());
-      // Pre-fetch reports count for sidebar badge
-      if (currentEngagementId) {
-        fetch(`/api/reports?engagement=${currentEngagementId}`).then(r => r.json()).then(reports => {
-          if (reports.length > 0) {
-            const badge = document.getElementById('nav-badge-reports');
-            if (badge) { badge.textContent = reports.length; badge.style.display = ''; }
-          }
-        }).catch(() => {});
-      }
+      // Load engagements list, then populate dashboard from API + sync engagement state
+      loadEngagements().then(() => {
+        loadDashboardFromAPI();
+        // BUG-020: Sync ctrl state from API on page reload (before WebSocket connects)
+        if (currentEngagementId) {
+          fetch('/api/engagements').then(r => r.json()).then(engData => {
+            const engs = engData.engagements || engData;
+            const eng = engs.find(e => e.id === currentEngagementId);
+            if (eng) {
+              if (eng.phase === 'AI Mode' && eng.status === 'active') {
+                setCtrlState('running');
+              } else if (eng.status === 'completed' || eng.status === 'complete' || eng.status === 'stopped') {
+                setCtrlState('idle');
+              }
+            }
+          }).catch(() => {});
+        }
+        // BUG-021: Fetch reports badge count after engagement is selected
+        if (currentEngagementId) {
+          fetch(`/api/reports?engagement=${currentEngagementId}`).then(r => r.json()).then(reports => {
+            const count = Array.isArray(reports) ? reports.length : 0;
+            if (count > 0) {
+              const badge = document.getElementById('nav-badge-reports');
+              if (badge) { badge.textContent = count; badge.style.display = ''; }
+            }
+          }).catch(() => {});
+        }
+      });
 
       // Set mode label
       updateModeLabel('ai');
@@ -10416,11 +10431,29 @@
         const res = await fetch(`/api/engagements/${eid}/summary`);
         const summary = await res.json();
 
-        // Sidebar engagement stats
-        document.getElementById('stat-hosts').textContent = summary.hosts || 0;
-        document.getElementById('stat-services').textContent = summary.services || 0;
-        document.getElementById('stat-vulns').textContent = summary.vulnerabilities || 0;
-        document.getElementById('stat-findings').textContent = summary.findings || 0;
+        // Sidebar engagement stats (AI drawer)
+        // BUG-011: Don't decrease during active engagement — WebSocket stat_update may have newer values
+        const statHosts = document.getElementById('stat-hosts');
+        const statServices = document.getElementById('stat-services');
+        const statVulns = document.getElementById('stat-vulns');
+        const statFindings = document.getElementById('stat-findings');
+        const isActive = _currentCtrlState === 'running' || _currentCtrlState === 'paused';
+        if (statHosts) {
+          const v = summary.hosts || 0;
+          if (!isActive || v >= (parseInt(statHosts.textContent) || 0)) statHosts.textContent = v;
+        }
+        if (statServices) {
+          const v = summary.services || 0;
+          if (!isActive || v >= (parseInt(statServices.textContent) || 0)) statServices.textContent = v;
+        }
+        if (statVulns) {
+          const v = summary.vulnerabilities || 0;
+          if (!isActive || v >= (parseInt(statVulns.textContent) || 0)) statVulns.textContent = v;
+        }
+        if (statFindings) {
+          const v = summary.findings || 0;
+          if (!isActive || v >= (parseInt(statFindings.textContent) || 0)) statFindings.textContent = v;
+        }
         document.getElementById('engagementStats').style.display = 'flex';
 
         // Main dashboard KPI cards
@@ -10497,7 +10530,10 @@
         if (!container) return;
 
         if (!data.chains || data.chains.length === 0) {
-          container.innerHTML = '<div style="color: var(--zerok-text-dim); font-size: 12px; text-align: center; padding: 16px 0;">No attack chains discovered yet</div>';
+          const hint = _currentCtrlState === 'running'
+            ? 'Attack chains will appear as agents discover multi-step paths'
+            : 'No attack chains discovered yet';
+          container.innerHTML = `<div style="color: var(--zerok-text-dim); font-size: 12px; text-align: center; padding: 16px 0;">${hint}</div>`;
           if (countEl) countEl.textContent = '0 chains';
           return;
         }
@@ -10538,6 +10574,10 @@
         container.innerHTML = html;
       } catch (e) {
         console.error('Failed to load attack chains:', e);
+        const container = document.getElementById('attack-chains-body');
+        if (container) {
+          container.innerHTML = '<div style="color: var(--zerok-text-dim); font-size: 12px; text-align: center; padding: 16px 0;">Attack chain analysis unavailable</div>';
+        }
       }
     }
 
@@ -10558,6 +10598,19 @@
       resetDashboardFindingWidgets();
       loadDashboardFromAPI();
       loadEngagementSummary(eid);
+
+      // BUG-012: Pre-load evidence gallery data so badge count matches content
+      loadEvidenceGallery();
+
+      // BUG-021: Fetch reports badge count for newly selected engagement
+      fetch(`/api/reports?engagement=${eid}`).then(r => r.json()).then(reports => {
+        const badge = document.getElementById('nav-badge-reports');
+        if (badge) {
+          const count = Array.isArray(reports) ? reports.length : 0;
+          badge.textContent = count;
+          badge.style.display = count > 0 ? '' : 'none';
+        }
+      }).catch(() => {});
     }
 
     function switchEngagement() {
@@ -12002,7 +12055,7 @@
               <div class="report-summary-block">${escHtml(r.summary)}</div>
               ` : ''}
               <div class="report-actions">
-                <button class="report-action-btn primary" onclick="event.stopPropagation(); downloadReport('${r.id}')">Download ${escHtml((r.format || 'PDF').toUpperCase())}</button>
+                <button class="report-action-btn primary" onclick="event.stopPropagation(); downloadReport('${r.id}', this)">Download ${escHtml((r.format || 'PDF').toUpperCase())}</button>
                 ${r.status === 'draft' ? `<button class="report-action-btn" onclick="event.stopPropagation(); submitForReview('${r.id}')">Submit for Review</button>` : ''}
                 ${r.status === 'review' ? `<button class="report-action-btn primary" onclick="event.stopPropagation(); markReportFinal('${r.id}')">Mark as Final</button>` : ''}
                 ${r.status === 'final' ? `<button class="report-action-btn primary" onclick="event.stopPropagation(); markReportDelivered('${r.id}')">Mark as Delivered</button>` : ''}
@@ -12073,15 +12126,33 @@
       setTimeout(() => { toast.style.animation = 'toast-out 0.3s ease-in forwards'; setTimeout(() => toast.remove(), 300); }, 2500);
     }
 
-    function downloadReport(reportId) {
-      // Use anchor with download attribute to force file save (not open in tab)
-      const a = document.createElement('a');
-      const engParam = currentEngagementId ? `?engagement=${currentEngagementId}` : '';
-      a.href = `/api/reports/${encodeURIComponent(reportId)}/download${engParam}`;
-      a.download = '';  // Browser uses Content-Disposition filename
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    async function downloadReport(reportId, btn) {
+      // BUG-022: Show loading feedback during download
+      if (!btn) btn = event && event.target;
+      const origText = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = 'Downloading...'; }
+      try {
+        const engParam = currentEngagementId ? `?engagement=${currentEngagementId}` : '';
+        const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}/download${engParam}`);
+        if (!res.ok) throw new Error(`Download failed (${res.status})`);
+        const blob = await res.blob();
+        const cd = res.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename="?([^";\n]+)"?/);
+        const filename = match ? match[1] : `report-${reportId}.pdf`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error('Report download error:', e);
+        showToast('error', 'Download Failed', e.message || 'Could not download report');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = origText; }
+      }
     }
 
     function _reportUrl(reportId) {

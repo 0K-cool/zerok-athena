@@ -624,6 +624,8 @@ class AthenaAgentSession:
 
         BUG-008b: Called on each ResultMessage to replace estimated costs
         with real costs from the Claude Agent SDK.
+        BUG-016: Uses engagement_remaining for budget warnings instead of
+        per-agent remaining, which was misleadingly low.
         """
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
@@ -633,12 +635,16 @@ class AthenaAgentSession:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
+                    eng_remaining = data.get("engagement_remaining")
                     if data.get("early_stop"):
+                        remaining_msg = (f" (engagement has ${eng_remaining:.2f} remaining)"
+                                         if eng_remaining is not None else "")
                         await self._emit("system", agent,
-                            f"EARLY STOP: {agent} actual cost "
-                            f"${cost_usd:.4f} exceeds budget",
+                            f"EARLY STOP: {agent} per-agent budget exhausted"
+                            f"{remaining_msg}",
                             {"budget_early_stop": True, "agent": agent,
-                             "actual_cost": round(cost_usd, 4)})
+                             "actual_cost": round(cost_usd, 4),
+                             "engagement_remaining": eng_remaining})
                     if data.get("engagement_cap_exceeded"):
                         await self._emit("system", agent,
                             f"ENGAGEMENT CAP WARNING: Total cost "
