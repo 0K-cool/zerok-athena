@@ -183,7 +183,7 @@ WORKFLOW:
    - create_service(engagement_id="{eid}", host_ip="...", port=N, protocol="tcp", service="...")
 4. Register scans with dashboard:
    POST http://localhost:8080/api/scans
-   Body: {{"tool":"naabu","status":"running","target":"{target}","engagement_id":"{eid}"}}
+   Body: {{"tool":"naabu","status":"running","target":"{target}","engagement_id":"{eid}","agent":"AR"}}
 5. When done, set idle: POST /api/events with agent="AR", status="idle"
 
 NEO4J CONSTRAINT: Engagement "{eid}" already exists. Pass engagement_id="{eid}" to every call.
@@ -214,7 +214,8 @@ WORKFLOW:
    - Write to Neo4j: create_finding(engagement_id="{eid}", ...)
    - Write to dashboard: POST http://localhost:8080/api/engagements/{eid}/findings
      Body: {{"title":"...","severity":"critical|high|medium|low|info","description":"...","agent":"WV",...}}
-5. Register scans with dashboard (POST /api/scans)
+5. Register scans with dashboard:
+   POST /api/scans Body: {{"tool":"<tool_name>","status":"running","target":"{target}","engagement_id":"{eid}","agent":"WV"}}
 6. When done, set idle
 
 NEO4J CONSTRAINT: Engagement "{eid}" already exists. Pass engagement_id="{eid}" to every call.
@@ -583,6 +584,24 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         ctf_prompt_template=_CTF_RP_PROMPT,
     ),
 }
+
+
+# BUG-006 fix: Agent codes allowed per engagement type
+# "universal" agents are always spawned regardless of type
+AGENTS_BY_TYPE: dict[str, set[str]] = {
+    "external": {"ST", "AR", "EX", "VF", "RP"},          # Network/infrastructure only
+    "web_app":  {"ST", "WV", "EX", "VF", "RP"},          # Web application only
+    "internal": {"ST", "AR", "EX", "VF", "RP"},          # Internal network
+    "all":      {"ST", "AR", "WV", "EX", "VF", "RP"},    # Full scope
+}
+
+
+def agents_allowed_for_types(engagement_types: list[str]) -> set[str]:
+    """Return the union of allowed agent codes for given engagement types."""
+    allowed = set()
+    for t in engagement_types:
+        allowed |= AGENTS_BY_TYPE.get(t, AGENTS_BY_TYPE["all"])
+    return allowed
 
 
 def get_role(code: str) -> AgentRoleConfig:

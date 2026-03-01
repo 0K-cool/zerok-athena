@@ -4877,6 +4877,7 @@
     }
 
     /* ========== RESPONSIVE: AI DRAWER ========== */
+    /* BUG-014 fix: Tablet responsive (768px). Mobile not supported — use Discord for mobile status. */
     @media (max-width: 768px) {
       .ai-drawer.open {
         position: fixed;
@@ -4886,6 +4887,75 @@
         min-width: 100vw;
         z-index: 1000;
         box-shadow: -4px 0 24px rgba(0,0,0,0.3);
+      }
+
+      /* Auto-collapse sidebar to icon-only on tablet */
+      .sidebar {
+        width: 64px !important;
+        min-width: 64px !important;
+      }
+      .sidebar .nav-label,
+      .sidebar .sidebar-section-header span,
+      .sidebar .sidebar-section-content,
+      .sidebar .brand-name,
+      .sidebar .pentester-info {
+        display: none !important;
+      }
+      .sidebar .nav-badge {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 9px;
+        min-width: 14px;
+        height: 14px;
+        padding: 0 3px;
+      }
+
+      /* KPI cards: smaller text, flexible grid */
+      .kpi-grid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+        gap: 8px !important;
+      }
+      .kpi-card .stat-label {
+        font-size: 10px !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .kpi-card .stat-value {
+        font-size: 18px !important;
+      }
+
+      /* Kill Chain + Credential Tracker labels */
+      .kill-chain-labels span,
+      .credential-tracker-labels span {
+        font-size: 9px !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* Methodology Coverage table */
+      .methodology-coverage table {
+        font-size: 11px !important;
+      }
+      .methodology-coverage th,
+      .methodology-coverage td {
+        padding: 4px 6px !important;
+      }
+
+      /* Scans table */
+      .scans-table th, .scans-table td {
+        padding: 6px 8px !important;
+        font-size: 11px !important;
+      }
+
+      /* Header bar */
+      .header-bar h1 {
+        font-size: 16px !important;
+      }
+      .header-bar .subtitle {
+        display: none !important;
       }
     }
   </style>
@@ -6017,8 +6087,8 @@
           <div id="evidence-stats-bar" style="display: flex; gap: 16px; margin-bottom: 16px; padding: 10px; background: var(--zerok-bg-alt); border-radius: 8px; font-size: 0.85em; flex-wrap: wrap;"></div>
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
             <span style="font-size: 0.8em; color: var(--zerok-text-dim);">Show:</span>
-            <button id="evidence-linked-btn" onclick="toggleEvidenceLinkedFilter(true)" style="padding: 4px 10px; font-size: 0.78em; border-radius: 12px; border: 1px solid var(--zerok-primary); background: var(--zerok-primary); color: white; cursor: pointer; transition: all 0.2s;">Linked to Findings</button>
-            <button id="evidence-all-btn" onclick="toggleEvidenceLinkedFilter(false)" style="padding: 4px 10px; font-size: 0.78em; border-radius: 12px; border: 1px solid var(--zerok-border); background: transparent; color: var(--zerok-text-dim); cursor: pointer; transition: all 0.2s;">All Artifacts</button>
+            <button id="evidence-linked-btn" onclick="toggleEvidenceLinkedFilter(true)" style="padding: 4px 10px; font-size: 0.78em; border-radius: 12px; border: 1px solid var(--zerok-border); background: transparent; color: var(--zerok-text-dim); cursor: pointer; transition: all 0.2s;">Linked to Findings</button>
+            <button id="evidence-all-btn" onclick="toggleEvidenceLinkedFilter(false)" style="padding: 4px 10px; font-size: 0.78em; border-radius: 12px; border: 1px solid var(--zerok-primary); background: var(--zerok-primary); color: white; cursor: pointer; transition: all 0.2s;">All Artifacts</button>
           </div>
           <div id="evidence-gallery-grid" class="evidence-gallery-grid"></div>
           <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
@@ -6051,7 +6121,7 @@
               <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-low);" id="scans-completed-count">0</span></div>
             </div>
             <div class="stat-card">
-              <div class="stat-header"><span class="stat-label">Findings from Scans</span></div>
+              <div class="stat-header"><span class="stat-label">Raw Scan Hits</span></div>
               <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-warning);" id="scans-findings-count">0</span></div>
             </div>
           </div>
@@ -9104,6 +9174,14 @@
 
       const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
 
+      // BUG-016 fix: Sanitize raw SDK error messages into user-friendly text
+      let displayContent = msg.content || '';
+      if (/SDK query error|Command failed with exit code|Check stderr output/i.test(displayContent)) {
+        displayContent = 'Tool execution error — agent will retry or skip.';
+      } else if (/exit code: \d+/i.test(displayContent)) {
+        displayContent = displayContent.replace(/\(exit code: \d+\)/gi, '').replace(/Error output:.*$/gim, '').trim();
+      }
+
       const icon = control === 'engagement_paused' ? '⏸' : control === 'engagement_resumed' ? '▶' : (control === 'engagement_stopped' || control === 'engagement_ended') ? '⏹' : '⚙';
 
       const el = document.createElement('div');
@@ -9116,7 +9194,7 @@
             '<span><strong>System</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-medium) 20%,transparent);color:var(--zerok-medium);">CONTROL</span></span>' +
             '<span class="event-time">' + time + '</span>' +
           '</div>' +
-          '<div class="event-detail" style="color:var(--zerok-text-muted);">' + renderMarkdown(msg.content || '') + '</div>' +
+          '<div class="event-detail" style="color:var(--zerok-text-muted);">' + renderMarkdown(displayContent) + '</div>' +
         '</div>';
 
       if (timeline) {
@@ -9550,12 +9628,14 @@
       try {
         // Load findings to populate Recent Findings + severity counts
         const res = await fetch(`/api/engagements/${currentEngagementId}/findings`);
-        const findings = (await res.json()) || [];
+        const findingsRaw = await res.json();
+        // BUG-001/012 fix: Normalize response — API may return array or {findings: [...]}
+        const findings = Array.isArray(findingsRaw) ? findingsRaw : (findingsRaw.findings || []);
         _loadedFindingsCount = findings.length;
 
-        // BUG-024: Keep KPI in sync with findings list from API
+        // BUG-012 fix: Always sync KPI with API findings count (including 0)
         const kpiFindingsEl = document.getElementById('kpi-findings');
-        if (kpiFindingsEl && findings.length > 0) kpiFindingsEl.textContent = findings.length;
+        if (kpiFindingsEl) kpiFindingsEl.textContent = findings.length;
         const donutTotalEl = document.getElementById('donut-total');
         if (donutTotalEl && findings.length > 0) donutTotalEl.textContent = findings.length;
 
@@ -9853,6 +9933,18 @@
         const vulnData = await vulnRes.json();
         updateVulnStatusDonut(vulnData);
       } catch (e) { console.warn('vuln-severity:', e.message); }
+
+      // ── Engagement Cost from budget API (BUG-011 fix: persist cost across page reloads) ──
+      try {
+        const budgetRes = await fetch(`/api/budget/engagement?engagement_id=${currentEngagementId}`);
+        if (budgetRes.ok) {
+          const budgetData = await budgetRes.json();
+          const costEl = document.getElementById('kpi-cost');
+          if (costEl && budgetData.engagement_cost != null) {
+            costEl.textContent = '$' + Number(budgetData.engagement_cost).toFixed(2);
+          }
+        }
+      } catch (e) { console.warn('budget:', e.message); }
 
       // ── Restore agent chips, PTES matrix, and status tiles from /api/agents ──
       try {
@@ -10354,6 +10446,9 @@
     }
 
     function toggleTypeChip(chip) {
+      // BUG-002 fix: Prevent deselecting the last selected chip (at least one must remain)
+      const selected = document.querySelectorAll('.type-chip.selected');
+      if (chip.classList.contains('selected') && selected.length <= 1) return;
       chip.classList.toggle('selected');
     }
 
@@ -10613,6 +10708,10 @@
     };
 
     function switchView(viewName) {
+      // BUG-010 fix: Dismiss any open modals when navigating between views
+      document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+      if (_confirmResolve) { _confirmResolve(false); _confirmResolve = null; }
+
       // Hide all views
       document.querySelectorAll('.view-container, .findings-view').forEach(v => v.classList.remove('active'));
 
@@ -10816,11 +10915,23 @@
     let expandedFindingId = null;
 
     async function loadFindings() {
-      if (!currentEngagementId) return;
+      if (!currentEngagementId) {
+        // BUG-001 fix: Show empty state instead of leaving "Loading findings..." forever
+        allFindings = [];
+        renderFindings([]);
+        document.getElementById('findings-critical-count').textContent = '0';
+        document.getElementById('findings-high-count').textContent = '0';
+        document.getElementById('findings-medium-count').textContent = '0';
+        document.getElementById('findings-low-count').textContent = '0';
+        document.getElementById('findings-total-count').textContent = '0';
+        return;
+      }
 
       try {
         const res = await fetch(`/api/engagements/${currentEngagementId}/findings`);
-        allFindings = await res.json();
+        const data = await res.json();
+        // BUG-001 fix: API may return array directly or {findings: [...]}
+        allFindings = Array.isArray(data) ? data : (data.findings || []);
 
         // Update summary counts (BUG-025: severity from API may be capitalized)
         const counts = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -11235,7 +11346,7 @@
     // EVIDENCE GALLERY
     // ────────────────────────────────────────
 
-    let showLinkedOnly = true;
+    let showLinkedOnly = false;  // BUG-004 fix: default to "All Artifacts" so artifacts aren't hidden when 0 findings exist
 
     function toggleEvidenceLinkedFilter(linked) {
       showLinkedOnly = linked;

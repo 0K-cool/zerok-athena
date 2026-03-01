@@ -2365,43 +2365,45 @@ async def get_ctf_scoreboard(engagement_id: str = ""):
 
 # Per-agent budget allocation (from MAPTA research: failed attempts cost 5x more)
 AGENT_BUDGETS: dict[str, dict] = {
-    # Recon agents — need broad scanning
-    "PO": {"max_tool_calls": 60, "max_cost": 0.75, "label": "Passive OSINT"},
-    "AR": {"max_tool_calls": 60, "max_cost": 0.75, "label": "Active Recon"},
+    # BUG-009 fix: Realistic budgets based on beta test data
+    # Recon agents — need broad scanning (nmap alone needs 20+ calls)
+    "PO": {"max_tool_calls": 80, "max_cost": 1.00, "label": "Passive OSINT"},
+    "AR": {"max_tool_calls": 80, "max_cost": 1.00, "label": "Active Recon"},
     # Vuln analysis — standard
-    "CV": {"max_tool_calls": 40, "max_cost": 0.50, "label": "CVE Researcher"},
-    "AP": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Attack Path"},
-    "WV": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Web Vuln Scanner"},
-    "SC": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Source Code Analyst"},
+    "CV": {"max_tool_calls": 50, "max_cost": 0.75, "label": "CVE Researcher"},
+    "AP": {"max_tool_calls": 50, "max_cost": 0.75, "label": "Attack Path"},
+    "WV": {"max_tool_calls": 60, "max_cost": 0.75, "label": "Web Vuln Scanner"},
+    "SC": {"max_tool_calls": 50, "max_cost": 0.75, "label": "Source Code Analyst"},
     # Exploitation — higher per-call cost (Opus reasoning)
-    "EC": {"max_tool_calls": 30, "max_cost": 1.00, "label": "Exploit Crafter"},
-    "EX": {"max_tool_calls": 30, "max_cost": 1.00, "label": "Exploitation"},
+    "EC": {"max_tool_calls": 40, "max_cost": 1.50, "label": "Exploit Crafter"},
+    "EX": {"max_tool_calls": 40, "max_cost": 1.50, "label": "Exploitation"},
     # Verification — focused re-testing
-    "VF": {"max_tool_calls": 20, "max_cost": 0.30, "label": "Verification"},
+    "VF": {"max_tool_calls": 30, "max_cost": 0.50, "label": "Verification"},
     # Post-exploitation — depends on access
-    "PE": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Post-Exploitation"},
-    "LM": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Lateral Mover"},
-    # Strategy — pure reasoning, few tools
-    "ST": {"max_tool_calls": 10, "max_cost": 0.50, "label": "Strategy"},
+    "PE": {"max_tool_calls": 50, "max_cost": 0.75, "label": "Post-Exploitation"},
+    "LM": {"max_tool_calls": 50, "max_cost": 0.75, "label": "Lateral Mover"},
+    # Strategy — coordinator needs headroom for Neo4j queries + reasoning
+    "ST": {"max_tool_calls": 50, "max_cost": 3.00, "label": "Strategy"},
     # Reporting — writing-heavy (Opus)
-    "RP": {"max_tool_calls": 15, "max_cost": 0.75, "label": "Reporting"},
+    "RP": {"max_tool_calls": 25, "max_cost": 1.00, "label": "Reporting"},
     # Web app testing agents
-    "JS": {"max_tool_calls": 40, "max_cost": 0.50, "label": "JS Analyzer"},
-    "PD": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Param Discovery"},
-    "WA": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Web App Fuzzer"},
-    "AT": {"max_tool_calls": 40, "max_cost": 0.50, "label": "Auth Tester"},
-    "AA": {"max_tool_calls": 40, "max_cost": 0.50, "label": "API Attacker"},
-    "DV": {"max_tool_calls": 30, "max_cost": 0.50, "label": "Detection Validator"},
-    # Management agents — minimal tools
-    "PL": {"max_tool_calls": 10, "max_cost": 0.30, "label": "Planning"},
-    "OR": {"max_tool_calls": 10, "max_cost": 0.30, "label": "Orchestrator"},
+    "JS": {"max_tool_calls": 50, "max_cost": 0.75, "label": "JS Analyzer"},
+    "PD": {"max_tool_calls": 50, "max_cost": 0.75, "label": "Param Discovery"},
+    "WA": {"max_tool_calls": 50, "max_cost": 0.75, "label": "Web App Fuzzer"},
+    "AT": {"max_tool_calls": 50, "max_cost": 0.75, "label": "Auth Tester"},
+    "AA": {"max_tool_calls": 50, "max_cost": 0.75, "label": "API Attacker"},
+    "DV": {"max_tool_calls": 40, "max_cost": 0.75, "label": "Detection Validator"},
+    # Management agents — coordination headroom
+    "PL": {"max_tool_calls": 20, "max_cost": 0.50, "label": "Planning"},
+    "OR": {"max_tool_calls": 50, "max_cost": 1.50, "label": "Orchestrator"},
 }
 
 # Default budget for unlisted agents
 DEFAULT_BUDGET = {"max_tool_calls": 40, "max_cost": 0.50}
 
-# Engagement-level cost cap (all agents combined)
-ENGAGEMENT_COST_CAP = 5.00  # $5 default, matches PHASE-F-PLAN target
+# BUG-009 fix: Engagement-level cost cap (all agents combined)
+# Beta test showed $7.37 with just 5 agents; realistic pentests need $15-20
+ENGAGEMENT_COST_CAP = 15.00
 
 # Token pricing: Sonnet 4.6 rates (per million tokens)
 # SDK agents use Sonnet by default, Opus for Strategy/Exploit
@@ -2414,6 +2416,14 @@ OPUS_AGENTS = {"ST", "EC", "EX", "RP"}  # Agents that use Opus
 # In-memory budget tracking: agent_code → {tool_calls, estimated_cost, findings}
 _agent_budgets: dict[str, dict] = {}
 _engagement_cost: float = 0.0
+_engagement_types: list[str] = ["external"]  # BUG-006: Current engagement types for agent gating
+
+# BUG-006: Agents allowed per engagement type (server-side enforcement)
+_AGENTS_BY_TYPE: dict[str, set[str]] = {
+    "external": {"ST", "AR", "EX", "VF", "RP"},
+    "web_app":  {"ST", "WV", "EX", "VF", "RP"},
+    "internal": {"ST", "AR", "EX", "VF", "RP"},
+}
 
 
 def _get_agent_budget(agent: str) -> dict:
@@ -4214,7 +4224,6 @@ async def get_services_summary(eid: str):
                            count(DISTINCT h) AS host_count,
                            collect(DISTINCT s.version)[..3] AS versions
                     ORDER BY host_count DESC
-                    LIMIT 8
                 """, eid=eid)
                 for record in result:
                     services.append({
@@ -5400,12 +5409,13 @@ async def update_scan(scan_id: str, request: dict):
 
     # Auto-set completed_at if status changed to completed/error
     # BUG-021b: Agent sends "complete" (no "d") — accept both variants
-    if request.get("status") in ("completed", "complete", "error") and not scan.get("completed_at"):
+    if request.get("status") in ("completed", "complete", "error", "aborted", "ABORTED") and not scan.get("completed_at"):
         scan["completed_at"] = datetime.now(timezone.utc).isoformat()
 
-    # BUG-004: Auto-calculate duration if not explicitly provided and scan is done
+    # BUG-004/BUG-008: Auto-calculate duration if not explicitly provided and scan is done
     # BUG-021b: Accept both "completed" and "complete" status variants
-    if scan.get("status") in ("completed", "complete", "error") and not request.get("duration_s"):
+    # BUG-008: Also calculate for "aborted" scans
+    if scan.get("status") in ("completed", "complete", "error", "aborted", "ABORTED") and not request.get("duration_s"):
         started = scan.get("started_at")
         completed = scan.get("completed_at")
         if started and completed and scan.get("duration_s", 0) == 0:
@@ -7112,9 +7122,10 @@ async def start_engagement_ai(
         _active_session_manager = None
 
     # Reset budgets for new engagement
-    global _engagement_cost, _agent_budgets
+    global _engagement_cost, _agent_budgets, _engagement_types
     _agent_budgets = {}
     _engagement_cost = 0.0
+    _engagement_types = engagement_types  # BUG-006: Store for agent request gating
     state._engagement_cap_warned = False
 
     # Set engagement active
@@ -7211,7 +7222,19 @@ Dashboard: http://localhost:8080
 """
         if scope_doc:
             st_context += f"\nSCOPE DOCUMENT:\n{scope_doc}\n"
+        # BUG-006 fix: Tell ST which agents are appropriate for this engagement type
+        _type_agents = {
+            "external": "AR (recon), EX (exploitation), VF (verification), RP (reporting). Do NOT request WV — no web app in scope.",
+            "web_app":  "WV (web vuln scan), EX (exploitation), VF (verification), RP (reporting). Do NOT request AR — network recon not in scope.",
+            "internal": "AR (recon), EX (exploitation), VF (verification), RP (reporting). Do NOT request WV — no web app in scope.",
+        }
+        _type_str = ', '.join(engagement_types)
+        _allowed_agents = _type_agents.get(engagement_types[0], "AR, WV, EX, VF, RP") if len(engagement_types) == 1 else "AR, WV, EX, VF, RP"
         st_context += f"""
+AGENT SELECTION (based on engagement type: {_type_str}):
+Allowed agents: {_allowed_agents}
+IMPORTANT: Only request agents appropriate for the engagement type. Do NOT request web app agents (WV) for external/network engagements, and do NOT request network recon agents (AR) for web-app-only engagements.
+
 Start by querying Neo4j for existing engagement state, then begin with
 Active Recon (AR) — request it via POST http://localhost:8080/api/agents/request
 Body: {{"agent":"AR","task":"Port scan and service enumeration against {target}","priority":"high"}}
@@ -8008,6 +8031,15 @@ async def request_agent_spawn(payload: AgentRequestPayload):
     if not payload.agent:
         return JSONResponse(status_code=400, content={
             "error": "Agent code required (e.g. AR, WV, EX, VF, RP)"
+        })
+
+    # BUG-006 fix: Gate agent requests by engagement type
+    allowed = set()
+    for t in _engagement_types:
+        allowed |= _AGENTS_BY_TYPE.get(t, {"ST", "AR", "WV", "EX", "VF", "RP"})
+    if payload.agent not in allowed:
+        return JSONResponse(status_code=400, content={
+            "error": f"Agent {payload.agent} not allowed for engagement type(s) {_engagement_types}. Allowed: {sorted(allowed)}"
         })
 
     _active_session_manager.request_agent(payload.agent, payload.task, payload.priority)
