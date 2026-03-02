@@ -2543,6 +2543,11 @@
       color: white;
     }
 
+    .finding-severity-badge.info {
+      background: var(--zerok-info, #3b82f6);
+      color: white;
+    }
+
     .finding-status-badge {
       display: inline-block;
       padding: 4px 10px;
@@ -11827,7 +11832,7 @@
 
       tbody.innerHTML = findings.map(f => `
         <tr onclick="toggleFindingDetails('${f.id}')" data-finding-id="${f.id}">
-          <td><span class="finding-severity-badge ${f.severity}">${f.severity.toUpperCase()}</span></td>
+          <td><span class="finding-severity-badge ${(f.severity || 'info').toLowerCase()}">${(f.severity || 'INFO').toUpperCase()}</span></td>
           <td style="font-weight: 500;">${escHtml(f.title)}</td>
           <td>${f.cvss !== null && f.cvss !== undefined ? f.cvss.toFixed(1) : '—'}</td>
           <td><span class="finding-status-badge">${f.status || 'open'}</span></td>
