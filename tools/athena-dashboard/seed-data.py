@@ -18,7 +18,9 @@ from neo4j import GraphDatabase
 
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://kali.linux.vkloud.antsle.us:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-NEO4J_PASS = os.environ.get("NEO4J_PASS", "athena2026")
+NEO4J_PASS = os.environ.get("NEO4J_PASS", "")
+if not NEO4J_PASS:
+    print("WARNING: NEO4J_PASS not set — set via environment variable")
 
 ENGAGEMENTS = [
     {
