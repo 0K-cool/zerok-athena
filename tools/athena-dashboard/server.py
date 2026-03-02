@@ -571,6 +571,25 @@ async def lifespan(app: FastAPI):
                     )
             await neo4j_exec(_create_indexes)
             print("  Neo4j Index: finding_fingerprint ✓")
+            # Backfill EXPLOITS edges for confirmed findings missing them
+            def _backfill_exploits():
+                with neo4j_driver.session() as session:
+                    # Verified findings link to hosts/services via AFFECTS or FOUND_ON.
+                    # Create EXPLOITS to the best target (Service preferred, Host as fallback).
+                    result = session.run("""
+                        MATCH (f:Finding)
+                        WHERE f.verified = true AND NOT (f)-[:EXPLOITS]->()
+                        OPTIONAL MATCH (f)-[:AFFECTS|FOUND_ON]->(h:Host)-[:HAS_SERVICE]->(s:Service)
+                        OPTIONAL MATCH (f)-[:AFFECTS]->(s2:Service)
+                        WITH f, COALESCE(s2, s, h) AS target
+                        WHERE target IS NOT NULL
+                        MERGE (f)-[:EXPLOITS]->(target)
+                        RETURN count(*) AS created
+                    """)
+                    return result.single()["created"]
+            created = await neo4j_exec(_backfill_exploits)
+            if created:
+                print(f"  Neo4j Backfill: {created} EXPLOITS edges created ✓")
         except Exception as e:
             print(f"  Neo4j Index: finding_fingerprint ✗ ({e})")
     print()
@@ -1719,13 +1738,31 @@ async def create_finding(payload: FindingPayload):
 
 @app.get("/api/kpi/mtte")
 async def get_mtte():
-    """BUG-017: Mean Time to Exploit — average seconds from discovery to confirmation."""
+    """BUG-017: Mean Time to Exploit — average seconds from discovery to confirmation.
+    Reads from Neo4j first (survives restart), falls back to in-memory state."""
     deltas = []
-    for f in state.findings:
-        d = getattr(f, "discovered_at", None)
-        c = getattr(f, "confirmed_at", None)
-        if d and c:
-            deltas.append(c - d)
+    # Try Neo4j first — persisted data survives server restarts
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (f:Finding)
+                    WHERE f.discovered_at IS NOT NULL AND f.confirmed_at IS NOT NULL
+                    RETURN f.discovered_at AS d, f.confirmed_at AS c
+                """)
+                for rec in result:
+                    d, c = rec["d"], rec["c"]
+                    if d and c and c > d:
+                        deltas.append(c - d)
+        except Exception:
+            pass
+    # Fall back to in-memory findings
+    if not deltas:
+        for f in state.findings:
+            d = getattr(f, "discovered_at", None)
+            c = getattr(f, "confirmed_at", None)
+            if d and c:
+                deltas.append(c - d)
     if not deltas:
         return {"mtte_seconds": None, "mtte_display": "\u2014", "sample_size": 0}
     avg = sum(deltas) / len(deltas)
@@ -2000,6 +2037,29 @@ async def submit_verification_result(verification_id: str, result: VerificationR
             await neo4j_exec(_update_verification)
         except Exception as e:
             print(f"Neo4j verification update error: {e}")
+
+        # Create EXPLOITS relationship when finding is confirmed
+        if result.status == "confirmed":
+            def _create_exploits_edge():
+                with neo4j_driver.session() as session:
+                    # Try direct AFFECTS→Service first
+                    r = session.run("""
+                        MATCH (f:Finding {id: $fid})-[:AFFECTS]->(s:Service)
+                        MERGE (f)-[:EXPLOITS]->(s)
+                        RETURN count(*) AS c
+                    """, fid=result.finding_id)
+                    if r.single()["c"] == 0:
+                        # Fallback: FOUND_ON→Host→HAS_SERVICE→Service
+                        session.run("""
+                            MATCH (f:Finding {id: $fid})-[:FOUND_ON]->(h:Host)-[:HAS_SERVICE]->(s:Service)
+                            WITH f, head(collect(s)) AS svc
+                            WHERE svc IS NOT NULL
+                            MERGE (f)-[:EXPLOITS]->(svc)
+                        """, fid=result.finding_id)
+            try:
+                await neo4j_exec(_create_exploits_edge)
+            except Exception as e:
+                print(f"Neo4j EXPLOITS edge error: {e}")
 
     # Emit verification result event
     status_label = result.status.upper()
@@ -3100,6 +3160,17 @@ async def report_actual_cost(agent: str, cost_usd: float):
     if _engagement_cost >= ENGAGEMENT_COST_CAP:
         response["engagement_cap_exceeded"] = True
 
+    # Persist engagement cost to Neo4j so it survives server restarts
+    if neo4j_available and neo4j_driver and _engagement_cost > 0:
+        try:
+            with neo4j_driver.session() as session:
+                session.run(
+                    "MATCH (e:Engagement {status: 'active'}) SET e.engagement_cost = $cost",
+                    cost=round(_engagement_cost, 4),
+                )
+        except Exception:
+            pass
+
     # Broadcast cost update so dashboard KPI updates in real-time
     await state.broadcast({
         "type": "cost_update",
@@ -3188,9 +3259,23 @@ async def get_budgets():
 @app.get("/api/budget/engagement")
 async def get_engagement_budget():
     """Get engagement-level cost summary with efficiency metrics."""
+    global _engagement_cost
     active = {k: v for k, v in _agent_budgets.items() if v["tool_calls"] > 0}
     # BUG-008b: Use actual cost when available, fall back to estimated
     total_cost = sum(b.get("actual_cost", b["estimated_cost"]) for b in active.values())
+    # Restore from Neo4j if in-memory is zero (server restart scenario)
+    if total_cost == 0 and neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                rec = session.run(
+                    "MATCH (e:Engagement) WHERE e.engagement_cost IS NOT NULL "
+                    "RETURN e.engagement_cost AS cost ORDER BY e.engagement_cost DESC LIMIT 1"
+                ).single()
+                if rec and rec["cost"]:
+                    total_cost = float(rec["cost"])
+                    _engagement_cost = total_cost
+        except Exception:
+            pass
     total_tools = sum(b["tool_calls"] for b in active.values())
     total_findings = sum(b["findings_count"] for b in active.values())
 
@@ -6340,6 +6425,25 @@ async def get_reports(engagement: Optional[str] = None, include_archived: bool =
                 seen_file_ids.add(file_id)
                 stat = report_file.stat()
                 saved = meta.get(file_id, {})
+                # Estimate pages and findings count from file content
+                est_pages = saved.get("pages")
+                est_findings = saved.get("findings_included")
+                if est_pages is None or est_findings is None:
+                    try:
+                        content = report_file.read_text(errors="ignore")
+                        if est_pages is None:
+                            # ~40 lines per page for markdown reports
+                            line_count = content.count("\n")
+                            est_pages = max(1, round(line_count / 40))
+                        if est_findings is None:
+                            # Count finding references (## Finding, ### CVE-, severity markers)
+                            import re
+                            finding_patterns = re.findall(
+                                r"(?:^#{2,3}\s+(?:Finding|CVE-|VULN-))|(?:^\|.*(?:Critical|High|Medium|Low).*\|)",
+                                content, re.MULTILINE | re.IGNORECASE)
+                            est_findings = len(finding_patterns) if finding_patterns else None
+                    except Exception:
+                        pass
                 reports.append({
                     "id": file_id,
                     "title": saved.get("title") or report_file.stem.replace("-", " ").replace("_", " ").title(),
@@ -6348,8 +6452,8 @@ async def get_reports(engagement: Optional[str] = None, include_archived: bool =
                         "executive" if "executive" in report_file.stem.lower() else
                         "remediation" if "remediation" in report_file.stem.lower() else "pentest"),
                     "status": saved.get("status", "draft"),
-                    "pages": saved.get("pages"),
-                    "findings_included": saved.get("findings_included"),
+                    "pages": est_pages,
+                    "findings_included": est_findings,
                     "engagement_id": eid or parts[0],
                     "engagement_name": eng_name,
                     "author": saved.get("author", "AI Generated"),

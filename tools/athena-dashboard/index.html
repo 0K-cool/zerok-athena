@@ -6417,15 +6417,15 @@
             </div>
             <div class="stat-card">
               <div class="stat-header"><span class="stat-label">Final</span></div>
-              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-low);" id="reports-final-count">0</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-text-dim);" id="reports-final-count">0</span></div>
             </div>
             <div class="stat-card">
               <div class="stat-header"><span class="stat-label">In Review</span></div>
-              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-warning);" id="reports-review-count">0</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-text-dim);" id="reports-review-count">0</span></div>
             </div>
             <div class="stat-card">
               <div class="stat-header"><span class="stat-label">Delivered</span></div>
-              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-primary);" id="reports-delivered-count">0</span></div>
+              <div class="stat-value-row"><span class="stat-value" style="color: var(--zerok-text-dim);" id="reports-delivered-count">0</span></div>
             </div>
           </div>
 
@@ -9591,14 +9591,22 @@
       loadEngagements().then(() => {
         loadDashboardFromAPI();
         // BUG-020: Sync ctrl state from API on page reload (before WebSocket connects)
+        // Check both engagement status AND agent activity — engagement may say "active"
+        // in Neo4j but all agents are idle after a server restart.
         if (currentEngagementId) {
-          fetch('/api/engagements').then(r => r.json()).then(engData => {
+          Promise.all([
+            fetch('/api/engagements').then(r => r.json()),
+            fetch('/api/agents').then(r => r.json())
+          ]).then(([engData, agents]) => {
             const engs = engData.engagements || engData;
             const eng = engs.find(e => e.id === currentEngagementId);
+            const anyAgentRunning = Object.values(agents).some(a => a.status === 'running' || a.status === 'active');
             if (eng) {
-              if (eng.phase === 'AI Mode' && eng.status === 'active') {
+              if (eng.status === 'completed' || eng.status === 'complete' || eng.status === 'stopped') {
+                setCtrlState('idle');
+              } else if (eng.phase === 'AI Mode' && eng.status === 'active' && anyAgentRunning) {
                 setCtrlState('running');
-              } else if (eng.status === 'completed' || eng.status === 'complete' || eng.status === 'stopped') {
+              } else {
                 setCtrlState('idle');
               }
             }
@@ -9882,7 +9890,7 @@
             areaChart.data.datasets[1].label = 'Medium';
             areaChart.data.datasets[2].data = labels.map(l => bySevDate.other[l] || 0);
             areaChart.data.datasets[2].label = 'Low/Info';
-            areaChart.update();
+            areaChart.update('none');
           }
         }
 
@@ -9913,7 +9921,7 @@
           });
           const maxRadar = Math.max(1, ...radarCounts);
           radarChart.data.datasets[0].data = radarCounts.map(c => Math.round((c / maxRadar) * 100));
-          radarChart.update();
+          radarChart.update('none');
         }
 
         // ── Remediation Priority Bubble Chart ──
@@ -9941,7 +9949,7 @@
             }
           }
           remediationChart.data.datasets = datasets;
-          remediationChart.update();
+          remediationChart.update('none');
         }
 
         // Restore Findings nav badge
@@ -11800,6 +11808,9 @@
         // Update summary counts
         const counts = { total: allScans.length, running: 0, completed: 0, findings: 0 };
         allScans.forEach(s => {
+          // Normalize status variants (e.g. "complete" → "completed", "aborted" → "cancelled")
+          if (s.status === 'complete') s.status = 'completed';
+          if (s.status === 'aborted') s.status = 'cancelled';
           if (s.status === 'running') counts.running++;
           if (s.status === 'completed') counts.completed++;
           counts.findings += (s.findings_count || 0);
@@ -11993,9 +12004,16 @@
           if (r.status === 'delivered') counts.delivered++;
         });
         document.getElementById('reports-total-count').textContent = counts.total;
-        document.getElementById('reports-final-count').textContent = counts.final;
-        document.getElementById('reports-review-count').textContent = counts.review;
-        document.getElementById('reports-delivered-count').textContent = counts.delivered;
+        // Dim KPI values when zero — colored values imply actionable data
+        const finalEl = document.getElementById('reports-final-count');
+        finalEl.textContent = counts.final;
+        finalEl.style.color = counts.final > 0 ? 'var(--zerok-low)' : 'var(--zerok-text-dim)';
+        const reviewEl = document.getElementById('reports-review-count');
+        reviewEl.textContent = counts.review;
+        reviewEl.style.color = counts.review > 0 ? 'var(--zerok-warning)' : 'var(--zerok-text-dim)';
+        const deliveredEl = document.getElementById('reports-delivered-count');
+        deliveredEl.textContent = counts.delivered;
+        deliveredEl.style.color = counts.delivered > 0 ? 'var(--zerok-primary)' : 'var(--zerok-text-dim)';
 
         // Update sidebar badge
         const reportsBadge = document.getElementById('nav-badge-reports');
@@ -12029,8 +12047,8 @@
           </td>
           <td><span class="report-type-badge ${r.type}">${r.type.toUpperCase()}</span></td>
           <td><span class="report-status-badge ${r.status}">${r.status.toUpperCase()}</span></td>
-          <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${r.pages || '—'}</td>
-          <td>${r.findings_included || 0}</td>
+          <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${r.pages != null ? r.pages : '—'}</td>
+          <td>${r.findings_included != null ? r.findings_included : '—'}</td>
           <td style="font-size: 12px; color: var(--zerok-text-muted);">${r.updated_at ? new Date(r.updated_at).toLocaleDateString() : '—'}</td>
         </tr>
         <tr class="report-detail-row" data-report-id="${r.id}" style="display: none;">
