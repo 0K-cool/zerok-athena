@@ -4715,29 +4715,18 @@ async def get_engagement_findings(eid: str):
                 except Exception:
                     pass
 
-                # BUG-010: Count total evidence artifacts for this engagement
-                total_artifacts = 0
-                try:
-                    art_rec = session.run(
-                        "MATCH (a:Artifact {engagement_id: $eid}) RETURN count(a) AS cnt",
-                        eid=eid
-                    ).single()
-                    if art_rec:
-                        total_artifacts = art_rec["cnt"]
-                except Exception:
-                    pass
-
                 result = session.run("""
                     MATCH (f:Finding {engagement_id: $eid})
                     OPTIONAL MATCH (f)-[:FOUND_ON]->(h:Host)
                     WITH f, collect(DISTINCT h.ip) AS affected_hosts
                     OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
                     OPTIONAL MATCH (f)-[:HAS_ARTIFACT]->(art:Artifact)
+                    OPTIONAL MATCH (prop_art:Artifact {finding_id: f.id})
                     RETURN f.id AS id, f.title AS title, f.severity AS severity,
                            f.cvss AS cvss, f.status AS status, f.category AS category,
                            f.description AS description, f.target AS target,
                            f.evidence AS evidence, affected_hosts,
-                           count(DISTINCT ep) + count(DISTINCT art) AS evidence_count
+                           count(DISTINCT ep) + count(DISTINCT art) + count(DISTINCT prop_art) AS evidence_count
                     ORDER BY f.cvss DESC
                 """, eid=eid)
                 findings = []
@@ -4755,13 +4744,10 @@ async def get_engagement_findings(eid: str):
                         scope_host = scope_host.replace("http://", "").replace("https://", "")
                         if scope_host:
                             hosts = [scope_host]
-                    # Derive evidence_count from evidence text if no EVIDENCED_BY relationships
+                    # Derive evidence_count from evidence text if no relationships found
                     ev_count = record["evidence_count"]
                     if ev_count == 0 and record.get("evidence"):
                         ev_count = 1
-                    # BUG-010: If still 0 but engagement has artifacts, show total for visibility
-                    if ev_count == 0 and total_artifacts > 0:
-                        ev_count = total_artifacts
                     findings.append({
                         "id": record["id"],
                         "title": record["title"],
