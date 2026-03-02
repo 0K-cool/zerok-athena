@@ -4659,9 +4659,14 @@ async def update_engagement(eid: str, payload: UpdateEngagementPayload):
 
 
 @app.delete("/api/engagements/{eid}")
-async def delete_engagement(eid: str):
-    """Delete an engagement and ALL related data permanently."""
-    deleted_data = {"engagement": False, "graph": False, "scans": False, "reports": False, "budgets": False}
+async def delete_engagement(eid: str, purge_cei: bool = False):
+    """Delete an engagement and ALL related data permanently.
+
+    If purge_cei=True, also removes intelligence contributions:
+    - TechniqueRecords ONLY linked to this engagement are deleted
+    - TechniqueRecords linked to other engagements keep data, just sever the link
+    """
+    deleted_data = {"engagement": False, "graph": False, "scans": False, "reports": False, "budgets": False, "cei_purged": 0}
 
     def _neo4j_delete_scoped(eid: str) -> dict:
         """Delete only nodes scoped to this engagement (runs in thread)."""
@@ -4726,6 +4731,38 @@ async def delete_engagement(eid: str):
 
     # Remove engagement from in-memory list
     state.engagements = [e for e in state.engagements if e.id != eid]
+
+    # 9. Purge CEI intelligence data if requested
+    if purge_cei and neo4j_available and neo4j_driver:
+        def _purge_cei(eid: str) -> int:
+            purged = 0
+            try:
+                with neo4j_driver.session() as session:
+                    # Delete TechniqueRecords ONLY linked to this engagement
+                    result = session.run("""
+                        MATCH (t:TechniqueRecord)-[:USED_IN]->(e:Engagement {id: $eid})
+                        WHERE NOT EXISTS {
+                            MATCH (t)-[:USED_IN]->(other:Engagement)
+                            WHERE other.id <> $eid
+                        }
+                        DETACH DELETE t
+                        RETURN count(t) AS deleted
+                    """, eid=eid)
+                    record = result.single()
+                    purged = record["deleted"] if record else 0
+
+                    # For multi-engagement TechniqueRecords, just remove the relationship
+                    session.run("""
+                        MATCH (t:TechniqueRecord)-[r:USED_IN]->(e:Engagement {id: $eid})
+                        DELETE r
+                    """, eid=eid)
+            except Exception as e:
+                logger.warning("CEI purge for engagement %s: %s", eid, e)
+            return purged
+
+        cei_purged = await neo4j_exec(lambda: _purge_cei(eid))
+        deleted_data["cei_purged"] = cei_purged
+        print(f"[DELETE] CEI purge: {cei_purged} technique records deleted")
 
     print("[DELETE] Broadcasting engagement_changed...")
     await state.broadcast({

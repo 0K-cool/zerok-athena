@@ -11429,13 +11429,22 @@
           '• Attack graph nodes and relationships<br>' +
           '• Reports generated for this engagement<br>' +
           '• Agent budget and cost tracking<br><br>' +
+          '<div style="margin:12px 0;padding:10px 12px;background:color-mix(in srgb, var(--zerok-warning) 8%, transparent);border:1px solid color-mix(in srgb, var(--zerok-warning) 25%, transparent);border-radius:6px;">' +
+            '<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;">' +
+              '<input type="checkbox" id="purgeCeiCheckbox" style="margin-top:2px;accent-color:var(--zerok-warning);cursor:pointer;">' +
+              '<span>Also remove intelligence contributions from this engagement.<br>' +
+              '<span style="color:var(--zerok-text-muted);font-size:11px;">Technique success rates, tool costs, and duration data learned from this engagement will be permanently deleted. Cross-engagement intelligence that also includes other engagements will be preserved.</span></span>' +
+            '</label>' +
+          '</div>' +
           '<strong style="color:var(--zerok-critical)">This cannot be undone.</strong>',
         actionLabel: 'Delete Permanently',
         variant: 'danger',
       });
       if (!confirmed) return;
+      const purgeCei = document.getElementById('purgeCeiCheckbox')?.checked || false;
       try {
-        const res = await fetch(`/api/engagements/${eid}`, { method: 'DELETE' });
+        const url = `/api/engagements/${eid}` + (purgeCei ? '?purge_cei=true' : '');
+        const res = await fetch(url, { method: 'DELETE' });
         const result = await res.json();
         if (result.ok) {
           if (currentEngagementId === eid) {
@@ -11447,7 +11456,10 @@
           loadEngagements();
           loadDashboardFromAPI();
           loadEngagementsView();
-          showToast('success', 'Deleted', 'Engagement and all associated data deleted');
+          const ceiMsg = purgeCei && result.cascade_deleted?.cei_purged > 0
+            ? ` (${result.cascade_deleted.cei_purged} intelligence records purged)`
+            : '';
+          showToast('success', 'Deleted', 'Engagement and all associated data deleted' + ceiMsg);
         }
       } catch (e) {
         console.error('Failed to delete engagement:', e);
