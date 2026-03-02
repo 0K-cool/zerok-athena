@@ -197,11 +197,21 @@ class WorkspaceManager:
             r'(password|api[_-]?key|secret|token|credential)\s*[:=]',
             re.IGNORECASE)
         count = 0
-        for suffix in ("*.md", "*.json", "*.txt", "*.yaml", "*.yml", "*.log", "*.sh", "*.py", "*.xml"):
+        for suffix in ("*.md", "*.json", "*.txt", "*.yaml", "*.yml", "*.log",
+                        "*.sh", "*.py", "*.xml", "*.env", "*.toml", "*.ini",
+                        "*.conf", "*.cfg", "*.properties"):
             for f in directory.rglob(suffix):
                 # Skip symlinks (shared resources)
                 if f.is_symlink():
                     continue
+                try:
+                    text = f.read_text(errors="ignore")
+                    count += len(cred_pattern.findall(text))
+                except Exception:
+                    pass
+        # Also check files with no extension (loot dumps, credential files)
+        for f in directory.rglob("*"):
+            if f.is_file() and not f.suffix and not f.is_symlink():
                 try:
                     text = f.read_text(errors="ignore")
                     count += len(cred_pattern.findall(text))

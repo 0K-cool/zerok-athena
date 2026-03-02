@@ -255,7 +255,9 @@ class Engagement(BaseModel):
 
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://your-kali-host:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-NEO4J_PASS = os.environ.get("NEO4J_PASS", "$NEO4J_PASS")
+NEO4J_PASS = os.environ.get("NEO4J_PASS", "")
+if not NEO4J_PASS:
+    logger.warning("NEO4J_PASS not set — Neo4j authentication will fail. Set via environment variable.")
 
 # Evidence directory structure
 EVIDENCE_SUBFOLDERS = ["screenshots", "screenshots/thumbnails", "http-pairs", "command-output", "tool-logs", "response-diffs"]
@@ -1884,7 +1886,7 @@ async def get_cei_techniques():
         return {"techniques": techniques, "available": True}
     except Exception as e:
         logger.warning("CEI techniques endpoint: %s", e)
-        return {"techniques": [], "available": True, "error": str(e)}
+        return {"techniques": [], "available": False, "error": "Query failed"}
 
 
 @app.get("/api/cei/false-positives")
@@ -1904,7 +1906,7 @@ async def get_cei_false_positives():
         return {"false_positives": fps, "available": True}
     except Exception as e:
         logger.warning("CEI false-positives endpoint: %s", e)
-        return {"false_positives": [], "available": True, "error": str(e)}
+        return {"false_positives": [], "available": False, "error": "Query failed"}
 
 
 @app.get("/api/cei/engagement-history")
@@ -1930,7 +1932,7 @@ async def get_cei_engagement_history():
         return {"engagements": engagements, "available": True}
     except Exception as e:
         logger.warning("CEI engagement history: %s", e)
-        return {"engagements": [], "available": True, "error": str(e)}
+        return {"engagements": [], "available": False, "error": "Query failed"}
 
 
 # ── F3: Validation Pipeline ("The Moat") ─────────────────────
@@ -4666,6 +4668,10 @@ async def delete_engagement(eid: str, purge_cei: bool = False):
     - TechniqueRecords ONLY linked to this engagement are deleted
     - TechniqueRecords linked to other engagements keep data, just sever the link
     """
+    # P2-FIX: Validate eid format to prevent glob metachar injection
+    if not re.fullmatch(r'eng-[a-f0-9]{6}', eid):
+        return JSONResponse(status_code=400, content={"error": "Invalid engagement ID format"})
+
     deleted_data = {"engagement": False, "graph": False, "scans": False, "reports": False, "budgets": False, "cei_purged": 0}
 
     def _neo4j_delete_scoped(eid: str) -> dict:
@@ -4738,18 +4744,28 @@ async def delete_engagement(eid: str, purge_cei: bool = False):
             purged = 0
             try:
                 with neo4j_driver.session() as session:
-                    # Delete TechniqueRecords ONLY linked to this engagement
-                    result = session.run("""
+                    # Count TechniqueRecords ONLY linked to this engagement (before deleting)
+                    count_result = session.run("""
                         MATCH (t:TechniqueRecord)-[:USED_IN]->(e:Engagement {id: $eid})
                         WHERE NOT EXISTS {
                             MATCH (t)-[:USED_IN]->(other:Engagement)
                             WHERE other.id <> $eid
                         }
-                        DETACH DELETE t
-                        RETURN count(t) AS deleted
+                        RETURN count(t) AS to_delete
                     """, eid=eid)
-                    record = result.single()
-                    purged = record["deleted"] if record else 0
+                    record = count_result.single()
+                    purged = record["to_delete"] if record else 0
+
+                    # Now delete those single-engagement TechniqueRecords
+                    if purged > 0:
+                        session.run("""
+                            MATCH (t:TechniqueRecord)-[:USED_IN]->(e:Engagement {id: $eid})
+                            WHERE NOT EXISTS {
+                                MATCH (t)-[:USED_IN]->(other:Engagement)
+                                WHERE other.id <> $eid
+                            }
+                            DETACH DELETE t
+                        """, eid=eid)
 
                     # For multi-engagement TechniqueRecords, just remove the relationship
                     session.run("""
@@ -7561,7 +7577,6 @@ async def get_status():
         }
     return {
         "neo4j": neo4j_available,
-        "uri": NEO4J_URI if neo4j_available else None,
         "mode": "connected" if neo4j_available else "mock",
         "neo4j_driver_installed": NEO4J_AVAILABLE,
         "kali": kali_status,
@@ -7578,11 +7593,10 @@ async def get_neo4j_config():
             content={"error": "Neo4j not available", "available": False}
         )
 
-    # P1-FIX: Never expose credentials to browser — graph uses REST API proxy
+    # P0-FIX: Only expose availability — no URIs, usernames, or topology info
+    # Browser-side graph rendering uses server-side REST proxy endpoints
     return {
         "available": True,
-        "uri": NEO4J_URI,
-        "user": NEO4J_USER,
     }
 
 
