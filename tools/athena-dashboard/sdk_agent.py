@@ -635,33 +635,56 @@ class AthenaAgentSession:
         with real costs from the Claude Agent SDK.
         BUG-016: Uses engagement_remaining for budget warnings instead of
         per-agent remaining, which was misleadingly low.
+        P0-FIX: Retry with exponential backoff — lost cost reports cause
+        dashboard to show $0.10 when actual cost is $2.93+.
         """
-        try:
-            client = await self._get_http_client()
-            resp = await client.post(
-                f"{self._budget_server_url}/api/budget/actual-cost",
-                params={"agent": agent, "cost_usd": round(cost_usd, 6)},
-                timeout=2.0,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                eng_remaining = data.get("engagement_remaining")
-                if data.get("early_stop"):
-                    remaining_msg = (f" (engagement has ${eng_remaining:.2f} remaining)"
-                                     if eng_remaining is not None else "")
-                    await self._emit("system", agent,
-                        f"EARLY STOP: {agent} per-agent budget exhausted"
-                        f"{remaining_msg}",
-                        {"budget_early_stop": True, "agent": agent,
-                         "actual_cost": round(cost_usd, 4),
-                         "engagement_remaining": eng_remaining})
-                if data.get("engagement_cap_exceeded"):
-                    await self._emit("system", agent,
-                        f"ENGAGEMENT CAP WARNING: Total cost "
-                        f"${data.get('engagement_cost', 0):.2f}",
-                        {"engagement_cap": True})
-        except Exception:
-            pass
+        max_retries = 2
+        base_timeout = 5.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                timeout = base_timeout * (2 ** attempt)  # 5s, 10s, 20s
+                client = await self._get_http_client()
+                resp = await client.post(
+                    f"{self._budget_server_url}/api/budget/actual-cost",
+                    params={"agent": agent, "cost_usd": round(cost_usd, 6)},
+                    timeout=timeout,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    eng_remaining = data.get("engagement_remaining")
+                    if data.get("early_stop"):
+                        remaining_msg = (f" (engagement has ${eng_remaining:.2f} remaining)"
+                                         if eng_remaining is not None else "")
+                        await self._emit("system", agent,
+                            f"EARLY STOP: {agent} per-agent budget exhausted"
+                            f"{remaining_msg}",
+                            {"budget_early_stop": True, "agent": agent,
+                             "actual_cost": round(cost_usd, 4),
+                             "engagement_remaining": eng_remaining})
+                    if data.get("engagement_cap_exceeded"):
+                        await self._emit("system", agent,
+                            f"ENGAGEMENT CAP WARNING: Total cost "
+                            f"${data.get('engagement_cost', 0):.2f}",
+                            {"engagement_cap": True})
+                    return  # Success — exit retry loop
+                else:
+                    logger.warning(
+                        "Cost report HTTP %d for %s ($%.4f), attempt %d/%d",
+                        resp.status_code, agent, cost_usd,
+                        attempt + 1, max_retries + 1)
+            except Exception as e:
+                logger.warning(
+                    "Cost report failed for %s ($%.4f), attempt %d/%d: %s",
+                    agent, cost_usd, attempt + 1, max_retries + 1,
+                    str(e)[:200])
+                if attempt < max_retries:
+                    await asyncio.sleep(0.5 * (2 ** attempt))  # 0.5s, 1s backoff
+
+        # All retries exhausted — log final warning so it's visible
+        logger.error(
+            "COST REPORT LOST: %s $%.4f after %d attempts",
+            agent, cost_usd, max_retries + 1)
 
     async def _report_budget_finding(self, agent: str):
         """Report that an agent produced a finding (BUG-008b)."""
@@ -1009,25 +1032,25 @@ class AthenaAgentSession:
 
                 if tools_used == 0:
                     # AI didn't use any tools — likely done or waiting for input
-                    # Enter idle mode with long timeout
+                    # Enter idle mode with moderate timeout (60s, not 300s)
                     await self._emit("system", "OR",
                         "AI turn complete. Waiting for operator commands...",
                         {"control": "awaiting_commands"})
                     try:
                         cmd = await asyncio.wait_for(
-                            self._command_queue.get(), timeout=300.0)
+                            self._command_queue.get(), timeout=60.0)
                         await self._emit("system", "OR",
                             f"Processing operator command: {cmd[:200]}")
                         prompt = cmd
                     except asyncio.TimeoutError:
                         await self._emit("system", "OR",
-                            "No operator commands for 5 minutes. Ending session.")
+                            "No operator commands for 60 seconds. Ending session.")
                         break
                 else:
-                    # AI is still actively working — briefly check for operator commands
+                    # AI is actively working — check for operator commands frequently
                     try:
                         cmd = await asyncio.wait_for(
-                            self._command_queue.get(), timeout=1.0)
+                            self._command_queue.get(), timeout=0.2)
                         # Operator command takes priority over auto-continue
                         await self._emit("system", "OR",
                             f"Processing operator command: {cmd[:200]}")
@@ -1229,6 +1252,7 @@ class AthenaAgentSession:
                     f"Calling {tool_desc}", {
                         "tool": block.name,
                         "tool_id": block.id,
+                        "command": command,
                         "input": {
                             k: str(v)[:200]
                             for k, v in block.input.items()

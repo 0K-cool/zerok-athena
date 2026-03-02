@@ -297,6 +297,7 @@ class AgentSessionManager:
         self.total_cost_usd: float = 0.0
         self.total_tool_calls: int = 0
         self._cost_aggregated: set[str] = set()
+        self._pending_rp_request: dict | None = None
         # F5: Budget-exhausted agents pending early-stop
         self._early_stop_queue: set[str] = set()
         # Phase G: Per-agent workspace isolation
@@ -354,6 +355,23 @@ class AgentSessionManager:
             if code not in self._cost_aggregated:
                 self.total_cost_usd += session._total_cost_usd
                 self.total_tool_calls += session._tool_count
+
+        # P1-FIX: Sync final aggregated cost back to server so dashboard
+        # reflects true total even if individual agent cost reports were lost.
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    "http://localhost:8080/api/budget/session-final-cost",
+                    params={
+                        "total_cost_usd": round(self.total_cost_usd, 6),
+                        "total_tool_calls": self.total_tool_calls,
+                        "engagement_id": self.engagement_id,
+                    },
+                    timeout=10.0,
+                )
+        except Exception as e:
+            logger.warning("Failed to sync final cost to server: %s", str(e)[:200])
 
         await self._emit("system", "OR",
             f"Multi-agent engagement stopped. "
@@ -501,6 +519,25 @@ class AgentSessionManager:
                     {"agent_request": True, "requested_agent": agent_code,
                      "priority": priority})
 
+                # Gate RP: block until all worker agents are done
+                if agent_code == "RP":
+                    worker_codes = {"AR", "WV", "EX", "VF", "PO", "EC"}
+                    still_running = [
+                        c for c in worker_codes
+                        if c in self.agents and self.agents[c].is_running
+                    ]
+                    if still_running:
+                        await self._emit("system", "OR",
+                            f"RP blocked — workers still running: "
+                            f"{', '.join(sorted(still_running))}. "
+                            f"RP will be queued and retried when all finish.",
+                            {"rp_blocked": True,
+                             "waiting_on": sorted(still_running)})
+                        # Re-queue RP request for retry after completions
+                        self._pending_rp_request = request
+                        await self._check_agent_completions()
+                        continue
+
                 # Spawn the requested agent
                 if agent_code in AGENT_ROLES:
                     await self._spawn_agent(agent_code, task_prompt=task)
@@ -599,6 +636,22 @@ class AgentSessionManager:
         # Clean up completed tasks
         for code in completed:
             del self._agent_tasks[code]
+
+        # Auto-spawn RP if it was blocked and all workers are now done
+        if self._pending_rp_request:
+            worker_codes = {"AR", "WV", "EX", "VF", "PO", "EC"}
+            still_running = [
+                c for c in worker_codes
+                if c in self.agents and self.agents[c].is_running
+            ]
+            if not still_running:
+                rp_req = self._pending_rp_request
+                self._pending_rp_request = None
+                await self._emit("system", "OR",
+                    "All workers complete. Spawning RP for final report.",
+                    {"rp_unblocked": True})
+                await self._spawn_agent(
+                    rp_req["agent"], task_prompt=rp_req["task"])
 
         # Check if ST itself completed (engagement done)
         if "ST" in completed and not self._agent_tasks:

@@ -3269,8 +3269,9 @@ async def report_actual_cost(agent: str, cost_usd: float):
                     "MATCH (e:Engagement {status: 'active'}) SET e.engagement_cost = $cost",
                     cost=round(_engagement_cost, 4),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Neo4j cost persistence failed for %s ($%.4f): %s",
+                           agent, _engagement_cost, str(e)[:200])
 
     # Broadcast cost update so dashboard KPI updates in real-time
     await state.broadcast({
@@ -3286,6 +3287,64 @@ async def report_actual_cost(agent: str, cost_usd: float):
     })
 
     return response
+
+
+@app.post("/api/budget/session-final-cost")
+async def report_session_final_cost(
+    total_cost_usd: float,
+    total_tool_calls: int,
+    engagement_id: str = "",
+):
+    """Report final aggregated cost from session manager on engagement stop.
+
+    P1-FIX: Session manager aggregates total costs across all agents but
+    never synced them back to the server. This endpoint ensures the server's
+    _engagement_cost reflects the true total even if individual agent cost
+    reports were lost due to network timeouts.
+    """
+    global _engagement_cost
+
+    # Only update if the session manager total exceeds what we already tracked
+    if total_cost_usd > _engagement_cost:
+        logger.info(
+            "Session final cost sync: server had $%.4f, session manager reports $%.4f (delta +$%.4f)",
+            _engagement_cost, total_cost_usd, total_cost_usd - _engagement_cost)
+        _engagement_cost = total_cost_usd
+
+    # Persist to Neo4j
+    eid = engagement_id or ""
+    if neo4j_available and neo4j_driver and _engagement_cost > 0:
+        try:
+            with neo4j_driver.session() as session:
+                if eid:
+                    session.run(
+                        "MATCH (e:Engagement {id: $eid}) "
+                        "SET e.engagement_cost = $cost, e.total_tool_calls = $tools",
+                        eid=eid, cost=round(_engagement_cost, 4),
+                        tools=total_tool_calls)
+                else:
+                    session.run(
+                        "MATCH (e:Engagement {status: 'active'}) "
+                        "SET e.engagement_cost = $cost, e.total_tool_calls = $tools",
+                        cost=round(_engagement_cost, 4),
+                        tools=total_tool_calls)
+        except Exception as e:
+            logger.warning("Neo4j final cost write failed: %s", str(e)[:200])
+
+    # Broadcast final cost so dashboard updates
+    await state.broadcast({
+        "type": "cost_update",
+        "agent": "FINAL",
+        "engagement_cost": round(_engagement_cost, 4),
+        "total_tool_calls": total_tool_calls,
+        "timestamp": time.time(),
+    })
+
+    return {
+        "ok": True,
+        "engagement_cost": round(_engagement_cost, 4),
+        "total_tool_calls": total_tool_calls,
+    }
 
 
 @app.post("/api/budget/finding")
@@ -3358,25 +3417,37 @@ async def get_budgets():
 
 
 @app.get("/api/budget/engagement")
-async def get_engagement_budget():
+async def get_engagement_budget(engagement_id: str = ""):
     """Get engagement-level cost summary with efficiency metrics."""
     global _engagement_cost
     active = {k: v for k, v in _agent_budgets.items() if v["tool_calls"] > 0}
-    # BUG-008b: Use actual cost when available, fall back to estimated
-    total_cost = sum(b.get("actual_cost", b["estimated_cost"]) for b in active.values())
+    # Use _engagement_cost (includes SDK actual costs from report_actual_cost)
+    # as primary; fall back to agent budget sum only if higher
+    agent_sum = sum(b.get("actual_cost", b["estimated_cost"]) for b in active.values())
+    total_cost = max(_engagement_cost, agent_sum)
     # Restore from Neo4j if in-memory is zero (server restart scenario)
     if total_cost == 0 and neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
+                # Try engagement-specific cost first
+                eid = engagement_id
                 rec = session.run(
-                    "MATCH (e:Engagement) WHERE e.engagement_cost IS NOT NULL "
-                    "RETURN e.engagement_cost AS cost ORDER BY e.engagement_cost DESC LIMIT 1"
+                    "MATCH (e:Engagement {id: $eid}) WHERE e.engagement_cost IS NOT NULL "
+                    "RETURN e.engagement_cost AS cost",
+                    eid=eid,
                 ).single()
+                if not rec:
+                    # Fallback: latest engagement with cost
+                    rec = session.run(
+                        "MATCH (e:Engagement) WHERE e.engagement_cost IS NOT NULL "
+                        "RETURN e.engagement_cost AS cost "
+                        "ORDER BY e.engagement_cost DESC LIMIT 1"
+                    ).single()
                 if rec and rec["cost"]:
                     total_cost = float(rec["cost"])
                     _engagement_cost = total_cost
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Neo4j cost recovery failed: %s", str(e)[:200])
     total_tools = sum(b["tool_calls"] for b in active.values())
     total_findings = sum(b["findings_count"] for b in active.values())
 
@@ -5056,20 +5127,23 @@ async def get_exploit_stats(eid: str):
                         'privilege escalation', 'command injection', 'code execution',
                         'buffer overflow', 'deserialization', 'root',
                         'vulnerable', 'outdated', 'weak'}
-        # Also count any finding from EX/EC/VF agents as a confirmed exploit
+        # Count as confirmed exploit ONLY when exploitation is proven:
+        # 1. confirmed_at timestamp set (VF verified or HITL-approved exploit)
+        # 2. Explicit exploit category (validated exploit, exploitation, etc.)
+        # 3. VF agent finding (verification = confirmed)
+        # NOT just severity alone — that counts vulnerabilities, not exploits
         exploit_agents = {'EX', 'EC', 'VF'}
-        # OWASP codes that indicate exploitable findings
-        exploit_severities = {'critical', 'high'}
         for f in mem_findings:
             cat = (f.category or '').lower()
             agent = getattr(f, 'agent', '') or ''
             sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
-            # Count as confirmed exploit if: category matches, OWASP code (a0X),
-            # critical/high severity, has evidence, or from exploit/VF agent
-            is_exploit = (any(ec in cat for ec in exploit_cats) or
-                          cat.startswith('a0') or
-                          sev in exploit_severities or
-                          bool(f.evidence) or agent.upper() in exploit_agents)
+            has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
+            is_exploit = (
+                has_confirmed_ts
+                or any(ec in cat for ec in exploit_cats)
+                or cat.startswith('a0')
+                or agent.upper() in exploit_agents
+            )
             if is_exploit:
                 confirmed += 1
                 if sev in by_severity:
@@ -5079,11 +5153,22 @@ async def get_exploit_stats(eid: str):
 
     # MTTE: estimate from timestamp spread of findings (simplified)
     mem_findings = [f for f in state.findings if f.engagement == eid]
-    exploit_cats = {'validated exploit', 'exploitation', 'injection',
-                    'authentication bypass', 'lateral movement'}
+    # Broad matching for MTTE — include actual ATHENA finding categories
+    exploit_cats_mtte = {
+        'validated exploit', 'exploitation', 'injection', 'authentication bypass',
+        'lateral movement', 'remote code execution', 'file upload', 'access control',
+        'rce', 'code execution', 'privilege escalation', 'command injection',
+        'sql injection', 'backdoor', 'shell', 'deserialization',
+    }
     timestamps = sorted([f.timestamp for f in mem_findings])
-    exploit_findings = [f for f in mem_findings
-                        if any(ec in (f.category or '').lower() for ec in exploit_cats) or bool(f.evidence)]
+    exploit_findings = [
+        f for f in mem_findings
+        if (any(ec in (f.category or '').lower() for ec in exploit_cats_mtte)
+            or bool(f.evidence)
+            or bool(getattr(f, 'confirmed_at', None))
+            or (f.severity.value if hasattr(f.severity, 'value')
+                else str(f.severity).lower()) in ('critical', 'high'))
+    ]
     if timestamps and exploit_findings:
         start_ts = timestamps[0]
         for ef in exploit_findings:
@@ -5104,13 +5189,12 @@ async def get_exploit_stats(eid: str):
                     ORDER BY f.timestamp ASC
                 """, eid=eid)
                 all_ts = []
-                exploit_cats_neo = {'validated exploit', 'exploitation', 'injection',
-                                    'authentication bypass', 'lateral movement'}
                 neo4j_exploit_findings = []
                 for record in result:
                     all_ts.append(record["ts"])
                     cat = (record["category"] or "").lower()
-                    if any(ec in cat for ec in exploit_cats_neo) or record.get("evidence"):
+                    if (any(ec in cat for ec in exploit_cats_mtte)
+                            or record.get("evidence")):
                         neo4j_exploit_findings.append({"title": record["title"], "ts": record["ts"]})
                 if all_ts and neo4j_exploit_findings:
                     start_ts = all_ts[0]
@@ -5310,7 +5394,33 @@ async def get_attack_chains(eid: str):
         except Exception as e:
             logger.warning("Neo4j attack chain query error: %s", e)
 
-    # Fallback: query AttackPath nodes when no LEADS_TO relationships exist
+    # Fallback 1: query AttackChain nodes (created by ST agent or auto-detection)
+    if not chains and neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (ac:AttackChain {engagement_id: $eid})
+                    RETURN ac.id AS id, ac.name AS name,
+                           ac.priority AS priority, ac.impact AS impact,
+                           ac.links_count AS links_count,
+                           ac.discovered_by AS discovered_by
+                    ORDER BY ac.priority ASC
+                """, eid=eid)
+                for record in result:
+                    priority = record.get("priority") or 99
+                    severity = ("critical" if priority <= 1
+                                else "high" if priority <= 2 else "medium")
+                    chains.append({
+                        "id": record["id"],
+                        "name": record["name"],
+                        "severity": severity,
+                        "impact": record.get("impact") or "",
+                        "steps": [],
+                    })
+        except Exception as e:
+            logger.warning("Neo4j AttackChain query error: %s", e)
+
+    # Fallback 2: query AttackPath nodes
     if not chains and neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
@@ -7861,13 +7971,13 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
     elif event_type == "tool_start":
         await state.update_agent_status(agent_code, AgentStatus.RUNNING,
             metadata.get("tool", ""))
-        # ENH-001: Extract actual command name for execute_command tools
+        # ENH-001: Extract actual command for execute_command tools
         tool_name = metadata.get("tool", "")
-        if "execute_command" in tool_name:
+        if "execute_command" in tool_name and not metadata.get("command"):
             tool_input = metadata.get("input", {})
             cmd = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
             if cmd:
-                metadata["command"] = cmd.strip().split()[0].split("/")[-1]
+                metadata["command"] = cmd.strip()[:200]
 
         # BUG-006 fix: Auto-create scan record for security tools
         tool_lower = tool_name.lower()
@@ -8153,7 +8263,7 @@ async def start_engagement_ai(
 
     Works from dashboard GUI and CLI (/athena-engage).
     """
-    global _active_session_manager
+    global _active_session_manager, ENGAGEMENT_COST_CAP
 
     scope_doc = ""
     client_industry = "general"
@@ -8166,7 +8276,7 @@ async def start_engagement_ai(
             try:
                 with neo4j_driver.session() as session:
                     result = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.target AS target, e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types",
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.target AS target, e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types, e.budget AS budget",
                         eid=eid,
                     )
                     record = result.single()
@@ -8181,6 +8291,9 @@ async def start_engagement_ai(
                             client_industry = record["client_industry"]
                         if record.get("types"):
                             engagement_types = record["types"] if isinstance(record["types"], list) else [record["types"]]
+                        # P2-FIX: Load per-engagement budget cap from Neo4j
+                        if record.get("budget") and float(record["budget"]) > 0:
+                            ENGAGEMENT_COST_CAP = float(record["budget"])
             except Exception:
                 pass
         if not target:
@@ -8188,11 +8301,11 @@ async def start_engagement_ai(
                 "error": "Target scope required. Pass ?target=<ip/cidr/url>"
             })
     elif neo4j_available and neo4j_driver:
-        # Target was provided, but still fetch scope_doc, client_industry, and types from Neo4j
+        # Target was provided, but still fetch scope_doc, client_industry, types, and budget from Neo4j
         try:
             with neo4j_driver.session() as session:
                 result = session.run(
-                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types",
+                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types, e.budget AS budget",
                     eid=eid,
                 )
                 record = result.single()
@@ -8203,6 +8316,9 @@ async def start_engagement_ai(
                         client_industry = record["client_industry"]
                     if record.get("types"):
                         engagement_types = record["types"] if isinstance(record["types"], list) else [record["types"]]
+                    # P2-FIX: Load per-engagement budget cap from Neo4j
+                    if record.get("budget") and float(record["budget"]) > 0:
+                        ENGAGEMENT_COST_CAP = float(record["budget"])
         except Exception:
             pass
 
