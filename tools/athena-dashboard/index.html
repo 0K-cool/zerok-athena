@@ -827,9 +827,10 @@
     /* Stat Grid */
     .stat-grid {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
+      grid-template-columns: repeat(7, minmax(140px, 1fr));
       gap: 6px;
       margin-bottom: 6px;
+      overflow-x: auto;
     }
 
     .stat-card {
@@ -2107,6 +2108,7 @@
       font-size: 12px;
       cursor: pointer;
       transition: all 0.15s;
+      white-space: nowrap;
     }
     .btn-danger-sm:hover {
       border-color: var(--zerok-critical);
@@ -2126,6 +2128,7 @@
       font-size: 12px;
       cursor: pointer;
       transition: all 0.15s;
+      white-space: nowrap;
     }
     .btn-action-sm:hover {
       border-color: var(--zerok-warning);
@@ -2467,7 +2470,8 @@
       background: var(--zerok-card);
       border: var(--zerok-card-border);
       border-radius: 8px;
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: hidden;
     }
 
     .findings-table {
@@ -6249,7 +6253,7 @@
                   <th>Phase</th>
                   <th>Findings</th>
                   <th>Started</th>
-                  <th style="text-align: right;">Actions</th>
+                  <th style="text-align: right; white-space: nowrap; min-width: 160px;">Actions</th>
                 </tr>
               </thead>
               <tbody id="engagementsTableBody">
@@ -13086,7 +13090,11 @@
       const ctx = document.getElementById('ceiRoiChart');
       if (!ctx) return;
       if (_ceiRoiChart) { _ceiRoiChart.destroy(); _ceiRoiChart = null; }
-      if (tools.length === 0) return;
+      const roiContainer = ctx.closest('.cei-chart-container');
+      if (tools.length === 0) {
+        if (roiContainer) roiContainer.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--zerok-text-dim);font-size:13px;">No tool data to chart yet</div>';
+        return;
+      }
 
       _ceiRoiChart = new Chart(ctx.getContext('2d'), {
         type: 'bar',
@@ -13145,7 +13153,11 @@
       const ctx = document.getElementById('ceiTrendsChart');
       if (!ctx) return;
       if (_ceiTrendsChart) { _ceiTrendsChart.destroy(); _ceiTrendsChart = null; }
-      if (_ceiHistory.length === 0) return;
+      const trendsContainer = ctx.closest('.cei-chart-container');
+      if (_ceiHistory.length === 0) {
+        if (trendsContainer) trendsContainer.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--zerok-text-dim);font-size:13px;">No engagement history to chart yet</div>';
+        return;
+      }
 
       const reversed = [..._ceiHistory].reverse(); // oldest first
       _ceiTrendsChart = new Chart(ctx.getContext('2d'), {
