@@ -340,6 +340,8 @@ class AthenaAgentSession:
         # Phase F1a: Multi-agent role config (set via create_for_role())
         self._role_config: "AgentRoleConfig | None" = None
         self._role_prior_context: str = ""
+        # Shared httpx client — created lazily, reused for the session lifetime
+        self._http_client: httpx.AsyncClient | None = None
         # F4: CTF mode
         self.ctf_mode = False
         self._ctf_flag_patterns = [
@@ -358,6 +360,12 @@ class AthenaAgentSession:
         Callback signature: async def callback(event: dict) -> None
         """
         self._event_callback = callback
+
+    async def _get_http_client(self) -> httpx.AsyncClient:
+        """Return the shared httpx client, creating it if needed."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(timeout=5.0)
+        return self._http_client
 
     # ── Phase F1a: Multi-Agent Factory ─────────
 
@@ -530,20 +538,20 @@ class AthenaAgentSession:
 
         # Fix 11: Persist attack link to Neo4j via server API
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(
-                    f"{self._budget_server_url}/api/chains/link",
-                    json={
-                        "engagement_id": self.engagement_id,
-                        "from_finding_id": from_id,
-                        "from_label": from_label,
-                        "to_finding_id": to_id,
-                        "to_label": to_label,
-                        "relationship": relationship,
-                        "description": description,
-                        "confidence": confidence,
-                    },
-                )
+            client = await self._get_http_client()
+            await client.post(
+                f"{self._budget_server_url}/api/chains/link",
+                json={
+                    "engagement_id": self.engagement_id,
+                    "from_finding_id": from_id,
+                    "from_label": from_label,
+                    "to_finding_id": to_id,
+                    "to_label": to_label,
+                    "relationship": relationship,
+                    "description": description,
+                    "confidence": confidence,
+                },
+            )
         except Exception:
             # Non-critical — don't interrupt the main engagement flow
             pass
@@ -580,19 +588,19 @@ class AthenaAgentSession:
 
         # Fix 11: Persist full attack chain to Neo4j via server API
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(
-                    f"{self._budget_server_url}/api/chains",
-                    json={
-                        "engagement_id": self.engagement_id,
-                        "chain_id": chain_id,
-                        "chain_name": name,
-                        "steps": steps,
-                        "impact": impact,
-                        "blast_radius": blast_radius,
-                        "priority": priority,
-                    },
-                )
+            client = await self._get_http_client()
+            await client.post(
+                f"{self._budget_server_url}/api/chains",
+                json={
+                    "engagement_id": self.engagement_id,
+                    "chain_id": chain_id,
+                    "chain_name": name,
+                    "steps": steps,
+                    "impact": impact,
+                    "blast_radius": blast_radius,
+                    "priority": priority,
+                },
+            )
         except Exception:
             # Non-critical — don't interrupt the main engagement flow
             pass
@@ -603,18 +611,19 @@ class AthenaAgentSession:
         """Record a tool call against the agent's budget via server API."""
         self._agent_tool_counts[agent] = self._agent_tool_counts.get(agent, 0) + 1
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.post(
-                    f"{self._budget_server_url}/api/budget/tool-call",
-                    params={"agent": agent},
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("early_stop"):
-                        await self._emit("system", agent,
-                            f"EARLY STOP: {agent} budget exhausted — "
-                            f"{data.get('tool_calls', '?')}/{data.get('max_tool_calls', '?')} calls",
-                            {"budget_early_stop": True, "agent": agent})
+            client = await self._get_http_client()
+            resp = await client.post(
+                f"{self._budget_server_url}/api/budget/tool-call",
+                params={"agent": agent},
+                timeout=2.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("early_stop"):
+                    await self._emit("system", agent,
+                        f"EARLY STOP: {agent} budget exhausted — "
+                        f"{data.get('tool_calls', '?')}/{data.get('max_tool_calls', '?')} calls",
+                        {"budget_early_stop": True, "agent": agent})
         except Exception:
             # Non-critical — budget tracking is best-effort
             pass
@@ -628,39 +637,41 @@ class AthenaAgentSession:
         per-agent remaining, which was misleadingly low.
         """
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.post(
-                    f"{self._budget_server_url}/api/budget/actual-cost",
-                    params={"agent": agent, "cost_usd": round(cost_usd, 6)},
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    eng_remaining = data.get("engagement_remaining")
-                    if data.get("early_stop"):
-                        remaining_msg = (f" (engagement has ${eng_remaining:.2f} remaining)"
-                                         if eng_remaining is not None else "")
-                        await self._emit("system", agent,
-                            f"EARLY STOP: {agent} per-agent budget exhausted"
-                            f"{remaining_msg}",
-                            {"budget_early_stop": True, "agent": agent,
-                             "actual_cost": round(cost_usd, 4),
-                             "engagement_remaining": eng_remaining})
-                    if data.get("engagement_cap_exceeded"):
-                        await self._emit("system", agent,
-                            f"ENGAGEMENT CAP WARNING: Total cost "
-                            f"${data.get('engagement_cost', 0):.2f}",
-                            {"engagement_cap": True})
+            client = await self._get_http_client()
+            resp = await client.post(
+                f"{self._budget_server_url}/api/budget/actual-cost",
+                params={"agent": agent, "cost_usd": round(cost_usd, 6)},
+                timeout=2.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                eng_remaining = data.get("engagement_remaining")
+                if data.get("early_stop"):
+                    remaining_msg = (f" (engagement has ${eng_remaining:.2f} remaining)"
+                                     if eng_remaining is not None else "")
+                    await self._emit("system", agent,
+                        f"EARLY STOP: {agent} per-agent budget exhausted"
+                        f"{remaining_msg}",
+                        {"budget_early_stop": True, "agent": agent,
+                         "actual_cost": round(cost_usd, 4),
+                         "engagement_remaining": eng_remaining})
+                if data.get("engagement_cap_exceeded"):
+                    await self._emit("system", agent,
+                        f"ENGAGEMENT CAP WARNING: Total cost "
+                        f"${data.get('engagement_cost', 0):.2f}",
+                        {"engagement_cap": True})
         except Exception:
             pass
 
     async def _report_budget_finding(self, agent: str):
         """Report that an agent produced a finding (BUG-008b)."""
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                await client.post(
-                    f"{self._budget_server_url}/api/budget/finding",
-                    params={"agent": agent},
-                )
+            client = await self._get_http_client()
+            await client.post(
+                f"{self._budget_server_url}/api/budget/finding",
+                params={"agent": agent},
+                timeout=2.0,
+            )
         except Exception:
             pass
 
@@ -769,23 +780,23 @@ class AthenaAgentSession:
                 "auto_link_latest_finding": True,
                 "relationship": "HAS_ARTIFACT",
             }
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.post(
-                    f"{self._budget_server_url}/api/artifacts",
-                    json=artifact_payload,
-                )
-                if resp.status_code in (200, 201):
-                    data = resp.json()
-                    artifact_id = data.get("artifact_id", "")
-                    await self._emit("system", self._current_agent,
-                        f"Exploitation evidence captured: {artifact_id}",
-                        {"artifact_captured": True,
-                         "artifact_id": artifact_id,
-                         "tool": tool_name})
-                else:
-                    logger.warning(
-                        "Artifact API returned %d for exploitation capture",
-                        resp.status_code)
+            client = await self._get_http_client()
+            resp = await client.post(
+                f"{self._budget_server_url}/api/artifacts",
+                json=artifact_payload,
+            )
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                artifact_id = data.get("artifact_id", "")
+                await self._emit("system", self._current_agent,
+                    f"Exploitation evidence captured: {artifact_id}",
+                    {"artifact_captured": True,
+                     "artifact_id": artifact_id,
+                     "tool": tool_name})
+            else:
+                logger.warning(
+                    "Artifact API returned %d for exploitation capture",
+                    resp.status_code)
         except Exception as e:
             # Non-critical — don't interrupt the main engagement flow
             logger.warning("Exploitation evidence capture failed: %s", e)
@@ -1046,20 +1057,19 @@ class AthenaAgentSession:
 
     async def _cleanup_orphan_scans(self):
         """Mark any running scans as aborted when the session ends unexpectedly."""
-        import urllib.request
         try:
-            url = f"http://localhost:8080/api/engagement/{self.engagement_id}/cleanup-orphans"
-            req = urllib.request.Request(url, data=b"", method="POST",
-                                        headers={"Content-Type": "application/json"})
-            loop = asyncio.get_event_loop()
-            resp = await loop.run_in_executor(
-                None, lambda: urllib.request.urlopen(req, timeout=5))
-            data = json.loads(resp.read())
-            if data.get("cleaned"):
-                logger.info("Cleaned %d orphaned scans: %s",
-                            len(data["cleaned"]), data["cleaned"])
+            client = await self._get_http_client()
+            url = f"{self._budget_server_url}/api/engagement/{self.engagement_id}/cleanup-orphans"
+            resp = await client.post(
+                url,
+                content=b"",
+                headers={"Content-Type": "application/json"},
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                logger.info("Orphan scans cleaned for %s", self.engagement_id)
         except Exception as e:
-            logger.warning("Orphan scan cleanup failed: %s", e)
+            logger.warning("Failed to cleanup orphan scans: %s", e)
 
     # ── Lifecycle ─────────────────────────────
 
@@ -1164,6 +1174,10 @@ class AthenaAgentSession:
                 self._command_queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
+
+        # Close the shared httpx client
+        if self._http_client and not self._http_client.is_closed:
+            await self._http_client.close()
 
         logger.info("SDK session stopped for engagement %s "
                      "(%d tool calls, $%.4f)",

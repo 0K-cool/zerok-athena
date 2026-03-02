@@ -85,6 +85,8 @@ class WorkspaceManager:
         short_eid = self.engagement_id[:12]
         self._workspace_root = Path(tempfile.mkdtemp(
             prefix=f"athena-{short_eid}-"))
+        # M-6: Write lockfile so cleanup_stale_workspaces skips this directory
+        (self._workspace_root / ".athena-active").touch()
         self._audit("workspace_created", path=str(self._workspace_root))
         logger.info("Phase G workspace root: %s", self._workspace_root)
         return self._workspace_root
@@ -167,6 +169,12 @@ class WorkspaceManager:
                 logger.warning("Credential leak in %s workspace: %d hits",
                                agent_code, cred_count)
 
+        # M-6: Remove lockfile before cleanup to signal engagement has stopped
+        if self._workspace_root and self._workspace_root.exists():
+            lockfile = self._workspace_root / ".athena-active"
+            if lockfile.exists():
+                lockfile.unlink(missing_ok=True)
+
         # Remove workspace root (and all agent subdirs)
         if self._workspace_root and self._workspace_root.exists():
             shutil.rmtree(self._workspace_root, ignore_errors=True)
@@ -215,6 +223,8 @@ class WorkspaceManager:
         """Remove stale workspace directories from /tmp.
 
         Called on server startup to prevent /tmp accumulation from crashes.
+        M-6: Skips directories with an active lockfile (.athena-active) whose
+        mtime is within the max_age window — prevents deleting live engagements.
         """
         tmp = Path(tempfile.gettempdir())
         max_age_seconds = max_age_hours * 3600
@@ -223,13 +233,21 @@ class WorkspaceManager:
         for d in tmp.iterdir():
             if d.is_dir() and d.name.startswith("athena-"):
                 try:
+                    # M-6: Skip directories with an active lockfile
+                    lockfile = d / ".athena-active"
+                    if lockfile.exists():
+                        lock_age = now - lockfile.stat().st_mtime
+                        if lock_age < max_age_seconds:
+                            logger.debug("Skipping active workspace: %s", d.name)
+                            continue
+
                     age = now - d.stat().st_mtime
                     if age > max_age_seconds:
                         shutil.rmtree(d, ignore_errors=True)
                         cleaned += 1
                         logger.info("Cleaned stale workspace: %s (age: %.0fh)",
                                     d, age / 3600)
-                except Exception:
+                except OSError:
                     pass
         if cleaned:
             logger.info("Cleaned %d stale ATHENA workspaces", cleaned)
@@ -251,12 +269,14 @@ class AgentSessionManager:
         dashboard_state: Any = None,
         athena_root: str | Path = "",
         mode: str = "multi-agent",
+        time_limit_minutes: int = 0,
     ):
         self.engagement_id = engagement_id
         self.target = target
         self.backend = backend
         self.dashboard_state = dashboard_state
         self.mode = mode  # "multi-agent" or "ctf"
+        self.time_limit_minutes = time_limit_minutes  # M-3: 0 = unlimited
         self.athena_root = (
             Path(athena_root) if athena_root
             else Path(__file__).resolve().parent.parent.parent
@@ -442,8 +462,24 @@ class AgentSessionManager:
         1. Agent spawn requests from ST (via _agent_request_queue)
         2. Agent completion notifications
         """
+        # M-3: Engagement-level timeout enforcement
+        deadline = None
+        if self.time_limit_minutes and self.time_limit_minutes > 0:
+            deadline = time.time() + (self.time_limit_minutes * 60)
+
         try:
             while self.is_running:
+                # M-3: Check engagement deadline before processing requests
+                if deadline and time.time() > deadline:
+                    logger.warning(
+                        "Engagement %s exceeded time limit of %d minutes",
+                        self.engagement_id, self.time_limit_minutes,
+                    )
+                    await self._emit("system", "OR",
+                        f"Engagement reached time limit "
+                        f"({self.time_limit_minutes} min). Stopping.")
+                    break
+
                 # Wait for agent requests with timeout
                 try:
                     request = await asyncio.wait_for(
@@ -802,19 +838,28 @@ class AgentSessionManager:
 
                     # Findings (for exploitation, verification, reporting, strategy)
                     if code in ("EX", "VF", "RP", "ST"):
-                        severity_filter = ""
+                        # M-1: Parameterized severity filter — no f-string Cypher injection
+                        severity_list = None
                         if code == "VF":
-                            severity_filter = "AND f.severity IN ['critical', 'high']"
+                            severity_list = ["critical", "high"]
                         elif code == "EX":
-                            severity_filter = "AND f.severity IN ['critical', 'high', 'medium']"
+                            severity_list = ["critical", "high", "medium"]
 
-                        result = session.run(
-                            f"MATCH (f:Finding {{engagement_id: $eid}}) "
-                            f"WHERE true {severity_filter} "
-                            f"RETURN f.id AS id, f.title AS title, "
-                            f"f.severity AS severity, f.agent AS agent, "
-                            f"f.description AS description LIMIT 50",
-                            eid=eid)
+                        if severity_list:
+                            result = session.run(
+                                "MATCH (f:Finding {engagement_id: $eid}) "
+                                "WHERE f.severity IN $severities "
+                                "RETURN f.id AS id, f.title AS title, "
+                                "f.severity AS severity, f.agent AS agent, "
+                                "f.description AS description LIMIT 50",
+                                eid=eid, severities=severity_list)
+                        else:
+                            result = session.run(
+                                "MATCH (f:Finding {engagement_id: $eid}) "
+                                "RETURN f.id AS id, f.title AS title, "
+                                "f.severity AS severity, f.agent AS agent, "
+                                "f.description AS description LIMIT 50",
+                                eid=eid)
                         findings = [dict(r) for r in result]
                         if findings:
                             lines = [f"  - [{f.get('severity','?').upper()}] {f.get('title','?')} "

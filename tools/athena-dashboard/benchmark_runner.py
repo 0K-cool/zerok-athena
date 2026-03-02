@@ -169,7 +169,7 @@ class DockerManager:
     def __init__(self) -> None:
         self._active_containers: dict[str, Path] = {}  # name → compose_dir
 
-    def start_challenge(self, name: str, compose_dir: Path, port: int) -> bool:
+    async def start_challenge(self, name: str, compose_dir: Path, port: int) -> bool:
         """Start a challenge's Docker containers.
 
         Returns True if the container started and is reachable.
@@ -181,17 +181,24 @@ class DockerManager:
         logger.info("Starting Docker for %s (port %d)...", name, port)
 
         try:
-            # Build and start
-            subprocess.run(
-                ["docker", "compose", "up", "-d", "--build"],
+            # Build and start (non-blocking — yields event loop during the 300s window)
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "compose", "up", "-d", "--build",
                 cwd=str(compose_dir),
-                capture_output=True,
-                text=True,
-                timeout=300,
-                check=True,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    proc.returncode, "docker compose up", stdout, stderr
+                )
         except subprocess.CalledProcessError as e:
-            logger.error("Docker compose up failed for %s: %s", name, e.stderr[:500])
+            err_text = (e.stderr or b"").decode(errors="replace")[:500]
+            logger.error("Docker compose up failed for %s: %s", name, err_text)
+            return False
+        except asyncio.TimeoutError:
+            logger.error("Docker compose up timed out after 300s for %s", name)
             return False
         except FileNotFoundError:
             logger.error("docker command not found — is Docker installed?")
@@ -199,11 +206,11 @@ class DockerManager:
 
         self._active_containers[name] = compose_dir
 
-        # Wait for container to be reachable
-        time.sleep(DOCKER_STARTUP_DELAY_SEC)
-        return self._wait_for_health(f"http://localhost:{port}", name)
+        # Wait for container to be reachable (async sleep — does not block the event loop)
+        await asyncio.sleep(DOCKER_STARTUP_DELAY_SEC)
+        return await self._wait_for_health(f"http://localhost:{port}", name)
 
-    def stop_challenge(self, name: str) -> None:
+    async def stop_challenge(self, name: str) -> None:
         """Stop a challenge's Docker containers."""
         compose_dir = self._active_containers.pop(name, None)
         if not compose_dir:
@@ -211,34 +218,38 @@ class DockerManager:
 
         logger.info("Stopping Docker for %s...", name)
         try:
-            subprocess.run(
-                ["docker", "compose", "down", "--volumes", "--remove-orphans"],
+            # Non-blocking tear-down — yields event loop during the 60s window
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "compose", "down", "--volumes", "--remove-orphans",
                 cwd=str(compose_dir),
-                capture_output=True,
-                text=True,
-                timeout=60,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            await asyncio.wait_for(proc.communicate(), timeout=60)
         except Exception as e:
             logger.warning("Failed to stop %s: %s", name, e)
 
-    def stop_all(self) -> None:
-        """Stop all active containers."""
-        for name in list(self._active_containers.keys()):
-            self.stop_challenge(name)
+    async def stop_all(self) -> None:
+        """Stop all active containers concurrently."""
+        await asyncio.gather(
+            *(self.stop_challenge(name) for name in list(self._active_containers.keys())),
+            return_exceptions=True,
+        )
 
     @staticmethod
-    def _wait_for_health(url: str, name: str) -> bool:
-        """Wait for the challenge to respond to HTTP requests."""
+    async def _wait_for_health(url: str, name: str) -> bool:
+        """Wait for the challenge to respond to HTTP requests (async, non-blocking)."""
         deadline = time.time() + DOCKER_HEALTH_TIMEOUT_SEC
-        while time.time() < deadline:
-            try:
-                resp = httpx.get(url, timeout=5, follow_redirects=True)
-                if resp.status_code < 500:
-                    logger.info("%s is up (HTTP %d)", name, resp.status_code)
-                    return True
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
-                pass
-            time.sleep(2)
+        async with httpx.AsyncClient() as client:
+            while time.time() < deadline:
+                try:
+                    resp = await client.get(url, timeout=5, follow_redirects=True)
+                    if resp.status_code < 500:
+                        logger.info("%s is up (HTTP %d)", name, resp.status_code)
+                        return True
+                except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
+                    pass
+                await asyncio.sleep(2)
 
         logger.warning("%s did not become healthy within %ds", name, DOCKER_HEALTH_TIMEOUT_SEC)
         return False
@@ -397,7 +408,7 @@ class BenchmarkRunner:
         try:
             return await self._run_benchmark()
         finally:
-            self.docker.stop_all()
+            await self.docker.stop_all()
             await self.client.close()
 
     def _signal_handler(self) -> None:
@@ -486,7 +497,7 @@ class BenchmarkRunner:
             )
 
             # Start Docker container
-            started = self.docker.start_challenge(
+            started = await self.docker.start_challenge(
                 ch["name"], Path(ch["compose_dir"]) if ch["compose_dir"] else None, ch["port"]
             )
             if not started:
@@ -505,7 +516,7 @@ class BenchmarkRunner:
             self.results.append(result)
 
             # Stop Docker container
-            self.docker.stop_challenge(ch["name"])
+            await self.docker.stop_challenge(ch["name"])
 
             # Log progress
             solved_count = sum(1 for r in self.results if r.get("solved"))
@@ -524,7 +535,7 @@ class BenchmarkRunner:
         for ch in sorted_challenges:
             if self._shutdown:
                 break
-            self.docker.start_challenge(
+            await self.docker.start_challenge(
                 ch["name"], Path(ch["compose_dir"]) if ch["compose_dir"] else None, ch["port"]
             )
 

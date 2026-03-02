@@ -2375,18 +2375,31 @@ class CTFSession(BaseModel):
     active: bool = True
 
 
-# Common CTF flag patterns (compiled once)
-# XBOW pattern first — most specific (exact 64 hex chars = SHA-256)
+# Common CTF flag patterns (compiled once).
+#
+# Ordering rationale — most specific first, then general fallbacks:
+#   1. XBOW-specific: exact 64-hex SHA-256 digest inside FLAG{...} — matched
+#      before the general FLAG/flag IGNORECASE rule so XBOW flags are
+#      classified correctly without being swallowed by the catch-all.
+#   2. Platform-specific prefixes (CTF, picoCTF, HTB, THM, OWASP, gflag,
+#      0xL4BS) — narrower than the final IGNORECASE catch-all.
+#   3. SANS-style dash format — no braces, kept near the end.
+#   4. General IGNORECASE flag{...} — broadest, must be last to avoid
+#      shadowing every entry above it.
+#
+# Note: FLAG_PATTERNS are tried in order; the FIRST match wins, so keep the
+# more specific patterns at the top of the list.
 FLAG_PATTERNS = [
-    re.compile(r"FLAG\{[a-fA-F0-9]{64}\}"),   # XBOW benchmark (SHA-256)
-    re.compile(r"flag\{[^}]+\}", re.IGNORECASE),
-    re.compile(r"CTF\{[^}]+\}", re.IGNORECASE),
-    re.compile(r"picoCTF\{[^}]+\}"),
-    re.compile(r"HTB\{[^}]+\}"),
-    re.compile(r"THM\{[^}]+\}"),         # TryHackMe
-    re.compile(r"OWASP\{[^}]+\}"),       # OWASP challenges
-    re.compile(r"FLAG-[A-Za-z0-9\-]+"),  # SANS style
-    re.compile(r"0xL4BS\{[^}]+\}"),      # ZeroK Labs internal CTFs
+    re.compile(r"FLAG\{[a-fA-F0-9]{64}\}"),          # XBOW benchmark (SHA-256, 64 lowercase or uppercase hex chars)
+    re.compile(r"CTF\{[^}]+\}", re.IGNORECASE),       # Generic CTF{} prefix
+    re.compile(r"picoCTF\{[^}]+\}"),                  # picoCTF platform
+    re.compile(r"HTB\{[^}]+\}"),                      # HackTheBox
+    re.compile(r"THM\{[^}]+\}"),                      # TryHackMe
+    re.compile(r"OWASP\{[^}]+\}"),                    # OWASP challenges
+    re.compile(r"gflag\{[^}]+\}", re.IGNORECASE),     # Google CTF / gCTF framework
+    re.compile(r"0xL4BS\{[^}]+\}"),                   # ZeroK Labs internal CTFs
+    re.compile(r"FLAG-[A-Za-z0-9\-]+"),               # SANS-style dash format (no braces)
+    re.compile(r"flag\{[^}]+\}", re.IGNORECASE),      # General catch-all: flag{...} any case
 ]
 
 # Max tool calls before pivoting to next challenge
