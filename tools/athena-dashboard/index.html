@@ -12464,7 +12464,7 @@
 
       tbody.innerHTML = scans.map(s => `
         <tr onclick="toggleScanDetail('${s.id}')" data-scan-id="${s.id}">
-          <td><span class="scan-tool-badge">${escHtml(s.tool)}</span> <span style="color: var(--zerok-text-muted); font-size: 12px;">${escHtml(s.tool_display)}</span></td>
+          <td style="white-space: nowrap;"><span class="scan-tool-badge">${escHtml(s.tool)}</span> <span style="color: var(--zerok-text-muted); font-size: 12px;">${escHtml(s.tool_display)}</span></td>
           <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${escHtml(s.target)}</td>
           <td><span class="scan-agent-chip">${escHtml(s.agent)}</span></td>
           <td><span class="scan-status-badge ${s.status}">${s.status.toUpperCase()}</span></td>
