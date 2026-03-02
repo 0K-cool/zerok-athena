@@ -12,9 +12,12 @@ Usage:
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
+import re
+import shlex
 import tempfile
 import time
 import uuid
@@ -342,7 +345,8 @@ class KaliClient:
             # Write targets to a temp file on the Kali box first
             target_content = "\n".join(targets)
             input_file = f"/tmp/athena-{run_id}-targets.txt"
-            write_cmd = f"printf '%s' '{target_content}' > {input_file}"
+            encoded = base64.b64encode(target_content.encode()).decode()
+            write_cmd = f"echo '{encoded}' | base64 -d > {input_file}"
             client = await self._get_client()
             await client.post(
                 f"{backend.base_url}/api/command",
@@ -365,19 +369,24 @@ class KaliClient:
             if isinstance(v, (str, int, float)):
                 merged[k] = v
 
-        # Build command from template
-        command = template.format(run_id=run_id, **merged)
+        # Build command from template — shell-escape all substituted values
+        command = template.format(
+            run_id=run_id,
+            **{k: shlex.quote(str(v)) for k, v in merged.items()}
+        )
 
-        # Append additional_args if present, stripping unsupported flags
+        # Append additional_args if present — allowlist only safe tokens
         additional = params.get("additional_args", "")
         if additional:
-            unsupported = tool_def.get("unsupported_flags", [])
-            if unsupported:
-                for flag in unsupported:
-                    additional = additional.replace(flag, "")
-                additional = " ".join(additional.split())  # collapse extra spaces
-            if additional:
-                command = f"{command} {additional}"
+            safe_parts = []
+            for part in shlex.split(additional):
+                if re.match(r'^-{1,2}[a-zA-Z][a-zA-Z0-9_-]*(?:=\S+)?$', part):
+                    safe_parts.append(part)
+                elif re.match(r'^[a-zA-Z0-9._:/-]+$', part):
+                    safe_parts.append(part)
+                # else: skip dangerous tokens silently
+            if safe_parts:
+                command = f"{command} {' '.join(safe_parts)}"
 
         client = await self._get_client()
         resp = await client.post(

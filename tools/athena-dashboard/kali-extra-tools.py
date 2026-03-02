@@ -10,6 +10,7 @@ Tools: naabu, nuclei, httpx, katana, gau, responder, crackmapexec,
 
 import logging
 import os
+import shlex
 import subprocess
 from flask import Blueprint, request, jsonify
 
@@ -27,7 +28,8 @@ def execute_command(command, timeout=300):
     logger.info(f"Executing: {command}")
     try:
         process = subprocess.Popen(
-            command, shell=True,
+            shlex.split(command) if isinstance(command, str) else command,
+            shell=False,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1
         )

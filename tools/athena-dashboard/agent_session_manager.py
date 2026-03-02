@@ -276,6 +276,7 @@ class AgentSessionManager:
         # Cost tracking across all agents
         self.total_cost_usd: float = 0.0
         self.total_tool_calls: int = 0
+        self._cost_aggregated: set[str] = set()
         # F5: Budget-exhausted agents pending early-stop
         self._early_stop_queue: set[str] = set()
         # Phase G: Per-agent workspace isolation
@@ -328,10 +329,11 @@ class AgentSessionManager:
         if stop_tasks:
             await asyncio.gather(*stop_tasks, return_exceptions=True)
 
-        # Aggregate costs
-        for session in self.agents.values():
-            self.total_cost_usd += session._total_cost_usd
-            self.total_tool_calls += session._tool_count
+        # Aggregate costs (guard against double-counting agents already tallied)
+        for code, session in self.agents.items():
+            if code not in self._cost_aggregated:
+                self.total_cost_usd += session._total_cost_usd
+                self.total_tool_calls += session._tool_count
 
         await self._emit("system", "OR",
             f"Multi-agent engagement stopped. "
@@ -493,8 +495,10 @@ class AgentSessionManager:
             if session and session.is_running:
                 logger.info("Early-stopping %s due to budget exhaustion", code)
                 await session.stop()
-                self.total_cost_usd += session._total_cost_usd
-                self.total_tool_calls += session._tool_count
+                if code not in self._cost_aggregated:
+                    self.total_cost_usd += session._total_cost_usd
+                    self.total_tool_calls += session._tool_count
+                    self._cost_aggregated.add(code)
                 await self._emit("agent_status", code, "completed",
                     {"status": "completed", "reason": "budget_exhausted"})
                 # Notify ST
@@ -516,9 +520,10 @@ class AgentSessionManager:
                 completed.append(code)
                 # Aggregate cost from completed agent
                 session = self.agents.get(code)
-                if session:
+                if session and code not in self._cost_aggregated:
                     self.total_cost_usd += session._total_cost_usd
                     self.total_tool_calls += session._tool_count
+                    self._cost_aggregated.add(code)
 
                 # Check for errors
                 exc = task.exception() if not task.cancelled() else None
@@ -758,122 +763,125 @@ class AgentSessionManager:
             return "Could not access Neo4j driver."
 
         eid = self.engagement_id
-        parts = []
+        code = agent_code
 
-        try:
-            with driver.session() as session:
-                # Hosts
-                if agent_code in ("WV", "EX", "VF", "RP", "ST"):
-                    result = session.run(
-                        "MATCH (h:Host {engagement_id: $eid}) "
-                        "RETURN h.ip AS ip, h.hostname AS hostname, "
-                        "h.os AS os LIMIT 50", eid=eid)
-                    hosts = [dict(r) for r in result]
-                    if hosts:
-                        lines = [f"  - {h['ip']}"
-                                 + (f" ({h['hostname']})" if h.get('hostname') else "")
-                                 + (f" [{h['os']}]" if h.get('os') else "")
-                                 for h in hosts]
-                        parts.append(f"DISCOVERED HOSTS ({len(hosts)}):\n"
-                                     + "\n".join(lines))
-
-                # Services
-                if agent_code in ("WV", "EX", "VF", "RP", "ST"):
-                    result = session.run(
-                        "MATCH (s:Service)-[:RUNS_ON]->(h:Host {engagement_id: $eid}) "
-                        "RETURN h.ip AS ip, s.port AS port, s.protocol AS protocol, "
-                        "s.service AS service, s.version AS version LIMIT 100",
-                        eid=eid)
-                    services = [dict(r) for r in result]
-                    if services:
-                        lines = [f"  - {s['ip']}:{s['port']}/{s.get('protocol','tcp')} "
-                                 f"— {s.get('service','unknown')}"
-                                 + (f" {s['version']}" if s.get('version') else "")
-                                 for s in services]
-                        parts.append(f"DISCOVERED SERVICES ({len(services)}):\n"
-                                     + "\n".join(lines))
-
-                # Findings (for exploitation, verification, reporting, strategy)
-                if agent_code in ("EX", "VF", "RP", "ST"):
-                    severity_filter = ""
-                    if agent_code == "VF":
-                        severity_filter = "AND f.severity IN ['critical', 'high']"
-                    elif agent_code == "EX":
-                        severity_filter = "AND f.severity IN ['critical', 'high', 'medium']"
-
-                    result = session.run(
-                        f"MATCH (f:Finding {{engagement_id: $eid}}) "
-                        f"WHERE true {severity_filter} "
-                        f"RETURN f.id AS id, f.title AS title, "
-                        f"f.severity AS severity, f.agent AS agent, "
-                        f"f.description AS description LIMIT 50",
-                        eid=eid)
-                    findings = [dict(r) for r in result]
-                    if findings:
-                        lines = [f"  - [{f.get('severity','?').upper()}] {f.get('title','?')} "
-                                 f"(by {f.get('agent','?')}) — {f.get('description','')[:100]}"
-                                 for f in findings]
-                        parts.append(f"FINDINGS ({len(findings)}):\n"
-                                     + "\n".join(lines))
-
-                # Credentials (for exploitation, post-exploitation, reporting)
-                if agent_code in ("EX", "PE", "RP", "ST"):
-                    result = session.run(
-                        "MATCH (c:Credential {engagement_id: $eid}) "
-                        "RETURN c.username AS username, c.service AS service, "
-                        "c.host AS host LIMIT 20", eid=eid)
-                    creds = [dict(r) for r in result]
-                    if creds:
-                        lines = [f"  - {c.get('username','?')}@{c.get('host','?')} "
-                                 f"({c.get('service','?')})" for c in creds]
-                        parts.append(f"CREDENTIALS ({len(creds)}):\n"
-                                     + "\n".join(lines))
-
-                # Attack chains (for strategy, reporting)
-                if agent_code in ("ST", "RP"):
-                    result = session.run(
-                        "MATCH (c:AttackChain {engagement_id: $eid}) "
-                        "RETURN c.name AS name, c.impact AS impact, "
-                        "c.priority AS priority LIMIT 10", eid=eid)
-                    chains = [dict(r) for r in result]
-                    if chains:
-                        lines = [f"  - [{c.get('priority','-')}] {c.get('name','?')} "
-                                 f"— {c.get('impact','?')}" for c in chains]
-                        parts.append(f"ATTACK CHAINS ({len(chains)}):\n"
-                                     + "\n".join(lines))
-
-                    # Inter-finding chain relationships (ENABLES, PIVOTS_TO, etc.)
-                    for rel_type in ("ENABLES", "PIVOTS_TO", "ESCALATES_TO", "EXPOSES"):
-                        result = session.run(f"""
-                            MATCH (a)-[r:{rel_type}]->(b)
-                            WHERE (a:Finding AND a.engagement_id = $eid)
-                               OR (a:Host AND a.engagement_id = $eid)
-                            RETURN COALESCE(a.title, a.hostname, a.ip, a.id) AS src,
-                                   COALESCE(b.title, b.hostname, b.ip, b.id) AS dst,
-                                   r.confidence AS confidence,
-                                   r.description AS description
-                            LIMIT 20
-                        """, eid=eid)
-                        rels = [dict(r) for r in result]
-                        if rels:
-                            lines = [f"  - {r['src']} —[{rel_type}]→ {r['dst']}"
-                                     f" (conf: {r.get('confidence', '?')})"
-                                     + (f" — {r['description'][:80]}"
-                                        if r.get('description') else "")
-                                     for r in rels]
-                            parts.append(f"CHAIN RELATIONSHIPS ({rel_type}, "
-                                         f"{len(rels)}):\n"
+        def _sync_queries():
+            parts = []
+            try:
+                with driver.session() as session:
+                    # Hosts
+                    if code in ("WV", "EX", "VF", "RP", "ST"):
+                        result = session.run(
+                            "MATCH (h:Host {engagement_id: $eid}) "
+                            "RETURN h.ip AS ip, h.hostname AS hostname, "
+                            "h.os AS os LIMIT 50", eid=eid)
+                        hosts = [dict(r) for r in result]
+                        if hosts:
+                            lines = [f"  - {h['ip']}"
+                                     + (f" ({h['hostname']})" if h.get('hostname') else "")
+                                     + (f" [{h['os']}]" if h.get('os') else "")
+                                     for h in hosts]
+                            parts.append(f"DISCOVERED HOSTS ({len(hosts)}):\n"
                                          + "\n".join(lines))
 
-        except Exception as e:
-            logger.warning("Neo4j context query failed: %s", e)
-            parts.append(f"Neo4j query error: {str(e)[:200]}. "
-                         "Use Neo4j MCP tools to query engagement state directly.")
+                    # Services
+                    if code in ("WV", "EX", "VF", "RP", "ST"):
+                        result = session.run(
+                            "MATCH (s:Service)-[:RUNS_ON]->(h:Host {engagement_id: $eid}) "
+                            "RETURN h.ip AS ip, s.port AS port, s.protocol AS protocol, "
+                            "s.service AS service, s.version AS version LIMIT 100",
+                            eid=eid)
+                        services = [dict(r) for r in result]
+                        if services:
+                            lines = [f"  - {s['ip']}:{s['port']}/{s.get('protocol','tcp')} "
+                                     f"— {s.get('service','unknown')}"
+                                     + (f" {s['version']}" if s.get('version') else "")
+                                     for s in services]
+                            parts.append(f"DISCOVERED SERVICES ({len(services)}):\n"
+                                         + "\n".join(lines))
 
-        if not parts:
-            return "No prior findings yet. This is a fresh engagement."
+                    # Findings (for exploitation, verification, reporting, strategy)
+                    if code in ("EX", "VF", "RP", "ST"):
+                        severity_filter = ""
+                        if code == "VF":
+                            severity_filter = "AND f.severity IN ['critical', 'high']"
+                        elif code == "EX":
+                            severity_filter = "AND f.severity IN ['critical', 'high', 'medium']"
 
-        return "\n\n".join(parts)
+                        result = session.run(
+                            f"MATCH (f:Finding {{engagement_id: $eid}}) "
+                            f"WHERE true {severity_filter} "
+                            f"RETURN f.id AS id, f.title AS title, "
+                            f"f.severity AS severity, f.agent AS agent, "
+                            f"f.description AS description LIMIT 50",
+                            eid=eid)
+                        findings = [dict(r) for r in result]
+                        if findings:
+                            lines = [f"  - [{f.get('severity','?').upper()}] {f.get('title','?')} "
+                                     f"(by {f.get('agent','?')}) — {f.get('description','')[:100]}"
+                                     for f in findings]
+                            parts.append(f"FINDINGS ({len(findings)}):\n"
+                                         + "\n".join(lines))
+
+                    # Credentials (for exploitation, post-exploitation, reporting)
+                    if code in ("EX", "PE", "RP", "ST"):
+                        result = session.run(
+                            "MATCH (c:Credential {engagement_id: $eid}) "
+                            "RETURN c.username AS username, c.service AS service, "
+                            "c.host AS host LIMIT 20", eid=eid)
+                        creds = [dict(r) for r in result]
+                        if creds:
+                            lines = [f"  - {c.get('username','?')}@{c.get('host','?')} "
+                                     f"({c.get('service','?')})" for c in creds]
+                            parts.append(f"CREDENTIALS ({len(creds)}):\n"
+                                         + "\n".join(lines))
+
+                    # Attack chains (for strategy, reporting)
+                    if code in ("ST", "RP"):
+                        result = session.run(
+                            "MATCH (c:AttackChain {engagement_id: $eid}) "
+                            "RETURN c.name AS name, c.impact AS impact, "
+                            "c.priority AS priority LIMIT 10", eid=eid)
+                        chains = [dict(r) for r in result]
+                        if chains:
+                            lines = [f"  - [{c.get('priority','-')}] {c.get('name','?')} "
+                                     f"— {c.get('impact','?')}" for c in chains]
+                            parts.append(f"ATTACK CHAINS ({len(chains)}):\n"
+                                         + "\n".join(lines))
+
+                        # Inter-finding chain relationships (ENABLES, PIVOTS_TO, etc.)
+                        for rel_type in ("ENABLES", "PIVOTS_TO", "ESCALATES_TO", "EXPOSES"):
+                            result = session.run(f"""
+                                MATCH (a)-[r:{rel_type}]->(b)
+                                WHERE (a:Finding AND a.engagement_id = $eid)
+                                   OR (a:Host AND a.engagement_id = $eid)
+                                RETURN COALESCE(a.title, a.hostname, a.ip, a.id) AS src,
+                                       COALESCE(b.title, b.hostname, b.ip, b.id) AS dst,
+                                       r.confidence AS confidence,
+                                       r.description AS description
+                                LIMIT 20
+                            """, eid=eid)
+                            rels = [dict(r) for r in result]
+                            if rels:
+                                lines = [f"  - {r['src']} —[{rel_type}]→ {r['dst']}"
+                                         f" (conf: {r.get('confidence', '?')})"
+                                         + (f" — {r['description'][:80]}"
+                                            if r.get('description') else "")
+                                         for r in rels]
+                                parts.append(f"CHAIN RELATIONSHIPS ({rel_type}, "
+                                             f"{len(rels)}):\n"
+                                             + "\n".join(lines))
+
+            except Exception as e:
+                logger.warning("Neo4j context query failed: %s", e)
+                parts.append(f"Neo4j query error: {str(e)[:200]}. "
+                             "Use Neo4j MCP tools to query engagement state directly.")
+
+            if not parts:
+                return "No prior findings yet. This is a fresh engagement."
+            return "\n\n".join(parts)
+
+        return await asyncio.to_thread(_sync_queries)
 
     # ── F2: Pending Message Retrieval ────────
 
@@ -932,59 +940,62 @@ class AgentSessionManager:
             return ""
 
         eid = self.engagement_id
-        parts = []
 
-        try:
-            with driver.session() as session:
-                # Count hosts
-                result = session.run(
-                    "MATCH (h:Host {engagement_id: $eid}) RETURN count(h) AS c",
-                    eid=eid)
-                hosts = result.single()["c"]
+        def _sync_summary():
+            parts = []
+            try:
+                with driver.session() as session:
+                    # Count hosts
+                    result = session.run(
+                        "MATCH (h:Host {engagement_id: $eid}) RETURN count(h) AS c",
+                        eid=eid)
+                    hosts = result.single()["c"]
 
-                # Count services
-                result = session.run(
-                    "MATCH (h:Host {engagement_id: $eid})-[:HAS_SERVICE]->(s:Service) "
-                    "RETURN count(s) AS c", eid=eid)
-                services = result.single()["c"]
+                    # Count services
+                    result = session.run(
+                        "MATCH (h:Host {engagement_id: $eid})-[:HAS_SERVICE]->(s:Service) "
+                        "RETURN count(s) AS c", eid=eid)
+                    services = result.single()["c"]
 
-                # Findings by severity
-                result = session.run(
-                    "MATCH (f:Finding {engagement_id: $eid}) "
-                    "RETURN f.severity AS sev, count(f) AS c "
-                    "ORDER BY c DESC", eid=eid)
-                findings_by_sev = {r["sev"]: r["c"] for r in result}
-                total_findings = sum(findings_by_sev.values())
+                    # Findings by severity
+                    result = session.run(
+                        "MATCH (f:Finding {engagement_id: $eid}) "
+                        "RETURN f.severity AS sev, count(f) AS c "
+                        "ORDER BY c DESC", eid=eid)
+                    findings_by_sev = {r["sev"]: r["c"] for r in result}
+                    total_findings = sum(findings_by_sev.values())
 
-                # Credentials
-                result = session.run(
-                    "MATCH (c:Credential {engagement_id: $eid}) "
-                    "RETURN count(c) AS c", eid=eid)
-                creds = result.single()["c"]
+                    # Credentials
+                    result = session.run(
+                        "MATCH (c:Credential {engagement_id: $eid}) "
+                        "RETURN count(c) AS c", eid=eid)
+                    creds = result.single()["c"]
 
-                # Attack chains
-                result = session.run(
-                    "MATCH (c:AttackChain {engagement_id: $eid}) "
-                    "RETURN count(c) AS c", eid=eid)
-                chains = result.single()["c"]
+                    # Attack chains
+                    result = session.run(
+                        "MATCH (c:AttackChain {engagement_id: $eid}) "
+                        "RETURN count(c) AS c", eid=eid)
+                    chains = result.single()["c"]
 
-                parts.append(f"Hosts: {hosts}, Services: {services}")
-                if total_findings:
-                    sev_str = ", ".join(
-                        f"{c} {s}" for s, c in findings_by_sev.items() if c > 0)
-                    parts.append(f"Findings: {total_findings} ({sev_str})")
-                else:
-                    parts.append("Findings: 0")
-                if creds:
-                    parts.append(f"Credentials: {creds}")
-                if chains:
-                    parts.append(f"Attack Chains: {chains}")
+                    parts.append(f"Hosts: {hosts}, Services: {services}")
+                    if total_findings:
+                        sev_str = ", ".join(
+                            f"{c} {s}" for s, c in findings_by_sev.items() if c > 0)
+                        parts.append(f"Findings: {total_findings} ({sev_str})")
+                    else:
+                        parts.append("Findings: 0")
+                    if creds:
+                        parts.append(f"Credentials: {creds}")
+                    if chains:
+                        parts.append(f"Attack Chains: {chains}")
 
-        except Exception as e:
-            logger.warning("Production summary query failed: %s", e)
-            return ""
+            except Exception as e:
+                logger.warning("Production summary query failed: %s", e)
+                return ""
 
-        return " | ".join(parts)
+            return " | ".join(parts)
+
+        return await asyncio.to_thread(_sync_summary)
 
     # ── Internal Helpers ───────────────────────
 

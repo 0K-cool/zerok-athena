@@ -943,7 +943,7 @@ class AthenaAgentSession:
                 elif isinstance(msg, ResultMessage):
                     self.session_id = msg.session_id
                     if msg.total_cost_usd:
-                        self._total_cost_usd += msg.total_cost_usd
+                        self._total_cost_usd = msg.total_cost_usd  # Cumulative from SDK, not additive
                         # BUG-008b: Report actual cost to server budget tracker
                         await self._report_actual_cost(
                             self._current_agent, self._total_cost_usd)
