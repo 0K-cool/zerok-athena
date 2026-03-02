@@ -7553,8 +7553,8 @@
           addTimelineEvent(msg);
         }
         bumpAgentCount(msg.agent);
-        // Ensure KPI polling is active when tools are running
-        if (_currentCtrlState !== 'running') setCtrlState('running');
+        // Ensure KPI polling is active when tools are running (but don't override paused state)
+        if (_currentCtrlState === 'idle') setCtrlState('running');
         return;
       }
 
@@ -7734,7 +7734,8 @@
         _completedPhases.add(msg.phase);
         updateScanCoverage();
         // Show pause/stop controls when engagement is running (handles CLI-started engagements)
-        setCtrlState('running');
+        // Don't override paused state — agent may still send phase updates while winding down
+        if (_currentCtrlState !== 'paused') setCtrlState('running');
       }
 
       // Refresh all widgets when engagement completes
@@ -9288,6 +9289,7 @@
         window._summaryGenerated = true;
         setTimeout(() => {
             // Fetch final engagement summary and display it in the timeline
+            // 3s delay gives SDK agents time to flush final Neo4j writes
             if (currentEngagementId) {
                 fetch(`/api/engagements/${currentEngagementId}/summary`)
                     .then(r => r.json())
@@ -9321,10 +9323,31 @@
                             '</div>';
                         timeline.appendChild(el);
                         smartScroll(timeline);
+                        // If summary shows 0 findings but dashboard has findings, retry once after 5s
+                        const dashFindings = parseInt(document.getElementById('kpi-findings')?.textContent || '0');
+                        if ((summary.findings || 0) === 0 && dashFindings > 0) {
+                            setTimeout(() => {
+                                fetch(`/api/engagements/${currentEngagementId}/summary`)
+                                    .then(r => r.json())
+                                    .then(updated => {
+                                        const sevU = updated.severity || {};
+                                        const lines = [
+                                            `- **Hosts:** ${updated.hosts || 0}`,
+                                            `- **Services:** ${updated.services || 0}`,
+                                            `- **Vulnerabilities:** ${updated.vulnerabilities || 0}`,
+                                            `- **Findings:** ${updated.findings || 0}`,
+                                            `- **Exploits Confirmed:** ${updated.exploits || 0}`,
+                                            ``,
+                                            `**Severity Breakdown:** ${sevU.critical || 0} Critical, ${sevU.high || 0} High, ${sevU.medium || 0} Medium, ${sevU.low || 0} Low`
+                                        ];
+                                        el.querySelector('.event-detail').innerHTML = renderMarkdown(`**Engagement Summary (Auto-Generated)**\n\n` + lines.join('\n'));
+                                    }).catch(() => {});
+                            }, 5000);
+                        }
                     })
                     .catch(() => {});  // Silent fail — non-critical
             }
-        }, 2000);  // 2s delay to allow final Neo4j sync
+        }, 3000);  // 3s delay to allow final Neo4j writes to flush
         }  // end BUG-020 duplicate guard
       }
       else if (control === 'awaiting_commands') setCtrlState('idle');
@@ -9550,26 +9573,29 @@
 
     function pauseEngage() {
       const eid = currentEngagementId || 'dryrun-ms2';
+      setCtrlState('paused');  // Optimistic UI — instant feedback
       fetch(`/api/engagement/${eid}/pause`, { method: 'POST' })
         .then(r => r.json())
-        .then(() => setCtrlState('paused'))
-        .catch(() => {});
+        .then(data => { if (!data.ok) setCtrlState('running'); })  // Revert on failure
+        .catch(() => setCtrlState('running'));
     }
 
     function resumeEngage() {
       const eid = currentEngagementId || 'dryrun-ms2';
+      setCtrlState('running');  // Optimistic UI — instant feedback
       fetch(`/api/engagement/${eid}/resume`, { method: 'POST' })
         .then(r => r.json())
-        .then(() => setCtrlState('running'))
-        .catch(() => {});
+        .then(data => { if (!data.ok) setCtrlState('paused'); })  // Revert on failure
+        .catch(() => setCtrlState('paused'));
     }
 
     function stopEngage() {
       const eid = currentEngagementId || 'dryrun-ms2';
+      setCtrlState('idle'); resetAgentChips();  // Optimistic UI — instant feedback
       fetch(`/api/engagement/${eid}/stop`, { method: 'POST' })
         .then(r => r.json())
-        .then(() => { setCtrlState('idle'); resetAgentChips(); })
-        .catch(() => { setCtrlState('idle'); resetAgentChips(); });
+        .then(data => { if (!data.ok) setCtrlState('running'); })  // Revert on failure
+        .catch(() => {});  // Keep idle — stop should succeed even on network error
     }
 
     function resetAgentChips() {
@@ -9604,6 +9630,8 @@
             if (eng) {
               if (eng.status === 'completed' || eng.status === 'complete' || eng.status === 'stopped') {
                 setCtrlState('idle');
+              } else if (eng.status === 'paused') {
+                setCtrlState('paused');
               } else if (eng.phase === 'AI Mode' && eng.status === 'active' && anyAgentRunning) {
                 setCtrlState('running');
               } else {
@@ -10272,10 +10300,37 @@
                 renderToolCard(evt);
               } else if (evt.type === 'tool_complete' && evt.metadata && evt.metadata.tool_id) {
                 handleToolComplete(evt);
+              } else if (evt.type === 'operator_command') {
+                // Render operator commands with distinctive styling (same as live sendOperatorCommand)
+                const el = document.createElement('div');
+                el.className = 'timeline-event';
+                const ts = evt.timestamp ? new Date(evt.timestamp * 1000).toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) : '';
+                el.innerHTML =
+                  '<span class="event-icon" style="background:var(--zerok-primary);">▶</span>' +
+                  '<div class="event-body">' +
+                    '<div class="event-header">' +
+                      '<span><strong>Operator</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-primary) 20%,transparent);color:var(--zerok-primary);">COMMAND</span></span>' +
+                      '<span class="event-time">' + ts + '</span>' +
+                    '</div>' +
+                    '<div class="event-detail" style="color:var(--zerok-text);">' + (evt.content || '').replace(/</g,'&lt;') + '</div>' +
+                  '</div>';
+                timeline.appendChild(el);
+              } else if (evt.type === 'operator_response') {
+                renderOperatorResponse(evt);
               } else {
                 addTimelineEvent(evt, true, true);
               }
             });
+            // Mark stale "Running" tool cards as cancelled after history replay
+            // (engagement is no longer active, so any tool_start without tool_complete is stale)
+            if (_currentCtrlState !== 'running') {
+              document.querySelectorAll('.tool-status-badge.running').forEach(badge => {
+                badge.textContent = 'Cancelled';
+                badge.className = 'tool-status-badge cancelled';
+              });
+              document.querySelectorAll('.tool-timer.running').forEach(t => t.classList.remove('running'));
+              document.querySelectorAll('.tool-progress-fill.running').forEach(p => { p.classList.remove('running'); p.classList.add('cancelled'); });
+            }
             // Restore chip event counts from events
             try {
               const agRes2 = await fetch('/api/agents');

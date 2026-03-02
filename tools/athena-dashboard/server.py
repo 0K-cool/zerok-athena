@@ -706,7 +706,15 @@ async def websocket_endpoint(ws: WebSocket):
             elif msg_type == "operator_command":
                 cmd_text = msg.get("content", "").strip()
                 if cmd_text:
-                    # Broadcast the command so all clients see it
+                    # Store and broadcast the command so it persists on reload
+                    op_event = AgentEvent(
+                        type="operator_command",
+                        agent="OP",
+                        agent_name="Operator",
+                        content=cmd_text,
+                        engagement=state.active_engagement_id or "",
+                    )
+                    await state.add_event(op_event)
                     await state.broadcast({
                         "type": "operator_command",
                         "content": cmd_text,
@@ -4194,6 +4202,10 @@ async def get_engagements(include_archived: bool = False):
                     phase = "Active" if status == "active" else "—"
                     if eid == state.active_engagement_id:
                         phase = "AI Mode"
+                    # Check if this engagement is currently paused
+                    is_paused = (eid == state.active_engagement_id and
+                                 not state.engagement_pause_event.is_set() and
+                                 state.engagement_task and not state.engagement_task.done())
                     engagements.append({
                         "id": eid,
                         "name": record["name"],
@@ -4201,7 +4213,7 @@ async def get_engagements(include_archived: bool = False):
                         "scope": record.get("scope", ""),
                         "target": record.get("target") or record.get("scope", ""),
                         "type": record.get("type", "external"),
-                        "status": status,
+                        "status": "paused" if is_paused else status,
                         "start_date": record.get("start_date", ""),
                         "findings_count": max(
                             record.get("findings_count", 0),
@@ -8921,19 +8933,33 @@ async def _handle_multi_agent_operator_command(cmd_text: str):
     """Forward an operator command to ST via the multi-agent session manager."""
     try:
         result = await _active_session_manager.send_command(cmd_text)
+        resp_content = result or "Command forwarded to Strategy Agent."
+        resp_agent = "ST"
+        # Persist the response so it survives page reload
+        await state.add_event(AgentEvent(
+            type="operator_response", agent=resp_agent,
+            agent_name=AGENT_NAMES.get(resp_agent, "Strategy"),
+            content=resp_content, engagement=state.active_engagement_id or "",
+        ))
         await state.broadcast({
             "type": "operator_response",
-            "agent": "ST",
-            "agentName": AGENT_NAMES.get("ST", "Strategy"),
-            "content": result or "Command forwarded to Strategy Agent.",
+            "agent": resp_agent,
+            "agentName": AGENT_NAMES.get(resp_agent, "Strategy"),
+            "content": resp_content,
             "timestamp": time.time(),
         })
     except Exception as e:
+        err_content = f"Error forwarding command: {str(e)[:200]}"
+        await state.add_event(AgentEvent(
+            type="operator_response", agent="OR",
+            agent_name=AGENT_NAMES.get("OR", "Orchestrator"),
+            content=err_content, engagement=state.active_engagement_id or "",
+        ))
         await state.broadcast({
             "type": "operator_response",
             "agent": "OR",
             "agentName": AGENT_NAMES.get("OR", "Orchestrator"),
-            "content": f"Error forwarding command: {str(e)[:200]}",
+            "content": err_content,
             "timestamp": time.time(),
         })
 
