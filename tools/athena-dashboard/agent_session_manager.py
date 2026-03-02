@@ -197,7 +197,7 @@ class WorkspaceManager:
             r'(password|api[_-]?key|secret|token|credential)\s*[:=]',
             re.IGNORECASE)
         count = 0
-        for suffix in ("*.md", "*.json", "*.txt", "*.yaml", "*.yml", "*.log"):
+        for suffix in ("*.md", "*.json", "*.txt", "*.yaml", "*.yml", "*.log", "*.sh", "*.py", "*.xml"):
             for f in directory.rglob(suffix):
                 # Skip symlinks (shared resources)
                 if f.is_symlink():

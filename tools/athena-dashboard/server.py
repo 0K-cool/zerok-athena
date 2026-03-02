@@ -1860,6 +1860,79 @@ async def get_experience_brief(agent_code: str):
         return {"brief": "", "techniques": 0}
 
 
+# ── CEI Dashboard API Endpoints ──────────────────────────────
+
+@app.get("/api/cei/techniques")
+async def get_cei_techniques():
+    """Return all TechniqueRecord nodes for Intelligence dashboard."""
+    if not neo4j_available or not neo4j_driver:
+        return {"techniques": [], "available": False}
+    try:
+        with neo4j_driver.session() as session:
+            result = session.run("""
+                MATCH (t:TechniqueRecord)
+                OPTIONAL MATCH (t)-[:USED_IN]->(e:Engagement)
+                RETURN t.key AS key, t.tool AS tool, t.agent AS agent,
+                       t.total_attempts AS attempts, t.successes AS successes,
+                       t.failures AS failures, t.success_rate AS success_rate,
+                       t.avg_duration_s AS avg_duration, t.avg_cost_usd AS avg_cost,
+                       t.last_used AS last_used, t.last_engagement_id AS last_eid,
+                       collect(DISTINCT e.id) AS engagement_ids
+                ORDER BY t.total_attempts DESC
+            """)
+            techniques = [dict(r) for r in result]
+        return {"techniques": techniques, "available": True}
+    except Exception as e:
+        logger.warning("CEI techniques endpoint: %s", e)
+        return {"techniques": [], "available": True, "error": str(e)}
+
+
+@app.get("/api/cei/false-positives")
+async def get_cei_false_positives():
+    """Return all FalsePositiveRecord nodes for Intelligence dashboard."""
+    if not neo4j_available or not neo4j_driver:
+        return {"false_positives": [], "available": False}
+    try:
+        with neo4j_driver.session() as session:
+            result = session.run("""
+                MATCH (fp:FalsePositiveRecord)
+                RETURN fp.key AS key, fp.tool AS tool, fp.fp_rate AS fp_rate,
+                       fp.total_attempts AS attempts, fp.common_trigger AS trigger
+                ORDER BY fp.fp_rate DESC
+            """)
+            fps = [dict(r) for r in result]
+        return {"false_positives": fps, "available": True}
+    except Exception as e:
+        logger.warning("CEI false-positives endpoint: %s", e)
+        return {"false_positives": [], "available": True, "error": str(e)}
+
+
+@app.get("/api/cei/engagement-history")
+async def get_cei_engagement_history():
+    """Return per-engagement stats for Intelligence trend charts."""
+    if not neo4j_available or not neo4j_driver:
+        return {"engagements": [], "available": False}
+    try:
+        with neo4j_driver.session() as session:
+            result = session.run("""
+                MATCH (e:Engagement)
+                OPTIONAL MATCH (f:Finding {engagement_id: e.id})
+                OPTIONAL MATCH (t:TechniqueRecord)-[:USED_IN]->(e)
+                RETURN e.id AS id, e.target AS target, e.status AS status,
+                       e.engagement_cost AS cost, e.created_at AS created,
+                       count(DISTINCT f) AS findings_count,
+                       count(DISTINCT t) AS techniques_used,
+                       avg(t.success_rate) AS avg_success_rate
+                ORDER BY e.created_at DESC
+                LIMIT 20
+            """)
+            engagements = [dict(r) for r in result]
+        return {"engagements": engagements, "available": True}
+    except Exception as e:
+        logger.warning("CEI engagement history: %s", e)
+        return {"engagements": [], "available": True, "error": str(e)}
+
+
 # ── F3: Validation Pipeline ("The Moat") ─────────────────────
 
 class VerificationStatus(str, Enum):
@@ -7468,12 +7541,11 @@ async def get_neo4j_config():
             content={"error": "Neo4j not available", "available": False}
         )
 
-    # Return read-only credentials for browser connection
+    # P1-FIX: Never expose credentials to browser — graph uses REST API proxy
     return {
         "available": True,
         "uri": NEO4J_URI,
         "user": NEO4J_USER,
-        "password": NEO4J_PASS,  # TODO: Use read-only user in production
     }
 
 
@@ -8294,8 +8366,8 @@ async def start_engagement_ai(
                         # P2-FIX: Load per-engagement budget cap from Neo4j
                         if record.get("budget") and float(record["budget"]) > 0:
                             ENGAGEMENT_COST_CAP = float(record["budget"])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to load engagement config from Neo4j: %s", e)
         if not target:
             return JSONResponse(status_code=400, content={
                 "error": "Target scope required. Pass ?target=<ip/cidr/url>"
@@ -8319,8 +8391,8 @@ async def start_engagement_ai(
                     # P2-FIX: Load per-engagement budget cap from Neo4j
                     if record.get("budget") and float(record["budget"]) > 0:
                         ENGAGEMENT_COST_CAP = float(record["budget"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load engagement config from Neo4j: %s", e)
 
     # Stop any existing session
     if _active_session_manager and _active_session_manager.is_running:
