@@ -10055,9 +10055,18 @@
       // Reset KPI
       const kpiFindings = document.getElementById('kpi-findings');
       if (kpiFindings) kpiFindings.textContent = '0';
-      // Reset nav badge
+      // Reset nav badges
       const findingsBadge = document.getElementById('nav-badge-findings');
       if (findingsBadge) findingsBadge.style.display = 'none';
+      const vulnBadge = document.getElementById('nav-badge-vulnerabilities');
+      if (vulnBadge) { vulnBadge.textContent = '0'; vulnBadge.style.display = 'none'; }
+      // Reset Vulnerabilities view
+      const vulnContainer = document.getElementById('vuln-categories-container');
+      if (vulnContainer) vulnContainer.innerHTML = '<div style="text-align:center;padding:48px 0;color:var(--zerok-text-dim);font-size:12px;opacity:0.6;">No vulnerability data yet. Start an engagement to discover vulnerabilities.</div>';
+      ['vuln-categories-count','vuln-total-findings','vuln-critical-count','vuln-high-count','vuln-medium-count','vuln-low-count'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '0';
+      });
 
       // ── Reset Agent Status chips to idle ──
       document.querySelectorAll('.agent-chip').forEach(chip => {
