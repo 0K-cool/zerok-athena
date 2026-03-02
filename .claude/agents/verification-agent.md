@@ -821,6 +821,11 @@ query_graph(`
   WITH ep
   MATCH (er:ExploitResult {id: $exploit_id})
   CREATE (ep)-[:VERIFIES]->(er)
+  WITH ep, er
+  OPTIONAL MATCH (f:Finding {id: er.finding_id})
+  FOREACH (_ IN CASE WHEN f IS NOT NULL THEN [1] ELSE [] END |
+    MERGE (f)-[:EVIDENCED_BY]->(ep)
+  )
   RETURN ep.id
 `, {
   exploit_id: exploit_result.id,
@@ -914,13 +919,18 @@ query_graph(`
 `, { props: evidence_package_object })
 ```
 
-**Linking to ExploitResult**:
+**Linking to ExploitResult and Finding** (dashboard queries `Finding-[:EVIDENCED_BY]->EvidencePackage`):
 
 ```javascript
 query_graph(`
   MATCH (ep:EvidencePackage {id: $ep_id})
   MATCH (er:ExploitResult {id: $er_id})
   CREATE (ep)-[:VERIFIES]->(er)
+  WITH ep, er
+  OPTIONAL MATCH (f:Finding {id: er.finding_id})
+  FOREACH (_ IN CASE WHEN f IS NOT NULL THEN [1] ELSE [] END |
+    MERGE (f)-[:EVIDENCED_BY]->(ep)
+  )
 `, { ep_id: evidence_package_id, er_id: exploit_result_id })
 ```
 

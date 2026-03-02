@@ -478,7 +478,14 @@ SET ep.exploit_result_id = $er_id,
     ep.confidence = $confidence,
     ep.status = $status,
     ep.timestamp = timestamp()
-MERGE (er:ExploitResult {id: $er_id})-[:VERIFIED_BY]->(ep)
+WITH ep
+MATCH (er:ExploitResult {id: $er_id})
+MERGE (er)-[:VERIFIED_BY]->(ep)
+WITH ep, er
+OPTIONAL MATCH (f:Finding {id: er.finding_id})
+FOREACH (_ IN CASE WHEN f IS NOT NULL THEN [1] ELSE [] END |
+    MERGE (f)-[:EVIDENCED_BY]->(ep)
+)
 ```
 
 Then update ExploitResult:
