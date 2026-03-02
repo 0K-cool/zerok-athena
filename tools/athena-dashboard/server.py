@@ -3443,6 +3443,20 @@ class AttackRelationType(str, Enum):
     EXPOSES = "EXPOSES"              # Service exposes sensitive data/functionality
 
 
+_VALID_REL_TYPES = frozenset(e.value for e in AttackRelationType)
+
+def _safe_rel_type(rel: str) -> str:
+    """Validate and sanitize relationship type for safe Cypher interpolation.
+
+    Neo4j does not support parameterized relationship types, so we must
+    interpolate them. This ensures only known-safe values are used.
+    """
+    sanitized = re.sub(r'[^A-Z_]', '', rel.upper())
+    if sanitized not in _VALID_REL_TYPES:
+        raise ValueError(f"Invalid relationship type: {rel}")
+    return sanitized
+
+
 class AttackChainLink(BaseModel):
     """A single link in an attack chain."""
     from_id: str           # Finding or Host ID
@@ -3543,7 +3557,7 @@ async def create_attack_link(link: AttackChainLink):
                      f"Valid: {[e.value for e in AttackRelationType]}"
         })
 
-    _rel_type = rel_type
+    _rel_type = _safe_rel_type(rel_type)
     def _create_link():
         with neo4j_driver.session() as session:
             # Create relationship between existing nodes (Finding or Host)
@@ -3616,19 +3630,21 @@ async def create_attack_chain(chain: AttackChain):
 
             # Create all chain link relationships
             for link in chain.links:
-                rel_type = link.relationship.upper()
-                if rel_type in [e.value for e in AttackRelationType]:
-                    session.run(f"""
-                        MATCH (a {{id: $from_id}})
-                        MATCH (b {{id: $to_id}})
-                        MERGE (a)-[r:{rel_type}]->(b)
-                        SET r.description = $desc,
-                            r.confidence = $conf,
-                            r.chain_id = $chain_id,
-                            r.created_at = datetime()
-                    """, from_id=link.from_id, to_id=link.to_id,
-                         desc=link.description, conf=link.confidence,
-                         chain_id=chain.id)
+                try:
+                    rel_type = _safe_rel_type(link.relationship)
+                except ValueError:
+                    continue
+                session.run(f"""
+                    MATCH (a {{id: $from_id}})
+                    MATCH (b {{id: $to_id}})
+                    MERGE (a)-[r:{rel_type}]->(b)
+                    SET r.description = $desc,
+                        r.confidence = $conf,
+                        r.chain_id = $chain_id,
+                        r.created_at = datetime()
+                """, from_id=link.from_id, to_id=link.to_id,
+                     desc=link.description, conf=link.confidence,
+                     chain_id=chain.id)
     try:
         await neo4j_exec(_create_chain)
     except Exception as e:
@@ -4106,8 +4122,9 @@ async def _auto_detect_chains(eid: str) -> dict:
     try:
         with neo4j_driver.session() as sess:
             for link in all_links:
-                rel_type = link["rel_type"]
-                if rel_type not in [e.value for e in AttackRelationType]:
+                try:
+                    rel_type = _safe_rel_type(link["rel_type"])
+                except ValueError:
                     continue
                 result = sess.run(f"""
                     MATCH (a {{id: $from_id}})
@@ -5812,8 +5829,9 @@ async def serve_artifact_file(artifact_id: str):
                 id=artifact_id,
             )
             record = result.single()
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    except Exception:
+        logger.exception("Artifact download failed")
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
     if not record or not record.get("file_path"):
         return JSONResponse(status_code=404, content={"error": "Artifact not found"})
@@ -5842,8 +5860,9 @@ async def serve_artifact_thumbnail(artifact_id: str):
                 id=artifact_id,
             )
             record = result.single()
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    except Exception:
+        logger.exception("Artifact thumbnail failed")
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
     if not record:
         return JSONResponse(status_code=404, content={"error": "Artifact not found"})
@@ -5887,8 +5906,9 @@ async def delete_artifact(artifact_id: str):
 
                 # Delete from Neo4j
                 session.run("MATCH (a:Artifact {id: $id}) DETACH DELETE a", id=artifact_id)
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"error": str(e)})
+        except Exception:
+            logger.exception("Artifact deletion failed")
+            return JSONResponse(status_code=500, content={"error": "Internal server error"})
     else:
         return JSONResponse(status_code=503, content={"error": "Neo4j unavailable"})
 
@@ -5966,8 +5986,9 @@ async def delete_all_artifacts(eid: str):
                 fp.unlink()
                 deleted_files.append(str(fp))
 
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    except Exception:
+        logger.exception("Engagement artifacts deletion failed")
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
     return {"ok": True, "deleted": deleted_count, "deleted_files": len(deleted_files), "engagement": eid}
 
