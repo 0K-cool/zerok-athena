@@ -11957,23 +11957,62 @@
     }
 
     function renderEvidencePackage(ep) {
-      const confidenceColors = { HIGH: 'var(--zerok-low)', MEDIUM: 'var(--zerok-medium)', LOW: 'var(--zerok-high)' };
-      const color = confidenceColors[ep.confidence] || 'var(--zerok-text-dim)';
+      // Format confidence display — handle both numeric (0.95) and string ("HIGH") formats
+      let confDisplay = 'N/A';
+      let confColor = 'var(--zerok-text-dim)';
+      if (ep.confidence !== null && ep.confidence !== undefined) {
+        const confNum = parseFloat(ep.confidence);
+        if (!isNaN(confNum) && confNum <= 1.0) {
+          confDisplay = `${(confNum * 100).toFixed(0)}%`;
+          confColor = confNum >= 0.8 ? 'var(--zerok-low)' : confNum >= 0.5 ? 'var(--zerok-medium)' : 'var(--zerok-high)';
+        } else {
+          confDisplay = String(ep.confidence);
+          const confidenceColors = { HIGH: 'var(--zerok-low)', MEDIUM: 'var(--zerok-medium)', LOW: 'var(--zerok-high)' };
+          confColor = confidenceColors[String(ep.confidence).toUpperCase()] || 'var(--zerok-text-dim)';
+        }
+      }
       let html = `<div class="evidence-item" style="margin-top: 12px;">
         <div class="evidence-header">
             <span class="evidence-type">${ep.type || ep.verification_method || 'Verification'}</span>
-            <span style="color: ${color}; font-weight: 600; font-size: 0.8em;">${ep.confidence || 'N/A'} confidence</span>
+            <span style="color: ${confColor}; font-weight: 600; font-size: 0.8em;">${confDisplay} confidence</span>
         </div>`;
+      if (ep.poc_script) {
+        html += `<div class="evidence-block">
+            <div style="font-size: 0.7em; color: var(--zerok-text-dim); margin-bottom: 4px; text-transform: uppercase; font-weight: 600;">PoC Command</div>
+            <pre style="white-space: pre-wrap; max-height: 150px; overflow-y: auto; background: var(--zerok-surface-alt); padding: 8px; border-radius: 4px; font-family: var(--zerok-font-mono); font-size: 12px;">${escapeHtml(ep.poc_script)}</pre>
+        </div>`;
+      }
+      if (ep.poc_output) {
+        html += `<div class="evidence-block">
+            <div style="font-size: 0.7em; color: var(--zerok-text-dim); margin-bottom: 4px; text-transform: uppercase; font-weight: 600;">PoC Output</div>
+            <pre style="white-space: pre-wrap; max-height: 200px; overflow-y: auto; background: var(--zerok-surface-alt); padding: 8px; border-radius: 4px; font-family: var(--zerok-font-mono); font-size: 12px;">${escapeHtml(ep.poc_output)}</pre>
+        </div>`;
+      }
       if (ep.http_pairs) {
-        html += `<div class="evidence-block"><pre style="white-space: pre-wrap; max-height: 200px; overflow-y: auto;">${escapeHtml(ep.http_pairs)}</pre></div>`;
+        html += `<div class="evidence-block">
+            <div style="font-size: 0.7em; color: var(--zerok-text-dim); margin-bottom: 4px; text-transform: uppercase; font-weight: 600;">HTTP Request/Response</div>
+            <pre style="white-space: pre-wrap; max-height: 200px; overflow-y: auto; background: var(--zerok-surface-alt); padding: 8px; border-radius: 4px; font-family: var(--zerok-font-mono); font-size: 12px;">${escapeHtml(ep.http_pairs)}</pre>
+        </div>`;
       }
       if (ep.output_evidence) {
-        html += `<div class="evidence-block"><pre style="white-space: pre-wrap; max-height: 150px; overflow-y: auto;">${escapeHtml(ep.output_evidence)}</pre></div>`;
+        html += `<div class="evidence-block">
+            <div style="font-size: 0.7em; color: var(--zerok-text-dim); margin-bottom: 4px; text-transform: uppercase; font-weight: 600;">Tool Output</div>
+            <pre style="white-space: pre-wrap; max-height: 200px; overflow-y: auto; background: var(--zerok-surface-alt); padding: 8px; border-radius: 4px; font-family: var(--zerok-font-mono); font-size: 12px;">${escapeHtml(ep.output_evidence)}</pre>
+        </div>`;
       }
       if (ep.response_diff) {
-        html += `<div class="evidence-block"><pre style="white-space: pre-wrap; max-height: 150px; overflow-y: auto;">${escapeHtml(ep.response_diff)}</pre></div>`;
+        html += `<div class="evidence-block">
+            <div style="font-size: 0.7em; color: var(--zerok-text-dim); margin-bottom: 4px; text-transform: uppercase; font-weight: 600;">Response Diff</div>
+            <pre style="white-space: pre-wrap; max-height: 150px; overflow-y: auto; background: var(--zerok-surface-alt); padding: 8px; border-radius: 4px; font-family: var(--zerok-font-mono); font-size: 12px;">${escapeHtml(ep.response_diff)}</pre>
+        </div>`;
       }
-      html += `<div style="font-size: 0.7em; color: var(--zerok-text-dim); margin-top: 6px;">Verified by: ${ep.verified_by || 'unknown'} · ${ep.timestamp || ''}</div></div>`;
+      if (ep.impact_demonstrated || ep.notes) {
+        html += `<div class="evidence-block" style="background: var(--zerok-surface-alt); padding: 8px; border-radius: 4px; border-left: 3px solid var(--zerok-warning);">
+            <div style="font-size: 0.7em; color: var(--zerok-text-dim); margin-bottom: 4px; text-transform: uppercase; font-weight: 600;">Impact / Notes</div>
+            <div style="font-size: 13px; color: var(--zerok-text);">${escapeHtml(ep.impact_demonstrated || ep.notes)}</div>
+        </div>`;
+      }
+      html += `<div style="font-size: 0.7em; color: var(--zerok-text-dim); margin-top: 6px;">Verified by: ${ep.verified_by || 'unknown'} · ${ep.status || ''} · ${ep.timestamp || ''}</div></div>`;
       return html;
     }
 

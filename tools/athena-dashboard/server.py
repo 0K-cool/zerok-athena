@@ -2201,6 +2201,50 @@ async def submit_verification_result(verification_id: str, result: VerificationR
         except Exception as e:
             print(f"Neo4j verification update error: {e}")
 
+        # Create EvidencePackage node from verification result
+        ep_id = f"ep-{uuid.uuid4().hex[:8]}"
+        ep_data = result.evidence_package or {}
+        def _create_evidence_package():
+            with neo4j_driver.session() as session:
+                session.run("""
+                    MERGE (ep:EvidencePackage {id: $ep_id})
+                    SET ep.engagement_id = $eid,
+                        ep.type = $method,
+                        ep.verification_method = $method,
+                        ep.confidence = $confidence,
+                        ep.status = $status,
+                        ep.verified_by = $agent,
+                        ep.http_pairs = $http_pairs,
+                        ep.output_evidence = $output_evidence,
+                        ep.response_diff = $response_diff,
+                        ep.poc_script = $poc_script,
+                        ep.poc_output = $poc_output,
+                        ep.impact_demonstrated = $impact,
+                        ep.notes = $notes,
+                        ep.timestamp = datetime()
+                    WITH ep
+                    MATCH (f:Finding {id: $finding_id})
+                    MERGE (f)-[:EVIDENCED_BY]->(ep)
+                """,
+                ep_id=ep_id,
+                eid=v.get("engagement_id", ""),
+                method=result.method,
+                confidence=str(result.confidence),
+                status=result.status,
+                agent=f"VF/{verification_id[:8]}",
+                http_pairs=ep_data.get("http_pairs"),
+                output_evidence=ep_data.get("output_evidence") or result.poc_output,
+                response_diff=ep_data.get("response_diff"),
+                poc_script=result.poc_script,
+                poc_output=result.poc_output,
+                impact=result.impact_demonstrated,
+                notes=result.notes,
+                finding_id=result.finding_id)
+        try:
+            await neo4j_exec(_create_evidence_package)
+        except Exception as e:
+            print(f"Neo4j EvidencePackage create error: {e}")
+
         # Create EXPLOITS relationship when finding is confirmed
         if result.status == "confirmed":
             def _create_exploits_edge():
@@ -5749,6 +5793,33 @@ async def get_finding_evidence(eid: str, fid: str):
                         "thumbnail_url": f"/api/artifacts/{record['id']}/thumbnail" if record.get("thumbnail_path") else None,
                     })
 
+                # Fallback: if no EvidencePackages/Artifacts, surface Finding scalar evidence
+                if not evidence_packages and not artifacts:
+                    fallback_result = session.run("""
+                        MATCH (f:Finding {id: $fid})
+                        RETURN f.evidence AS evidence, f.poc_script AS poc_script,
+                               f.impact_demonstrated AS impact, f.confidence AS confidence,
+                               f.verification_status AS vstatus, f.verified_at AS verified_at,
+                               f.poc_output AS poc_output
+                    """, fid=fid)
+                    rec = fallback_result.single()
+                    if rec and any(rec.get(k) for k in ("evidence", "poc_script", "poc_output")):
+                        evidence_packages.append({
+                            "id": f"synthetic-{fid}",
+                            "type": "verification_result",
+                            "output_evidence": rec.get("evidence") or rec.get("poc_output"),
+                            "poc_script": rec.get("poc_script"),
+                            "poc_output": rec.get("poc_output"),
+                            "impact_demonstrated": rec.get("impact"),
+                            "confidence": rec.get("confidence"),
+                            "status": rec.get("vstatus"),
+                            "verified_by": "VF",
+                            "timestamp": rec.get("verified_at"),
+                            "http_pairs": None,
+                            "response_diff": None,
+                            "notes": rec.get("impact"),
+                        })
+
                 return {
                     "evidence_packages": evidence_packages,
                     "artifacts": artifacts,
@@ -8252,6 +8323,17 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
                 # Create Artifact node in Neo4j and link to Engagement + Findings
                 if neo4j_available and neo4j_driver:
                     artifact_id = f"art-{uuid.uuid4().hex[:8]}"
+
+                    # Determine best finding to link: VF agent → its active verification target;
+                    # other agents → finding whose tool/agent matches, then most recent fallback
+                    linked_finding_id = None
+                    if agent_code == "VF":
+                        # VF agent: link to the finding it's currently verifying
+                        for vrf in _verifications.values():
+                            if vrf.get("status") == "in_progress":
+                                linked_finding_id = vrf.get("finding_id")
+                                break
+
                     with neo4j_driver.session() as sess:
                         sess.run("""
                             CREATE (a:Artifact {
@@ -8265,13 +8347,6 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
                             WITH a
                             MATCH (e:Engagement {id: $eid})
                             MERGE (e)-[:HAS_EVIDENCE]->(a)
-                            WITH a
-                            OPTIONAL MATCH (f:Finding {engagement_id: $eid})
-                            WHERE NOT exists((f)-[:HAS_ARTIFACT]->(:Artifact {type: 'command_output', caption: $caption}))
-                            WITH a, f ORDER BY f.created_at DESC LIMIT 1
-                            FOREACH (_ IN CASE WHEN f IS NOT NULL THEN [1] ELSE [] END |
-                                MERGE (f)-[:HAS_ARTIFACT]->(a)
-                            )
                             RETURN a
                         """, {
                             "aid": artifact_id, "eid": eid,
@@ -8280,6 +8355,21 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
                             "caption": f"Auto-captured {safe_tool} output",
                             "agent": agent_code,
                         })
+
+                        # Link artifact to finding — prefer specific ID, then agent match, then most recent
+                        if linked_finding_id:
+                            sess.run("""
+                                MATCH (a:Artifact {id: $aid}), (f:Finding {id: $fid})
+                                MERGE (f)-[:HAS_ARTIFACT]->(a)
+                            """, {"aid": artifact_id, "fid": linked_finding_id})
+                        else:
+                            sess.run("""
+                                MATCH (a:Artifact {id: $aid})
+                                OPTIONAL MATCH (f:Finding {engagement_id: $eid, agent: $agent})
+                                WITH a, f ORDER BY f.created_at DESC LIMIT 1
+                                WHERE f IS NOT NULL
+                                MERGE (f)-[:HAS_ARTIFACT]->(a)
+                            """, {"aid": artifact_id, "eid": eid, "agent": agent_code})
 
                     # Broadcast evidence update
                     await state.broadcast({
