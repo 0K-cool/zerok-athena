@@ -36,6 +36,7 @@ Event Types (client → server):
 import asyncio
 import hashlib
 import json
+import logging
 import yaml
 import mimetypes
 import os
@@ -83,6 +84,14 @@ try:
 except ImportError:
     MULTI_AGENT_AVAILABLE = False
     AgentSessionManager = None
+
+
+# ──────────────────────────────────────────────
+# Logging
+# ──────────────────────────────────────────────
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("athena.dashboard")
 
 
 # ──────────────────────────────────────────────
@@ -571,6 +580,13 @@ async def lifespan(app: FastAPI):
                     )
             await neo4j_exec(_create_indexes)
             print("  Neo4j Index: finding_fingerprint ✓")
+            # CEI-1: Create indexes for Cross-Engagement Intelligence nodes
+            def _create_cei_indexes():
+                with neo4j_driver.session() as session:
+                    session.run("CREATE INDEX technique_key IF NOT EXISTS FOR (t:TechniqueRecord) ON (t.key)")
+                    session.run("CREATE INDEX fp_record_key IF NOT EXISTS FOR (fp:FalsePositiveRecord) ON (fp.key)")
+            await neo4j_exec(_create_cei_indexes)
+            print("  Neo4j Index: technique_key, fp_record_key ✓")
             # Backfill EXPLOITS edges for confirmed findings missing them
             def _backfill_exploits():
                 with neo4j_driver.session() as session:
@@ -1778,6 +1794,70 @@ async def get_mtte():
     secs = int(avg % 60)
     display = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
     return {"mtte_seconds": round(avg, 2), "mtte_display": display, "sample_size": len(deltas)}
+
+
+@app.get("/api/experience-brief/{agent_code}")
+async def get_experience_brief(agent_code: str):
+    """CEI-3: Return condensed experience brief from past engagements for agent context injection."""
+    if not neo4j_available or not neo4j_driver:
+        return {"brief": "", "techniques": 0}
+
+    try:
+        with neo4j_driver.session() as session:
+            # Top techniques by success rate (min 3 attempts)
+            top_result = session.run("""
+                MATCH (t:TechniqueRecord)
+                WHERE t.success_rate > 0.3 AND t.total_attempts >= 3
+                RETURN t.key AS key, t.tool AS tool, t.success_rate AS rate,
+                       t.avg_duration_s AS dur, t.total_attempts AS attempts
+                ORDER BY t.success_rate DESC, t.avg_duration_s ASC
+                LIMIT 15
+            """)
+            top_techniques = [dict(r) for r in top_result]
+
+            # Known false positives
+            fp_result = session.run("""
+                MATCH (fp:FalsePositiveRecord)
+                WHERE fp.fp_rate > 0.7 AND fp.total_attempts >= 3
+                RETURN fp.key AS key, fp.tool AS tool, fp.common_trigger AS trigger
+                LIMIT 10
+            """)
+            false_positives = [dict(r) for r in fp_result]
+
+            # Experience stats
+            stats_result = session.run("""
+                MATCH (t:TechniqueRecord)
+                RETURN count(t) AS techniques, sum(t.total_attempts) AS total_runs
+            """)
+            stats = dict(stats_result.single())
+
+        # Build markdown brief
+        lines = []
+        tech_count = stats.get("techniques") or 0
+        run_count = stats.get("total_runs") or 0
+
+        if tech_count == 0:
+            return {"brief": "No prior engagement data yet. This is ATHENA's first run.", "techniques": 0}
+
+        lines.append(f"ATHENA has data from {tech_count} techniques across {run_count} tool executions.\n")
+
+        if top_techniques:
+            lines.append("**High-confidence techniques (try first):**")
+            for t in top_techniques:
+                rate_pct = round((t["rate"] or 0) * 100)
+                dur = round(t.get("dur") or 0)
+                lines.append(f"- {t['key']} — {rate_pct}% success ({t['attempts']} runs, ~{dur}s avg)")
+
+        if false_positives:
+            lines.append("\n**Known false positives (skip these):**")
+            for fp in false_positives:
+                lines.append(f"- {fp['key']} — {fp.get('trigger', 'unknown trigger')}")
+
+        brief = "\n".join(lines)
+        return {"brief": brief, "techniques": tech_count}
+    except Exception as e:
+        logger.warning("CEI experience brief: %s", e)
+        return {"brief": "", "techniques": 0}
 
 
 # ── F3: Validation Pipeline ("The Moat") ─────────────────────
@@ -7876,18 +7956,19 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
             tool_name in _EVIDENCE_TOOLS
             or any(kw in tool_lower for kw in _EVIDENCE_TOOL_KEYWORDS)
         )
+        # Normalize tool name for evidence filenames and CEI-2 technique keys
+        safe_tool = (
+            tool_lower
+            .replace("mcp__kali_external__", "")
+            .replace("mcp__kali_internal__", "")
+            .replace("__", "-")[:30]
+        )
         if is_security_tool and event.get("content", "").strip():
             try:
                 output_text = event["content"][:50000]  # Cap at 50KB
                 # Save to evidence directory
                 evidence_root = ensure_evidence_dirs(eid)
                 timestamp_str = datetime.now().strftime("%Y%m%d-%H%M%S")
-                safe_tool = (
-                    tool_lower
-                    .replace("mcp__kali_external__", "")
-                    .replace("mcp__kali_internal__", "")
-                    .replace("__", "-")[:30]
-                )
                 filename = f"{safe_tool}-{timestamp_str}.txt"
                 filepath = evidence_root / "command-output" / filename
                 filepath.write_text(output_text, encoding="utf-8")
@@ -7965,6 +8046,48 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
 
         # Sync new findings from Neo4j on every tool_complete (debounced)
         await _sync_neo4j_findings(eid)
+
+        # CEI-2: Score technique effectiveness across engagements
+        if is_security_tool and neo4j_available and neo4j_driver:
+            technique_key = f"{safe_tool}:{agent_code}"
+            duration_s = metadata.get("duration_s", 0)
+            per_call_cost = budget.get("estimated_cost", 0) / max(budget.get("tool_calls", 1), 1)
+            content_lower = (event.get("content", "") or "").lower()
+            success_hint = any(kw in content_lower for kw in (
+                "vulnerability", "cve-", "critical", "high", "medium",
+                "exploit", "flag{", "shell", "root", "admin", "found",
+            ))
+            try:
+                with neo4j_driver.session() as sess:
+                    sess.run("""
+                        MERGE (t:TechniqueRecord {key: $key})
+                        ON CREATE SET t.tool=$tool, t.agent=$agent,
+                            t.total_attempts=1,
+                            t.successes=CASE WHEN $success THEN 1 ELSE 0 END,
+                            t.failures=CASE WHEN $success THEN 0 ELSE 1 END,
+                            t.success_rate=CASE WHEN $success THEN 1.0 ELSE 0.0 END,
+                            t.avg_duration_s=$dur, t.avg_cost_usd=$cost,
+                            t.last_used=datetime(), t.last_engagement_id=$eid
+                        ON MATCH SET t.total_attempts=t.total_attempts+1,
+                            t.successes=t.successes + CASE WHEN $success THEN 1 ELSE 0 END,
+                            t.failures=t.failures + CASE WHEN $success THEN 0 ELSE 1 END,
+                            t.last_used=datetime(), t.last_engagement_id=$eid
+                        WITH t
+                        SET t.success_rate = CASE WHEN t.total_attempts > 0
+                            THEN toFloat(t.successes) / t.total_attempts ELSE 0.0 END,
+                            t.avg_duration_s = CASE WHEN t.total_attempts > 1
+                            THEN (t.avg_duration_s * (t.total_attempts - 1) + $dur) / t.total_attempts
+                            ELSE $dur END,
+                            t.avg_cost_usd = CASE WHEN t.total_attempts > 1
+                            THEN (t.avg_cost_usd * (t.total_attempts - 1) + $cost) / t.total_attempts
+                            ELSE $cost END
+                        WITH t
+                        MERGE (e:Engagement {id: $eid})
+                        MERGE (t)-[:USED_IN]->(e)
+                    """, key=technique_key, tool=safe_tool, agent=agent_code,
+                        success=success_hint, dur=duration_s, cost=per_call_cost, eid=eid)
+            except Exception as e:
+                logger.warning("CEI technique scoring: %s", e)
 
     # CTF flag auto-detection: scan every event's content for flag patterns
     event_content = event.get("content", "")
@@ -8222,6 +8345,97 @@ Body: {{"agent":"AR","task":"Port scan and service enumeration against {target}"
     }
 
 
+async def _generate_engagement_learnings(eid: str) -> str:
+    """CEI-5: Generate structured learnings document from engagement data."""
+    if not neo4j_available or not neo4j_driver:
+        return ""
+
+    try:
+        with neo4j_driver.session() as session:
+            # Engagement metadata
+            eng_result = session.run("""
+                MATCH (e:Engagement {id: $eid})
+                RETURN e.target AS target, e.status AS status,
+                       e.engagement_cost AS cost, e.types AS types
+            """, eid=eid)
+            eng = eng_result.single()
+            if not eng:
+                return ""
+
+            # Techniques used in this engagement
+            tech_result = session.run("""
+                MATCH (t:TechniqueRecord)-[:USED_IN]->(e:Engagement {id: $eid})
+                RETURN t.key AS key, t.tool AS tool, t.agent AS agent,
+                       t.success_rate AS rate, t.avg_duration_s AS dur,
+                       t.total_attempts AS attempts
+                ORDER BY t.success_rate DESC
+            """, eid=eid)
+            techniques = [dict(r) for r in tech_result]
+
+            # Findings summary
+            findings_result = session.run("""
+                MATCH (f:Finding {engagement_id: $eid})
+                RETURN f.severity AS severity, f.status AS status,
+                       f.verified AS verified, count(*) AS cnt
+                ORDER BY f.severity
+            """, eid=eid)
+            findings = [dict(r) for r in findings_result]
+
+        # Build learnings document
+        target = eng.get("target", "unknown")
+        cost = eng.get("cost") or _engagement_cost or 0
+        types_raw = eng.get("types") or []
+        types = [types_raw] if isinstance(types_raw, str) else list(types_raw)
+
+        lines = [
+            f"# Engagement {eid} — Learnings",
+            f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')} | "
+            f"**Target:** {target} | **Cost:** ${cost:.2f} | "
+            f"**Types:** {', '.join(types) if types else 'general'}",
+            "",
+        ]
+
+        # Effective techniques
+        effective = [t for t in techniques if (t.get("rate") or 0) > 0.3]
+        if effective:
+            lines.append("## Effective Techniques")
+            for t in effective:
+                rate_pct = round((t["rate"] or 0) * 100)
+                dur = round(t.get("dur") or 0)
+                lines.append(f"- **{t['key']}** — {rate_pct}% success, ~{dur}s avg")
+            lines.append("")
+
+        # Ineffective techniques
+        ineffective = [t for t in techniques if (t.get("rate") or 0) <= 0.3]
+        if ineffective:
+            lines.append("## Ineffective Techniques")
+            for t in ineffective:
+                rate_pct = round((t["rate"] or 0) * 100)
+                dur = round(t.get("dur") or 0)
+                lines.append(f"- {t['key']} — {rate_pct}% success, ~{dur}s avg")
+            lines.append("")
+
+        # Findings summary
+        total_findings = sum(f.get("cnt", 0) for f in findings)
+        if total_findings > 0:
+            lines.append("## Findings Summary")
+            sev_counts = {}
+            for f in findings:
+                sev = (f.get("severity") or "unknown").upper()
+                sev_counts[sev] = sev_counts.get(sev, 0) + f.get("cnt", 0)
+            parts = []
+            for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+                if sev in sev_counts:
+                    parts.append(f"{sev_counts[sev]} {sev}")
+            lines.append(f"**Total:** {total_findings} — {', '.join(parts)}")
+            lines.append("")
+
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning("CEI learnings generator: %s", e)
+        return ""
+
+
 @app.post("/api/engagement/{eid}/stop")
 async def stop_engagement(eid: str):
     """Stop a running engagement and kill all active processes."""
@@ -8291,6 +8505,18 @@ async def stop_engagement(eid: str):
         "status": "completed",
         "timestamp": time.time(),
     })
+
+    # CEI-4: Persist engagement learnings for future engagements
+    try:
+        learnings = await _generate_engagement_learnings(eid)
+        if learnings:
+            learnings_dir = Path(__file__).parent.parent.parent / "docs" / "learnings"
+            learnings_dir.mkdir(parents=True, exist_ok=True)
+            learnings_path = learnings_dir / f"{eid}.md"
+            learnings_path.write_text(learnings, encoding="utf-8")
+            logger.info("CEI: Saved engagement learnings to %s", learnings_path)
+    except Exception as e:
+        logger.warning("CEI: Learnings persistence failed: %s", e)
 
     # Broadcast final cost so the frontend cost display is accurate at session end
     await state.broadcast({

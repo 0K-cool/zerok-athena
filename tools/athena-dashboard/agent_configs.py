@@ -55,6 +55,8 @@ class AgentRoleConfig:
     disallowed_tools: tuple[str, ...] = ()
     system_prompt_template: str = ""
     ctf_prompt_template: str = ""  # Used when mode="ctf"
+    playbooks: tuple[str, ...] = ()  # Playbook filenames this agent should read
+    rag_queries: tuple[str, ...] = ()  # RAG queries to run at session start
 
 
 # ──────────────────────────────────────────────
@@ -62,6 +64,13 @@ class AgentRoleConfig:
 # ──────────────────────────────────────────────
 
 _BASE_TOOLS = ("Bash", "Read", "Write", "Edit")
+
+_RAG_TOOLS = (
+    "mcp__athena_knowledge_base__search_kb",
+    "mcp__athena_knowledge_base__get_kb_stats",
+    "mcp__athena-knowledge-base__search_kb",
+    "mcp__athena-knowledge-base__get_kb_stats",
+)
 
 _NEO4J_TOOLS = (
     "mcp__athena_neo4j__*",
@@ -539,10 +548,13 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         max_tool_calls=20,
         max_cost_usd=2.00,
         max_turns_per_chunk=10,
-        allowed_tools=_BASE_TOOLS + _NEO4J_READ_ONLY,
+        allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_READ_ONLY,
         disallowed_tools=_kali_tools(),  # ST does NOT run Kali tools
         system_prompt_template=_ST_PROMPT,
         ctf_prompt_template=_CTF_ST_PROMPT,
+        playbooks=(),  # ST reads all playbooks via RAG as needed
+        rag_queries=("penetration testing methodology PTES phases",
+                     "attack chain lateral movement privilege escalation"),
     ),
     "AR": AgentRoleConfig(
         code="AR",
@@ -552,10 +564,13 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         max_tool_calls=60,
         max_cost_usd=0.75,
         max_turns_per_chunk=15,
-        allowed_tools=_BASE_TOOLS + _NEO4J_TOOLS + _kali_tools(),
+        allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
         system_prompt_template=_AR_PROMPT,
         ctf_prompt_template=_CTF_AR_PROMPT,
+        playbooks=("docs/playbooks/c2-and-network-services.md",),
+        rag_queries=("nmap naabu port scanning techniques",
+                     "service enumeration host discovery"),
     ),
     "WV": AgentRoleConfig(
         code="WV",
@@ -565,10 +580,14 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         max_tool_calls=40,
         max_cost_usd=0.50,
         max_turns_per_chunk=15,
-        allowed_tools=_BASE_TOOLS + _NEO4J_TOOLS + _kali_tools(),
+        allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
         system_prompt_template=_WV_PROMPT,
         ctf_prompt_template=_CTF_WV_PROMPT,
+        playbooks=("docs/playbooks/web-application-attacks.md",
+                   "playbooks/sql-injection-testing.md"),
+        rag_queries=("web application vulnerability scanning nuclei",
+                     "SQL injection XSS SSRF testing techniques"),
     ),
     "EX": AgentRoleConfig(
         code="EX",
@@ -578,10 +597,15 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         max_tool_calls=30,
         max_cost_usd=1.50,
         max_turns_per_chunk=10,
-        allowed_tools=_BASE_TOOLS + _NEO4J_TOOLS + _kali_tools(),
+        allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
         system_prompt_template=_EX_PROMPT,
         ctf_prompt_template=_CTF_EX_PROMPT,
+        playbooks=("docs/playbooks/credential-attacks.md",
+                   "docs/playbooks/lotl-and-privilege-escalation.md",
+                   "playbooks/cve-exploit-research-workflow.md"),
+        rag_queries=("exploitation techniques CVE proof of concept",
+                     "privilege escalation credential attacks"),
     ),
     "VF": AgentRoleConfig(
         code="VF",
@@ -591,10 +615,12 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         max_tool_calls=30,
         max_cost_usd=0.50,
         max_turns_per_chunk=15,
-        allowed_tools=_BASE_TOOLS + _NEO4J_TOOLS + _kali_tools(),
+        allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
         system_prompt_template=_VF_PROMPT,
         ctf_prompt_template=_CTF_VF_PROMPT,
+        playbooks=(),
+        rag_queries=("vulnerability verification proof of exploitation",),
     ),
     "RP": AgentRoleConfig(
         code="RP",
@@ -604,10 +630,12 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         max_tool_calls=20,
         max_cost_usd=1.00,
         max_turns_per_chunk=15,
-        allowed_tools=_BASE_TOOLS + _NEO4J_TOOLS,
+        allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS,
         disallowed_tools=_kali_tools(),  # RP doesn't run Kali tools
         system_prompt_template=_RP_PROMPT,
         ctf_prompt_template=_CTF_RP_PROMPT,
+        playbooks=(),
+        rag_queries=("penetration test report executive summary findings",),
     ),
 }
 
@@ -642,11 +670,15 @@ def get_all_roles() -> dict[str, AgentRoleConfig]:
 
 def format_prompt(role: AgentRoleConfig, eid: str, target: str,
                   backend: str = "external", prior_context: str = "",
-                  mode: str = "pentest") -> str:
+                  mode: str = "pentest",
+                  knowledge_brief: str = "",
+                  experience_brief: str = "") -> str:
     """Format a role's system prompt template with engagement parameters.
 
     Args:
         mode: "pentest" (default) or "ctf" — selects which prompt template to use.
+        knowledge_brief: Pre-built knowledge brief from RAG to inject into prompt.
+        experience_brief: Data-driven brief from past engagements via Neo4j (CEI-3).
     """
     template = role.system_prompt_template
     if mode == "ctf" and role.ctf_prompt_template:
@@ -655,7 +687,7 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
     # Build flag patterns block for CTF prompts
     flag_patterns = _CTF_FLAG_PATTERNS.format(agent_code=role.code) if mode == "ctf" else ""
 
-    return template.format(
+    formatted = template.format(
         eid=eid,
         target=target,
         backend=backend,
@@ -665,3 +697,35 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
         ),
         flag_patterns=flag_patterns,
     )
+
+    # ── Inject knowledge brief + mandatory playbook reading ──
+    kb_section = ""
+    if knowledge_brief:
+        kb_section += (
+            "\n\nKNOWLEDGE BRIEF (from ATHENA RAG — read carefully):\n"
+            f"{knowledge_brief}\n"
+        )
+    if role.playbooks:
+        playbook_list = "\n".join(f"  - {p}" for p in role.playbooks)
+        kb_section += (
+            "\nMANDATORY READING — Read these playbooks BEFORE starting work:\n"
+            f"{playbook_list}\n"
+            "Use the Read tool to read each playbook file. Do NOT skip this step.\n"
+        )
+    if role.rag_queries and mode != "ctf":
+        kb_section += (
+            "\nKNOWLEDGE BASE ACCESS:\n"
+            "You have access to ATHENA's RAG knowledge base via the "
+            "mcp__athena_knowledge_base__search_kb tool. Use it to search for "
+            "techniques, payloads, and methodology when you need deeper context "
+            "beyond your playbooks.\n"
+        )
+
+    if experience_brief:
+        kb_section += (
+            "\nEXPERIENCE FROM PAST ENGAGEMENTS (data-driven, from Neo4j):\n"
+            f"{experience_brief}\n"
+            "Prioritize techniques with high success rates. Skip known false positives.\n"
+        )
+
+    return formatted + kb_section

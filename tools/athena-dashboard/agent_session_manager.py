@@ -597,6 +597,15 @@ class AgentSessionManager:
         if task_prompt:
             prior_context = f"TASK FROM STRATEGY AGENT:\n{task_prompt}\n\n{prior_context}"
 
+        # ── Knowledge Brief Injection (CEI Layer 2) ──
+        # Read playbook summaries from disk and inject directly into
+        # agent context. This GUARANTEES agents have the knowledge —
+        # they can't forget to read what's already in their prompt.
+        knowledge_brief = self._build_knowledge_brief(role)
+
+        # CEI-3: Fetch experience from past engagements
+        experience_brief = await self._fetch_experience_brief(code)
+
         # Phase G: Create isolated workspace for worker agents
         # ST and RP stay in main ATHENA root, workers get per-agent dirs
         agent_cwd = self._workspace_manager.create_agent_workspace(code)
@@ -618,10 +627,12 @@ class AgentSessionManager:
         # Store and start
         self.agents[code] = session
 
-        # Build the initial prompt for the agent
+        # Build the initial prompt for the agent (includes knowledge brief)
         prompt = format_prompt(role, self.engagement_id, self.target,
                                self.backend, prior_context,
-                               mode=self.mode)
+                               mode=self.mode,
+                               knowledge_brief=knowledge_brief,
+                               experience_brief=experience_brief)
         if task_prompt:
             prompt = f"{task_prompt}\n\n{prompt}"
 
@@ -653,6 +664,71 @@ class AgentSessionManager:
                 await task
             except asyncio.CancelledError:
                 pass
+
+    # ── Knowledge Brief Builder (CEI Layer 2) ──
+
+    def _build_knowledge_brief(self, role: AgentRoleConfig) -> str:
+        """Build a condensed knowledge brief from playbook files on disk.
+
+        Reads the first ~40 lines (overview/summary section) of each
+        playbook assigned to this agent role and returns a compact brief.
+        This is injected directly into the agent's system prompt —
+        the agent literally can't miss it.
+
+        Returns:
+            Condensed knowledge brief string, or empty string if no playbooks.
+        """
+        if not role.playbooks:
+            return ""
+
+        brief_parts = []
+        for pb_path in role.playbooks:
+            full_path = self.athena_root / pb_path
+            if not full_path.exists():
+                logger.warning("Playbook not found: %s", full_path)
+                continue
+            try:
+                with open(full_path, "r") as f:
+                    lines = []
+                    for i, line in enumerate(f):
+                        if i >= 40:  # First 40 lines = overview section
+                            break
+                        lines.append(line)
+                content = "".join(lines).strip()
+                if content:
+                    brief_parts.append(
+                        f"### {pb_path}\n{content}\n"
+                    )
+            except Exception as e:
+                logger.warning("Failed to read playbook %s: %s", pb_path, e)
+
+        if not brief_parts:
+            return ""
+
+        return "\n".join(brief_parts)
+
+    async def _fetch_experience_brief(self, agent_code: str) -> str:
+        """CEI-3: Fetch experience brief from past engagements via API.
+
+        Queries the experience-brief endpoint which returns technique
+        effectiveness data from Neo4j. This data-driven brief tells
+        agents which tools work best and which to skip.
+
+        Returns:
+            Formatted experience brief string, or empty string.
+        """
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(
+                    f"http://localhost:8080/api/experience-brief/{agent_code}"
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data.get("brief", "")
+        except Exception as e:
+            logger.warning("CEI experience brief fetch failed for %s: %s", agent_code, e)
+        return ""
 
     # ── Neo4j Context Builder ──────────────────
 
