@@ -5100,12 +5100,14 @@
         font-size: 10px !important;
       }
 
-      /* Widget grid: 2 columns — widgets get more breathing room */
+      /* Widget grid: 2 columns — widgets get more breathing room.
+         Row 1 has 4 widgets → clean 2×2 grid.
+         Rows with 3 widgets → last child spans full width (no black gap). */
       .widget-grid {
         grid-template-columns: 1fr 1fr !important;
       }
-      /* Third widget in each row spans full width below the pair */
-      .widget-grid > :nth-child(3n) {
+      /* 3-widget rows: last widget spans full width */
+      .widget-grid > :last-child:nth-child(odd) {
         grid-column: 1 / -1;
       }
 
@@ -5270,8 +5272,8 @@
       .widget-grid {
         grid-template-columns: 1fr 1fr !important;
       }
-      /* Third widget in each row: full width below */
-      .widget-grid > :nth-child(3n) {
+      /* Odd last child (3rd, 5th widget) spans full width — no black gap */
+      .widget-grid > :last-child:nth-child(odd) {
         grid-column: 1 / -1;
       }
     }
