@@ -526,21 +526,25 @@
       display: block;
     }
 
-    /* Dashboard view fills content area; widget rows share extra vertical space */
+    /* Dashboard view: scrollable layout that works on 13" laptops and 34" ultrawides.
+       Uses min-height on widget rows so content never clips, with vertical scroll
+       when the viewport is too short to show everything at once. */
     #dashboardView.active {
       display: flex;
       flex-direction: column;
       height: 100%;
-      overflow: hidden;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
     #dashboardView > .stat-grid {
       flex: 0 0 auto;                /* KPI row: fixed height, no grow/shrink */
     }
-    #dashboardView > .widget-grid,
+    #dashboardView > .widget-grid {
+      flex: 0 0 auto;                /* Widget rows: natural height, never clip */
+      min-height: 160px;             /* Minimum visible height per widget row */
+    }
     #dashboardView > .full-width {
-      flex: 1 1 0;                   /* Widget rows: share remaining space equally */
-      min-height: 0;
-      overflow: hidden;
+      flex: 0 0 auto;                /* Full-width rows: natural height */
     }
 
     /* Content Header - same charcoal as sidebar (upside-down L) */
@@ -5071,6 +5075,60 @@
     @media (max-width: 1024px) and (orientation: portrait) and (pointer: coarse) {
       #landscape-overlay { display: flex !important; }
       .dashboard { display: none !important; }
+    }
+
+    /* ========== RESPONSIVE: LAPTOP 13" (≤1440px) ========== */
+    /* MacBook Air 13" M1 renders at ~1440x900 effective CSS pixels.
+       With 220px sidebar, content area is ~1220px — stat cards and
+       3-col widget grid need to adapt. 34" ultrawide (~3440px) unaffected. */
+    @media (max-width: 1440px) {
+      /* KPI cards: allow wrapping to 2 rows instead of truncating labels */
+      .stat-grid {
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 4px !important;
+      }
+      .stat-card {
+        padding: 10px 12px !important;
+      }
+      .stat-card .stat-label {
+        font-size: 11px !important;
+      }
+      .stat-card .stat-value {
+        font-size: 22px !important;
+      }
+      .stat-card .stat-sub {
+        font-size: 10px !important;
+      }
+
+      /* Widget grid: 2 columns — widgets get more breathing room */
+      .widget-grid {
+        grid-template-columns: 1fr 1fr !important;
+      }
+      /* Third widget in each row spans full width below the pair */
+      .widget-grid > :nth-child(3n) {
+        grid-column: 1 / -1;
+      }
+
+      /* Two-column layout: keep 2 cols but with tighter gap */
+      .two-columns {
+        gap: 4px !important;
+      }
+
+      /* Methodology Coverage: allow horizontal scroll */
+      .full-width {
+        overflow-x: auto !important;
+      }
+
+      /* Agent chips: slightly smaller */
+      .agent-chip {
+        padding: 3px 8px !important;
+        font-size: 10px !important;
+      }
+
+      /* Widget body: allow overflow to scroll instead of clip */
+      .widget-body {
+        overflow: auto !important;
+      }
     }
 
     /* ========== RESPONSIVE: TABLET LANDSCAPE (≤1024px) ========== */
