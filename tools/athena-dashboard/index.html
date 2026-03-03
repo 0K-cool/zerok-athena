@@ -5079,57 +5079,69 @@
 
     /* ========== RESPONSIVE: LAPTOP 13" (≤1440px) ========== */
     /* MacBook Air 13" M1 renders at ~1440x900 effective CSS pixels.
-       With 220px sidebar, content area is ~1220px — stat cards and
-       3-col widget grid need to adapt. 34" ultrawide (~3440px) unaffected. */
+       With 220px sidebar, content area is ~1220px. Keep same layout as
+       ultrawide (7 stat cols, 3 widget cols) but with tighter spacing. */
     @media (max-width: 1440px) {
-      /* KPI cards: allow wrapping to 2 rows instead of truncating labels */
+      /* KPI cards: all 7 in one row, compact */
       .stat-grid {
-        grid-template-columns: repeat(4, 1fr) !important;
-        gap: 4px !important;
+        grid-template-columns: repeat(7, 1fr) !important;
+        gap: 3px !important;
       }
       .stat-card {
-        padding: 10px 12px !important;
+        padding: 8px 6px !important;
       }
       .stat-card .stat-label {
-        font-size: 11px !important;
+        font-size: 9px !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .stat-card .stat-value {
-        font-size: 22px !important;
+        font-size: 18px !important;
       }
       .stat-card .stat-sub {
-        font-size: 10px !important;
+        font-size: 9px !important;
+      }
+      .stat-header svg {
+        width: 14px !important;
+        height: 14px !important;
+      }
+      .sparkline-container {
+        max-width: 50px !important;
       }
 
-      /* Widget grid: 2 columns — widgets get more breathing room.
-         Row 1 has 4 widgets → clean 2×2 grid.
-         Rows with 3 widgets → last child spans full width (no black gap). */
+      /* Widget grid: keep 3 columns, tighten gap */
       .widget-grid {
-        grid-template-columns: 1fr 1fr !important;
-      }
-      /* 3-widget rows: last widget spans full width */
-      .widget-grid > :last-child:nth-child(odd) {
-        grid-column: 1 / -1;
+        gap: 4px !important;
       }
 
-      /* Two-column layout: keep 2 cols but with tighter gap */
-      .two-columns {
-        gap: 4px !important;
+      /* Widget content: compact */
+      .widget-header {
+        padding: 4px 10px !important;
+      }
+      .widget-header h3, .widget-title {
+        font-size: 12px !important;
+      }
+      .widget-body {
+        padding: 6px !important;
+        overflow: auto !important;
+      }
+
+      /* Agent chips: smaller to fit grid */
+      .agent-chip, .layer-cell {
+        padding: 3px 6px !important;
+        font-size: 9px !important;
+      }
+
+      /* Donut charts: scale down slightly */
+      .donut-chart, .donut-chart canvas {
+        max-width: 120px !important;
+        max-height: 120px !important;
       }
 
       /* Methodology Coverage: allow horizontal scroll */
       .full-width {
         overflow-x: auto !important;
-      }
-
-      /* Agent chips: slightly smaller */
-      .agent-chip {
-        padding: 3px 8px !important;
-        font-size: 10px !important;
-      }
-
-      /* Widget body: allow overflow to scroll instead of clip */
-      .widget-body {
-        overflow: auto !important;
       }
     }
 
