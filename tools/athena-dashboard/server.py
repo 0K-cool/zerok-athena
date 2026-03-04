@@ -7598,10 +7598,32 @@ async def delete_engagement_graph(eid: str):
         state.agent_statuses[code] = AgentStatus.IDLE
     state.agent_tasks.clear()
 
+    # Reset budget trackers (in-memory + Neo4j persisted cost)
+    global _engagement_cost
+    _agent_budgets.clear()
+    _engagement_cost = 0.0
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run(
+                    "MATCH (e:Engagement {id: $eid}) SET e.engagement_cost = 0",
+                    eid=eid,
+                )
+        except Exception:
+            pass
+
     # Broadcast clear_timeline to all connected clients so their AI drawers reset
     await state.broadcast({
         "type": "clear_timeline",
         "engagement": eid,
+        "timestamp": time.time(),
+    })
+
+    # Broadcast cost reset so KPI updates to $0.00
+    await state.broadcast({
+        "type": "cost_update",
+        "agent": "OR",
+        "engagement_cost": 0.0,
         "timestamp": time.time(),
     })
 
