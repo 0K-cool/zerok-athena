@@ -333,6 +333,7 @@ class AthenaAgentSession:
         self._current_agent = "OR"
         self._tool_count = 0
         self._total_cost_usd: float = 0.0
+        self._budget_exhausted = False  # Set by early_stop to break query loop
         self._pending_tools: dict[str, str] = {}  # tool_use_id → tool_name
         # F5: Per-agent budget tracking
         self._agent_tool_counts: dict[str, int] = {}  # agent_code → tool_calls
@@ -620,6 +621,7 @@ class AthenaAgentSession:
             if resp.status_code == 200:
                 data = resp.json()
                 if data.get("early_stop"):
+                    self._budget_exhausted = True
                     await self._emit("system", agent,
                         f"EARLY STOP: {agent} budget exhausted — "
                         f"{data.get('tool_calls', '?')}/{data.get('max_tool_calls', '?')} calls",
@@ -960,7 +962,7 @@ class AthenaAgentSession:
         opts = self._build_options(resume_id)
         try:
             async for msg in query(prompt=prompt, options=opts):
-                if not self.is_running:
+                if not self.is_running or self._budget_exhausted:
                     break
 
                 if isinstance(msg, SystemMessage):
@@ -1017,14 +1019,14 @@ class AthenaAgentSession:
             prompt = initial_prompt
             resume_id = None
 
-            while self.is_running and not self.is_paused:
+            while self.is_running and not self.is_paused and not self._budget_exhausted:
                 # Track tool count to detect when AI finishes (no tools used)
                 tools_before = self._tool_count
 
                 # Run a bounded query chunk (max_turns limits duration)
                 await self._run_query(prompt, resume_id)
 
-                if not self.is_running or self.is_paused:
+                if not self.is_running or self.is_paused or self._budget_exhausted:
                     break
 
                 tools_used = self._tool_count - tools_before
