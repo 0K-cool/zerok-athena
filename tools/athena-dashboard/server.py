@@ -3350,11 +3350,10 @@ async def report_actual_cost(agent: str, cost_usd: float):
 
     budget = _get_agent_budget(agent)
 
-    # Replace estimated cost with actual — compute delta to avoid double-counting
+    # Replace estimated cost with actual — delta can be negative when actual < estimated
     cost_delta = cost_usd - budget["estimated_cost"]
-    if cost_delta > 0:
-        budget["estimated_cost"] = cost_usd
-        _engagement_cost += cost_delta
+    budget["estimated_cost"] = cost_usd
+    _engagement_cost = max(0, _engagement_cost + cost_delta)
 
     budget["actual_cost"] = cost_usd
 
