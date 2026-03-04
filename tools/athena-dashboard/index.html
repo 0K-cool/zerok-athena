@@ -1168,6 +1168,7 @@
     }
     /* Strategy Bar — full-width strip above widget row */
     .strategy-bar {
+      flex: 0 0 auto;  /* Don't shrink in flex parent (#dashboardView) */
       max-height: 0;
       overflow: hidden;
       transition: max-height 0.3s ease, margin 0.3s ease;

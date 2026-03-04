@@ -1213,7 +1213,11 @@ class AthenaAgentSession:
         for block in msg.content:
             if isinstance(block, ThinkingBlock):
                 thought = block.thinking[:500]
-                await self._emit("agent_thinking", self._current_agent,
+                # ST thinking → strategy_thinking (lights up blue bar)
+                event_type = ("strategy_thinking"
+                              if self._current_agent == "ST"
+                              else "agent_thinking")
+                await self._emit(event_type, self._current_agent,
                     thought, {
                         "thought": thought,
                         "reasoning": block.thinking[:1000],
@@ -1222,7 +1226,11 @@ class AthenaAgentSession:
             elif isinstance(block, TextBlock):
                 text = block.text.strip()
                 if text and not self._is_debug_noise(text):
-                    await self._emit("system", self._current_agent,
+                    # ST text output → strategy_decision (opens blue bar)
+                    event_type = ("strategy_decision"
+                                  if self._current_agent == "ST"
+                                  else "system")
+                    await self._emit(event_type, self._current_agent,
                         text[:1000])
 
             elif isinstance(block, ToolUseBlock):
