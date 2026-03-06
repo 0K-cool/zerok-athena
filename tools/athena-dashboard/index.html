@@ -533,18 +533,17 @@
       display: flex;
       flex-direction: column;
       height: 100%;
-      overflow-y: auto;
-      overflow-x: hidden;
+      overflow: hidden;
     }
     #dashboardView > .stat-grid {
       flex: 0 0 auto;                /* KPI row: fixed height, no grow/shrink */
     }
     #dashboardView > .widget-grid {
-      flex: 0 0 auto;                /* Widget rows: natural height, never clip */
+      flex: 1 1 0;                   /* Widget rows: share remaining space equally */
       min-height: 160px;             /* Minimum visible height per widget row */
     }
     #dashboardView > .full-width {
-      flex: 0 0 auto;                /* Full-width rows: natural height */
+      flex: 1 1 0;                   /* Full-width rows: share remaining space */
     }
 
     /* Content Header - same charcoal as sidebar (upside-down L) */
@@ -5105,19 +5104,46 @@
        With 220px sidebar, content area is ~1220px. Keep same layout as
        ultrawide (7 stat cols, 3 widget cols) but with tighter spacing. */
     @media (max-width: 1440px) {
-      /* KPI cards: all 7 in one row, compact */
+      /* Uniform spacing: all gaps = 8px.
+         Scrollbar is 6px + 2px padding-right = 8px to match left. */
+      .content {
+        padding: 8px !important;
+        padding-right: 0 !important;
+      }
+      .content::-webkit-scrollbar {
+        width: 6px !important;
+      }
+
+      /* Dashboard: scrollable on 13" instead of clipping */
+      #dashboardView.active {
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+      }
+      #dashboardView > .widget-grid {
+        flex: 0 0 auto !important;   /* Natural height, don't stretch */
+      }
+      #dashboardView > .full-width {
+        flex: 0 0 auto !important;   /* Natural height, don't stretch */
+      }
+
+      /* KPI cards: all 7 in one row, compact — no scrollbar even with AI drawer */
       .stat-grid {
         grid-template-columns: repeat(7, 1fr) !important;
-        gap: 3px !important;
+        gap: 8px !important;
+        margin-bottom: 8px !important;
+        overflow-x: hidden !important;
       }
       .stat-card {
-        padding: 8px 6px !important;
+        padding: 8px 4px !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
       }
       .stat-card .stat-label {
         font-size: 9px !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        line-height: 1.2 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
       }
       .stat-card .stat-value {
         font-size: 18px !important;
@@ -5133,9 +5159,13 @@
         max-width: 50px !important;
       }
 
-      /* Widget grid: keep 3 columns, tighten gap */
+      /* Widget grid: keep 3 columns, uniform gap */
       .widget-grid {
-        gap: 4px !important;
+        gap: 8px !important;
+        margin-bottom: 8px !important;
+      }
+      .full-width {
+        margin-bottom: 8px !important;
       }
 
       /* Widget content: compact */
@@ -8517,9 +8547,9 @@
       const toggle = document.getElementById('strategyToggle');
       const panel = document.getElementById('strategyPanel');
 
-      // Update directive text
+      // Update directive text (render markdown — reuse existing renderMarkdown)
       const summary = (msg.metadata && msg.metadata.summary) || msg.content || 'Strategy updated';
-      directive.textContent = summary;
+      directive.innerHTML = renderMarkdown(summary);
 
       // Update meta counts
       const chains = (msg.metadata && msg.metadata.chains_count) || 0;
