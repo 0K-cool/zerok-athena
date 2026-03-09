@@ -3211,43 +3211,45 @@ async def get_ctf_scoreboard(engagement_id: str = ""):
 
 # Per-agent budget allocation (from MAPTA research: failed attempts cost 5x more)
 AGENT_BUDGETS: dict[str, dict] = {
-    # BUG-012 fix: Per-agent budgets increased so agents don't exhaust before
-    # the engagement cap. Previous values were too tight — agents stopped at ~$6
-    # total instead of reaching the $20 engagement cap.
-    # Recon agents — need broad scanning (nmap alone needs 20+ calls)
-    "PO": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Passive OSINT"},
-    "AR": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Active Recon"},
-    # Vuln analysis — standard
-    "CV": {"max_tool_calls": 60, "max_cost": 1.50, "label": "CVE Researcher"},
-    "AP": {"max_tool_calls": 60, "max_cost": 1.50, "label": "Attack Path"},
-    "WV": {"max_tool_calls": 80, "max_cost": 1.50, "label": "Web Vuln Scanner"},
-    "SC": {"max_tool_calls": 60, "max_cost": 1.50, "label": "Source Code Analyst"},
+    # BUG-013 fix: Per-agent budgets rebalanced so agents don't exhaust before
+    # the $20 engagement cap. The engagement cap is the real guardrail — per-agent
+    # limits only prevent a single runaway agent from burning the whole budget.
+    # Observed: Sonnet ~$0.008/call, Opus ~$0.04/call. At 200 Sonnet calls = $1.60.
+    #
+    # Recon agents — broad scanning (nmap, httpx, gobuster, etc.)
+    "PO": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Passive OSINT"},
+    "AR": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Active Recon"},
+    # Vuln analysis — moderate scanning + Neo4j queries
+    "CV": {"max_tool_calls": 150, "max_cost": 2.50, "label": "CVE Researcher"},
+    "AP": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Attack Path"},
+    "WV": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Web Vuln Scanner"},
+    "SC": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Source Code Analyst"},
     # Exploitation — higher per-call cost (Opus reasoning)
-    "EC": {"max_tool_calls": 60, "max_cost": 3.00, "label": "Exploit Crafter"},
-    "EX": {"max_tool_calls": 60, "max_cost": 3.00, "label": "Exploitation"},
+    "EC": {"max_tool_calls": 150, "max_cost": 4.00, "label": "Exploit Crafter"},
+    "EX": {"max_tool_calls": 150, "max_cost": 4.00, "label": "Exploitation"},
     # Verification — focused re-testing
-    "VF": {"max_tool_calls": 40, "max_cost": 1.00, "label": "Verification"},
+    "VF": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Verification"},
     # Post-exploitation — depends on access
-    "PE": {"max_tool_calls": 60, "max_cost": 1.50, "label": "Post-Exploitation"},
-    "LM": {"max_tool_calls": 60, "max_cost": 1.50, "label": "Lateral Mover"},
-    # Strategy — coordinator needs headroom for Neo4j queries + reasoning
-    "ST": {"max_tool_calls": 80, "max_cost": 5.00, "label": "Strategy"},
+    "PE": {"max_tool_calls": 150, "max_cost": 3.00, "label": "Post-Exploitation"},
+    "LM": {"max_tool_calls": 150, "max_cost": 3.00, "label": "Lateral Mover"},
+    # Strategy — Opus coordinator, lots of Neo4j queries + reasoning
+    "ST": {"max_tool_calls": 200, "max_cost": 6.00, "label": "Strategy"},
     # Reporting — writing-heavy (Opus)
-    "RP": {"max_tool_calls": 40, "max_cost": 2.00, "label": "Reporting"},
+    "RP": {"max_tool_calls": 100, "max_cost": 4.00, "label": "Reporting"},
     # Web app testing agents
-    "JS": {"max_tool_calls": 60, "max_cost": 1.50, "label": "JS Analyzer"},
-    "PD": {"max_tool_calls": 60, "max_cost": 1.50, "label": "Param Discovery"},
-    "WA": {"max_tool_calls": 60, "max_cost": 1.50, "label": "Web App Fuzzer"},
-    "AT": {"max_tool_calls": 60, "max_cost": 1.50, "label": "Auth Tester"},
-    "AA": {"max_tool_calls": 60, "max_cost": 1.50, "label": "API Attacker"},
-    "DV": {"max_tool_calls": 50, "max_cost": 1.50, "label": "Detection Validator"},
-    # Management agents — coordination headroom
-    "PL": {"max_tool_calls": 30, "max_cost": 1.00, "label": "Planning"},
-    "OR": {"max_tool_calls": 80, "max_cost": 3.00, "label": "Orchestrator"},
+    "JS": {"max_tool_calls": 150, "max_cost": 2.50, "label": "JS Analyzer"},
+    "PD": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Param Discovery"},
+    "WA": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Web App Fuzzer"},
+    "AT": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Auth Tester"},
+    "AA": {"max_tool_calls": 150, "max_cost": 2.50, "label": "API Attacker"},
+    "DV": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Detection Validator"},
+    # Management agents — coordination headroom (OR makes many small polling calls)
+    "PL": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Planning"},
+    "OR": {"max_tool_calls": 500, "max_cost": 6.00, "label": "Orchestrator"},
 }
 
 # Default budget for unlisted agents
-DEFAULT_BUDGET = {"max_tool_calls": 50, "max_cost": 1.00}
+DEFAULT_BUDGET = {"max_tool_calls": 150, "max_cost": 2.50}
 
 # BUG-011/012 fix: Default engagement budget is now $20 (configurable per engagement).
 # Pentester can override this when creating an engagement.
@@ -8331,8 +8333,10 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
     elif event_type == "system":
         control = metadata.get("control")
         if control == "engagement_ended":
-            # Reset all agent LEDs to idle on engagement completion
-            for ac in ("AR", "WV", "EX", "VF", "RP", "ST"):
+            # BUG-014 fix: Reset ALL agent LEDs on engagement end, not just 6.
+            # Previously OR, PO, and specialist agents stayed "running" after
+            # budget exhaustion or natural completion.
+            for ac in AGENT_NAMES:
                 await state.update_agent_status(ac, AgentStatus.IDLE)
             await _sync_neo4j_findings(eid)
 

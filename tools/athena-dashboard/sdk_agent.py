@@ -1253,7 +1253,10 @@ class AthenaAgentSession:
             self._query_task.cancel()
             try:
                 await self._query_task
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, RuntimeError):
+                # RuntimeError: "Attempted to exit cancel scope in a different task"
+                # This is a known anyio/SDK issue when cancelling process_query
+                # from a different task context. Safe to suppress.
                 pass
             self._query_task = None
 

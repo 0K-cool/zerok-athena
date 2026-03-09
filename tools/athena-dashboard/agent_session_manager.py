@@ -385,7 +385,7 @@ class AgentSessionManager:
             self._manager_task.cancel()
             try:
                 await self._manager_task
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, RuntimeError):
                 pass
 
         # Stop all active agent sessions
@@ -811,7 +811,7 @@ class AgentSessionManager:
             task.cancel()
             try:
                 await task
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, RuntimeError):
                 pass
 
     # ── Knowledge Brief Builder (CEI Layer 2) ──
