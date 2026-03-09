@@ -13,6 +13,11 @@ if [ ! -d "$VENV" ]; then
     "$VENV/bin/pip" install -r "$DIR/requirements.txt"
 fi
 
+# ── Pre-install Playwright chromium so agents don't waste tool calls ──
+if command -v npx &>/dev/null; then
+    npx playwright install chromium --with-deps 2>/dev/null || true
+fi
+
 ARGS="server:app --host 127.0.0.1 --port 8080"
 if [ "$1" = "--reload" ]; then
     ARGS="$ARGS --reload"

@@ -68,7 +68,7 @@ class WorkspaceManager:
     MAIN_DIR_AGENTS = {"ST", "RP"}
 
     # Directories/files to symlink from ATHENA root into agent workspaces
-    SYMLINK_TARGETS = ["CLAUDE.md", ".claude", "playbooks", "intel", "mcp-servers"]
+    SYMLINK_TARGETS = ["CLAUDE.md", ".claude", "playbooks", "docs", "intel", "mcp-servers"]
 
     def __init__(self, engagement_id: str, athena_root: Path):
         self.engagement_id = engagement_id
