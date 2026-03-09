@@ -147,6 +147,14 @@ Structured methodology guides indexed into RAG:
 ### Research (`docs/research/`)
 - Competitive intelligence: AI cybersecurity landscape, multi-agent pentesting, platform teardowns
 
+### Knowledge Management
+- `/knowledge-add` — Add playbooks, knowledge docs, or bulk imports to ATHENA's knowledge base
+  - Validates playbook structure (40-line brief, MITRE mapping)
+  - Assigns playbooks to agents (AR, WV, EX, VF, RP)
+  - Triggers RAG re-indexing
+  - Verifies workspace symlink accessibility
+  - Validation script: `tools/athena-dashboard/validate_playbook.py`
+
 ---
 
 ## Role Definition
