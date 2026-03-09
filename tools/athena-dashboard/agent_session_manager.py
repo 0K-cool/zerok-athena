@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from agent_configs import AGENT_ROLES, AgentRoleConfig, format_prompt, get_role
+from langfuse_integration import trace_engagement, is_enabled as langfuse_enabled
 from sdk_agent import AthenaAgentSession
 
 logger = logging.getLogger("athena.session_manager")
@@ -312,6 +313,9 @@ class AgentSessionManager:
         self._early_stop_queue: set[str] = set()
         # Phase G: Per-agent workspace isolation
         self._workspace_manager = WorkspaceManager(engagement_id, self.athena_root)
+        # H3: Langfuse observability
+        self._langfuse_trace_ctx = None
+        self._langfuse_trace = None
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to dashboard."""
@@ -326,6 +330,15 @@ class AgentSessionManager:
         ST will read Neo4j and decide what workers to spawn.
         """
         self.is_running = True
+
+        # H3: Create root Langfuse trace for this engagement
+        if langfuse_enabled():
+            self._langfuse_trace_ctx = trace_engagement(
+                engagement_id=self.engagement_id,
+                target=self.target or "unknown",
+                mode="ai-sdk",
+            )
+            self._langfuse_trace = self._langfuse_trace_ctx.__enter__()
 
         await self._emit("system", "OR",
             "Multi-agent mode activated. Starting Strategy Agent (ST)...",
@@ -417,6 +430,15 @@ class AgentSessionManager:
 
         self.agents.clear()
         self._agent_tasks.clear()
+
+        # H3: Close engagement trace
+        if self._langfuse_trace_ctx:
+            try:
+                self._langfuse_trace_ctx.__exit__(None, None, None)
+            except Exception:
+                pass
+            self._langfuse_trace_ctx = None
+            self._langfuse_trace = None
         logger.info("Multi-agent engagement stopped: %s", self.engagement_id)
 
     async def pause(self):
