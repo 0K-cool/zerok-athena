@@ -72,6 +72,7 @@ except ImportError:
 
 # Phase C: Kali backend client
 from kali_client import KaliClient
+from langfuse_integration import init_langfuse, shutdown_langfuse
 
 # Phase F: Claude Agent SDK wrapper
 try:
@@ -614,8 +615,16 @@ async def lifespan(app: FastAPI):
                 print(f"  Neo4j Backfill: {created} EXPLOITS edges created ✓")
         except Exception as e:
             print(f"  Neo4j Index: finding_fingerprint ✗ ({e})")
+    # H3: Initialize Langfuse observability
+    langfuse_ok = await init_langfuse()
+    if langfuse_ok:
+        logger.info("Langfuse observability active")
+    else:
+        logger.info("Langfuse disabled — running without LLM observability")
     print()
     yield
+    # H3: Flush Langfuse before shutdown
+    await shutdown_langfuse()
     print("\n  Shutting down ATHENA Dashboard Server...")
     if kali_client:
         await kali_client.close()
