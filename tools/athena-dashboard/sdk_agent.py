@@ -30,6 +30,8 @@ from typing import Any, Callable, Optional
 
 import httpx
 
+from langfuse_integration import trace_agent_run, is_enabled as langfuse_enabled
+
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -354,6 +356,7 @@ class AthenaAgentSession:
             re.compile(r"FLAG-[A-Za-z0-9\-]+"),
             re.compile(r"0xL4BS\{[^}]+\}"),
         ]
+        self._engagement_id = engagement_id  # H3: Langfuse trace correlation
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to the dashboard.
@@ -960,6 +963,16 @@ class AthenaAgentSession:
         This is the core loop that translates SDK events to dashboard events.
         """
         opts = self._build_options(resume_id)
+        # H3: Agent-level Langfuse span
+        _lf_ctx = None
+        if langfuse_enabled() and self._engagement_id:
+            _lf_ctx = trace_agent_run(
+                engagement_id=self._engagement_id,
+                agent_code=self._current_agent,
+                agent_name=self._role_config.name if self._role_config else self._current_agent,
+                model=self._role_config.model if self._role_config else "claude-sonnet-4-6",
+            )
+            _lf_ctx.__enter__()
         try:
             async for msg in query(prompt=prompt, options=opts):
                 if not self.is_running or self._budget_exhausted:
@@ -1003,6 +1016,13 @@ class AthenaAgentSession:
             logger.exception("SDK query error")
             await self._emit("system", "OR",
                 f"SDK query error: {str(e)[:500]}")
+        finally:
+            # H3: Close agent span
+            if _lf_ctx:
+                try:
+                    _lf_ctx.__exit__(None, None, None)
+                except Exception:
+                    pass
 
     async def _engagement_loop(self, initial_prompt: str):
         """Main engagement loop: chunked query execution with operator command injection.
@@ -1142,7 +1162,7 @@ class AthenaAgentSession:
         self,
         prompt: str = "Continue the engagement from where you left off. Pick up the next phase or tool."
     ):
-        """Resume a paused engagement with a continuation prompt."""
+        """Resume a paused engagement by re-entering the engagement loop."""
         if not self.session_id:
             await self._emit("system", "OR",
                 "Cannot resume — no session_id. Start a new engagement.")
@@ -1150,35 +1170,78 @@ class AthenaAgentSession:
 
         self.is_paused = False
         self.is_running = True
+        self._budget_exhausted = False
 
-        # Queue the resume prompt and restart the engagement loop
-        await self._command_queue.put(prompt)
-        self._query_task = asyncio.create_task(self._resume_loop())
+        # Re-enter the main engagement loop with resume prompt.
+        # _engagement_loop handles auto-continuation, operator commands,
+        # idle timeout, and budget checks — _resume_loop was too simple
+        # and exited after one turn.
+        self._query_task = asyncio.create_task(
+            self._resume_engagement_loop(prompt)
+        )
 
-    async def _resume_loop(self):
-        """Resume loop: process queued commands using session resume."""
+    async def _resume_engagement_loop(self, prompt: str):
+        """Resume by running a single query with session resume, then
+        re-enter the standard engagement loop for auto-continuation."""
         try:
-            while self.is_running and not self.is_paused:
-                try:
-                    cmd = await asyncio.wait_for(
-                        self._command_queue.get(), timeout=2.0
-                    )
-                except asyncio.TimeoutError:
-                    if self._command_queue.empty():
-                        break
-                    continue
+            await self._emit("system", "OR",
+                f"Resuming engagement: {prompt[:200]}")
 
-                await self._emit("system", "OR",
-                    f"Resuming with: {cmd[:200]}")
-                await self._run_query(cmd, resume_id=self.session_id)
+            resume_id = self.session_id
+
+            while self.is_running and not self.is_paused and not self._budget_exhausted:
+                tools_before = self._tool_count
+
+                await self._run_query(prompt, resume_id)
+
+                if not self.is_running or self.is_paused or self._budget_exhausted:
+                    break
+
+                tools_used = self._tool_count - tools_before
+                resume_id = self.session_id
+
+                if tools_used == 0:
+                    await self._emit("system", "OR",
+                        "AI turn complete. Waiting for operator commands...",
+                        {"control": "awaiting_commands"})
+                    try:
+                        cmd = await asyncio.wait_for(
+                            self._command_queue.get(), timeout=60.0)
+                        await self._emit("system", "OR",
+                            f"Processing operator command: {cmd[:200]}")
+                        prompt = cmd
+                    except asyncio.TimeoutError:
+                        await self._emit("system", "OR",
+                            "No operator commands for 60 seconds. Ending session.")
+                        break
+                else:
+                    try:
+                        cmd = await asyncio.wait_for(
+                            self._command_queue.get(), timeout=0.2)
+                        await self._emit("system", "OR",
+                            f"Processing operator command: {cmd[:200]}")
+                        prompt = cmd
+                    except asyncio.TimeoutError:
+                        if resume_id:
+                            prompt = "Continue with the next step of the penetration test."
+                        else:
+                            break
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
+            logger.exception("Resume loop error")
             await self._emit("system", "OR",
                 f"Resume error: {str(e)[:500]}")
         finally:
             self.is_running = False
+            await self._emit("system", "OR",
+                f"AI engagement session ended. "
+                f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} total cost.",
+                {"control": "engagement_ended",
+                 "cost_usd": round(self._total_cost_usd, 4),
+                 "tool_calls": self._tool_count})
+            await self._cleanup_orphan_scans()
 
     async def stop(self):
         """Stop the engagement and clean up."""
