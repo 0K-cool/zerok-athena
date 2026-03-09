@@ -73,6 +73,7 @@ except ImportError:
 # Phase C: Kali backend client
 from kali_client import KaliClient
 from langfuse_integration import init_langfuse, shutdown_langfuse
+from graphiti_integration import init_graphiti, shutdown_graphiti
 
 # Phase F: Claude Agent SDK wrapper
 try:
@@ -621,8 +622,16 @@ async def lifespan(app: FastAPI):
         logger.info("Langfuse observability active")
     else:
         logger.info("Langfuse disabled — running without LLM observability")
+    # H1: Initialize Graphiti cross-session memory
+    graphiti_ok = await init_graphiti()
+    if graphiti_ok:
+        logger.info("Graphiti cross-session memory active")
+    else:
+        logger.info("Graphiti disabled — running without cross-session memory")
     print()
     yield
+    # H1: Close Graphiti before Neo4j
+    await shutdown_graphiti()
     # H3: Flush Langfuse before shutdown
     await shutdown_langfuse()
     print("\n  Shutting down ATHENA Dashboard Server...")
