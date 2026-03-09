@@ -22,7 +22,7 @@ def is_enabled() -> bool:
 
 async def init_graphiti() -> bool:
     """Initialize Graphiti with existing Neo4j instance.
-    Reads NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, ANTHROPIC_API_KEY.
+    Reads NEO4J_URI, NEO4J_USER, NEO4J_PASS, ANTHROPIC_API_KEY.
     Returns True if initialized, False if skipped/failed."""
     global _graphiti, _enabled
 
@@ -33,9 +33,9 @@ async def init_graphiti() -> bool:
 
     neo4j_uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
     neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
-    neo4j_password = os.environ.get("NEO4J_PASSWORD")
+    neo4j_password = os.environ.get("NEO4J_PASS")
     if not neo4j_password:
-        logger.warning("Graphiti: NEO4J_PASSWORD not set. Cross-session memory disabled.")
+        logger.warning("Graphiti: NEO4J_PASS not set. Cross-session memory disabled.")
         return False
 
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")

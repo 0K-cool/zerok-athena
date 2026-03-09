@@ -51,18 +51,18 @@ def test_ontology_all_edge_types_are_pydantic():
 
 @pytest.mark.asyncio
 async def test_init_without_password():
-    """Graphiti should gracefully disable when NEO4J_PASSWORD is missing."""
+    """Graphiti should gracefully disable when NEO4J_PASS is missing."""
     from graphiti_integration import init_graphiti, is_enabled, shutdown_graphiti
     # Ensure clean state
     await shutdown_graphiti()
-    old = os.environ.pop("NEO4J_PASSWORD", None)
+    old = os.environ.pop("NEO4J_PASS", None)
     try:
         result = await init_graphiti()
         assert result is False
         assert is_enabled() is False
     finally:
         if old:
-            os.environ["NEO4J_PASSWORD"] = old
+            os.environ["NEO4J_PASS"] = old
 
 
 @pytest.mark.asyncio
@@ -70,17 +70,17 @@ async def test_init_without_anthropic_key():
     """Graphiti should gracefully disable when ANTHROPIC_API_KEY is missing."""
     from graphiti_integration import init_graphiti, is_enabled, shutdown_graphiti
     await shutdown_graphiti()
-    old_pw = os.environ.get("NEO4J_PASSWORD")
+    old_pw = os.environ.get("NEO4J_PASS")
     old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
-    os.environ["NEO4J_PASSWORD"] = "test"
+    os.environ["NEO4J_PASS"] = "test"
     try:
         result = await init_graphiti()
         assert result is False
         assert is_enabled() is False
     finally:
-        os.environ.pop("NEO4J_PASSWORD", None)
+        os.environ.pop("NEO4J_PASS", None)
         if old_pw:
-            os.environ["NEO4J_PASSWORD"] = old_pw
+            os.environ["NEO4J_PASS"] = old_pw
         if old_key:
             os.environ["ANTHROPIC_API_KEY"] = old_key
 
