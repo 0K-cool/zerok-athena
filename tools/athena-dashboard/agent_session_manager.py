@@ -629,16 +629,30 @@ class AgentSessionManager:
                     self._cost_aggregated.add(code)
                 await self._emit("agent_status", code, "completed",
                     {"status": "completed", "reason": "budget_exhausted"})
-                # Notify ST
+                # Notify ST (or re-spawn if ST died)
+                early_stop_msg = (
+                    f"Agent {code} was EARLY-STOPPED (budget exhausted). "
+                    f"({session._tool_count} tool calls, "
+                    f"${round(session._total_cost_usd, 4)}). "
+                    f"Decide: extend its budget via POST /api/budget/extend, "
+                    f"assign a different agent, or mark this path as exhausted."
+                )
                 st = self.agents.get("ST")
                 if st and st.is_running:
-                    cost = round(session._total_cost_usd, 4)
-                    tools = session._tool_count
-                    await st.send_command(
-                        f"Agent {code} was EARLY-STOPPED (budget exhausted). "
-                        f"({tools} tool calls, ${cost}). "
-                        f"Decide: extend its budget via POST /api/budget/extend, "
-                        f"assign a different agent, or mark this path as exhausted."
+                    await st.send_command(early_stop_msg)
+                elif code != "ST":
+                    # BUG-021 fix: Re-spawn ST to handle early-stop decision
+                    logger.info(
+                        "ST not running when %s early-stopped — re-spawning ST",
+                        code)
+                    await self._spawn_agent(
+                        "ST",
+                        task_prompt=(
+                            f"You are resuming as Strategy Agent. "
+                            f"A worker agent was early-stopped:\n"
+                            f"{early_stop_msg}\n"
+                            f"Review the Neo4j graph, then decide next steps."
+                        )
                     )
             self._early_stop_queue.discard(code)
 
@@ -666,8 +680,7 @@ class AgentSessionManager:
                 # F1: Notify ST with enriched completion summary
                 # Include Neo4j stats so ST can reason about next steps
                 # without making a separate query.
-                st = self.agents.get("ST")
-                if st and st.is_running and code != "ST":
+                if code != "ST":
                     status = "error" if exc else "completed"
                     cost = round(session._total_cost_usd, 4) if session else 0
                     tools = session._tool_count if session else 0
@@ -686,7 +699,31 @@ class AgentSessionManager:
                     if running:
                         msg += f"Still running: {', '.join(running)}. "
                     msg += "Decide next steps: spawn new agents, pivot strategy, or wrap up."
-                    await st.send_command(msg)
+
+                    st = self.agents.get("ST")
+                    if st and st.is_running:
+                        await st.send_command(msg)
+                    else:
+                        # BUG-021 fix: ST died (60s idle timeout) while workers
+                        # were running. Re-spawn ST with accumulated context so
+                        # it can decide next steps based on worker results.
+                        logger.info(
+                            "ST not running when %s completed — re-spawning ST",
+                            code)
+                        await self._emit("system", "OR",
+                            f"Agent {code} completed but ST was idle. "
+                            f"Re-spawning Strategy Agent to continue engagement.",
+                            {"st_respawn": True})
+                        await self._spawn_agent(
+                            "ST",
+                            task_prompt=(
+                                f"You are resuming as Strategy Agent. "
+                                f"A worker agent just completed:\n{msg}\n"
+                                f"Review the Neo4j graph for all findings so far, "
+                                f"then decide next steps: spawn new agents, "
+                                f"pivot strategy, or generate the final report."
+                            )
+                        )
 
         # Clean up completed tasks
         for code in completed:

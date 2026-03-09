@@ -8833,6 +8833,19 @@ async def start_engagement_ai(
         await _active_session_manager.stop()
         _active_session_manager = None
 
+    # BUG-021 fix: Auto-detect web_app type for HTTP/HTTPS targets so
+    # WV (Web Vuln Scanner) is included in the allowed agent set.
+    # This only adds web_app if not already specified and if the target
+    # looks like a web URL. Doesn't remove any existing types.
+    if target and "web_app" not in engagement_types:
+        _target_lower = target.strip().lower()
+        if (_target_lower.startswith("http://") or
+                _target_lower.startswith("https://") or
+                any(_target_lower.endswith(p) for p in
+                    [":80", ":443", ":8080", ":8443", ":3000", ":5000"])):
+            engagement_types.append("web_app")
+            logger.info("Auto-detected web target — added web_app engagement type")
+
     # Reset budgets for new engagement
     global _engagement_cost, _agent_budgets, _engagement_types
     _agent_budgets = {}
