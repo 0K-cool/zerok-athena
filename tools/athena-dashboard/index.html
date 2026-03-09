@@ -533,17 +533,18 @@
       display: flex;
       flex-direction: column;
       height: 100%;
-      overflow: hidden;
+      overflow-y: auto;              /* BUG-018: scroll — don't squeeze widgets */
+      overflow-x: hidden;
     }
     #dashboardView > .stat-grid {
       flex: 0 0 auto;                /* KPI row: fixed height, no grow/shrink */
     }
     #dashboardView > .widget-grid {
-      flex: 1 1 0;                   /* Widget rows: share remaining space equally */
+      flex: 0 0 auto;                /* Widget rows: natural height, never clip */
       min-height: 160px;             /* Minimum visible height per widget row */
     }
     #dashboardView > .full-width {
-      flex: 1 1 0;                   /* Full-width rows: share remaining space */
+      flex: 0 0 auto;                /* Full-width rows: natural height */
     }
 
     /* Content Header - same charcoal as sidebar (upside-down L) */
@@ -7973,6 +7974,9 @@
         updateBudgetBadge(msg.agent, msg.tool_calls, msg.max_tool_calls, msg.estimated_cost);
         const costEl = document.getElementById('kpi-cost');
         if (costEl) costEl.textContent = '$' + (msg.engagement_cost || 0).toFixed(2);
+        // BUG-016 fix: Suppress budget API cost writes for 3s after a WS update
+        // to prevent flickering between WS and polling values.
+        window._lastWsCostUpdate = Date.now();
         return;  // Don't add to timeline — too noisy
       }
       if (type === 'budget_exhausted') {
@@ -9191,12 +9195,20 @@
       const exploitCategories = ['validated exploit', 'exploitation', 'lateral movement'];
       const isConfirmed = findingTitle.startsWith('confirmed:') || findingTitle.startsWith('confirmed -');
       const isExploitAgent = ['EX', 'EC', 'VF'].includes(msg.agent);
+      // BUG-017 fix: Track running totals for exploit gauge so it stays in sync with KPI
+      if (!window._exploitGaugeTotals) window._exploitGaugeTotals = { discovered: 0, confirmed: 0 };
+      window._exploitGaugeTotals.discovered += 1;
       if (exploitCategories.some(ec => cat.includes(ec)) || isConfirmed || isExploitAgent) {
+        window._exploitGaugeTotals.confirmed += 1;
         const kpiExploits = document.getElementById('kpi-criticals');
         if (kpiExploits) {
           kpiExploits.textContent = (parseInt(kpiExploits.textContent) || 0) + 1;
         }
       }
+      // BUG-017 fix: Update exploit gauge in real-time alongside KPI card
+      const _egt = window._exploitGaugeTotals;
+      const _egRate = _egt.discovered > 0 ? Math.round((_egt.confirmed / _egt.discovered) * 100) : 0;
+      updateExploitGauge(_egRate, _egt.confirmed, _egt.discovered);
 
       // Update Kill Chain with accumulated findings (use _allFindings if available)
       if (!window._dashFindingsAccum) window._dashFindingsAccum = [];
@@ -10716,6 +10728,10 @@
       try {
         const esRes = await fetch(`/api/engagements/${currentEngagementId}/exploit-stats`);
         const es = await esRes.json();
+        // BUG-017 fix: Sync running totals from API so gauge stays consistent after page reload
+        if (!window._exploitGaugeTotals) window._exploitGaugeTotals = { discovered: 0, confirmed: 0 };
+        window._exploitGaugeTotals.discovered = Math.max(window._exploitGaugeTotals.discovered, es.discovered_vulns || 0);
+        window._exploitGaugeTotals.confirmed = Math.max(window._exploitGaugeTotals.confirmed, es.confirmed_exploits || 0);
         // Update Exploit Gauge SVG arc
         updateExploitGauge(es.success_rate, es.confirmed_exploits, es.discovered_vulns);
         // Set Confirmed Exploits KPI from authoritative server count
@@ -10794,12 +10810,15 @@
       } catch (e) { console.warn('vuln-severity:', e.message); }
 
       // ── Engagement Cost from budget API (BUG-011 fix: persist cost across page reloads) ──
+      // BUG-016 fix: Skip API cost write if a WebSocket cost_update arrived <3s ago
+      // to prevent the KPI card flickering between WS and polling values.
       try {
         const budgetRes = await fetch(`/api/budget/engagement?engagement_id=${currentEngagementId}`);
         if (budgetRes.ok) {
           const budgetData = await budgetRes.json();
           const costEl = document.getElementById('kpi-cost');
-          if (costEl && budgetData.engagement_cost != null) {
+          const recentWs = window._lastWsCostUpdate && (Date.now() - window._lastWsCostUpdate < 3000);
+          if (costEl && budgetData.engagement_cost != null && !recentWs) {
             costEl.textContent = '$' + Number(budgetData.engagement_cost).toFixed(2);
           }
         }

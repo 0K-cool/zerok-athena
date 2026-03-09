@@ -5666,6 +5666,120 @@ async def get_attack_chains(eid: str):
         except Exception as e:
             logger.warning("Neo4j AttackPath query error: %s", e)
 
+    # Fallback 3: Synthesize chains from findings (in-memory + Neo4j)
+    # Agents label findings with (CHAIN-N) in titles, and related findings share
+    # categories (e.g., multiple SQLi findings form a chain). Parse these.
+    if not chains:
+        import re
+        from types import SimpleNamespace
+        mem_findings = [f for f in state.findings if getattr(f, "engagement", "") == eid]
+
+        # Also load from Neo4j if in-memory is empty (e.g., after server restart)
+        if not mem_findings and neo4j_available and neo4j_driver:
+            try:
+                with neo4j_driver.session() as session:
+                    result = session.run("""
+                        MATCH (f:Finding {engagement_id: $eid})
+                        RETURN f.id AS id, f.title AS title, f.severity AS severity,
+                               f.category AS category, f.agent AS agent,
+                               f.evidence AS evidence, f.timestamp AS timestamp,
+                               f.confirmed_at AS confirmed_at
+                    """, eid=eid)
+                    for record in result:
+                        mem_findings.append(SimpleNamespace(
+                            id=record["id"],
+                            title=record["title"] or "",
+                            severity=record["severity"] or "medium",
+                            category=record["category"] or "",
+                            agent=record["agent"] or "",
+                            evidence=record["evidence"],
+                            timestamp=record["timestamp"] or 0,
+                            confirmed_at=record["confirmed_at"],
+                            engagement=eid,
+                        ))
+            except Exception as e:
+                logger.warning("Neo4j chain synthesis query error: %s", e)
+
+        chain_map: dict[str, list] = {}
+
+        # Pass 1: Extract explicit CHAIN-N labels from titles
+        for f in mem_findings:
+            title = f.title or ""
+            match = re.search(r'\(CHAIN-(\d+)\)', title)
+            if match:
+                cid = f"chain-{match.group(1)}"
+                chain_map.setdefault(cid, []).append(f)
+
+        # Pass 2: Group remaining findings by attack category into implicit chains
+        # (e.g., multiple SQLi findings = one injection chain)
+        category_groups: dict[str, list] = {}
+        labeled_ids = {id(f) for fs in chain_map.values() for f in fs}
+        for f in mem_findings:
+            if id(f) in labeled_ids:
+                continue
+            cat = (getattr(f, "category", "") or "").lower()
+            title = (f.title or "").lower()
+            # Map to chain categories
+            if "injection" in cat or "sqli" in title or "sql injection" in title:
+                category_groups.setdefault("injection", []).append(f)
+            elif "path-traversal" in cat or "path traversal" in title or "null byte" in title:
+                category_groups.setdefault("path-traversal", []).append(f)
+            elif "xss" in cat or "cross-site scripting" in title or "xss" in title:
+                category_groups.setdefault("xss", []).append(f)
+            elif "access-control" in cat or "authentication" in cat or "admin" in title:
+                category_groups.setdefault("access-control", []).append(f)
+
+        # Only create implicit chains with 2+ findings
+        implicit_idx = len(chain_map) + 1
+        for cat_key, findings_list in category_groups.items():
+            if len(findings_list) >= 2:
+                cid = f"chain-implicit-{implicit_idx}"
+                chain_map.setdefault(cid, []).extend(findings_list)
+                implicit_idx += 1
+
+        # Build chain objects
+        chain_names = {
+            "injection": "SQL Injection → Admin Access",
+            "path-traversal": "Path Traversal → File Exfiltration",
+            "xss": "XSS → Client-Side Exploitation",
+            "access-control": "Auth Bypass → Privilege Escalation",
+        }
+        sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        for cid, findings_list in chain_map.items():
+            severities = []
+            for f in findings_list:
+                sev = (f.severity.value if hasattr(f.severity, "value")
+                       else str(f.severity)).lower()
+                severities.append(sev)
+            worst = min(severities, key=lambda s: sev_rank.get(s, 5))
+
+            # Determine chain name
+            if cid.startswith("chain-implicit-"):
+                # Use category-based name
+                for cat_key, cat_findings in category_groups.items():
+                    if any(id(f) in {id(cf) for cf in cat_findings} for f in findings_list):
+                        name = chain_names.get(cat_key, findings_list[0].title)
+                        break
+                else:
+                    name = findings_list[0].title
+            else:
+                name = findings_list[0].title.split(" (CHAIN-")[0]
+
+            steps = []
+            for f in findings_list:
+                steps.append({
+                    "agent": getattr(f, "agent", "") or "OR",
+                    "finding_id": f.id,
+                    "description": f.title,
+                })
+            chains.append({
+                "id": cid,
+                "name": name,
+                "severity": worst,
+                "impact": f"{len(findings_list)} linked findings",
+                "steps": steps,
+            })
+
     return {
         "chains": chains,
         "total": len(chains),
