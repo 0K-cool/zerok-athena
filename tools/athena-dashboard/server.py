@@ -7777,8 +7777,45 @@ async def get_neo4j_config():
 
 
 # ──────────────────────────────────────────────
+# H3: Langfuse Observability Status Endpoint
+# ──────────────────────────────────────────────
+
+@app.get("/api/observability/status")
+async def get_observability_status():
+    """H3: Return Langfuse observability status."""
+    from langfuse_integration import is_enabled
+    return {
+        "langfuse_enabled": is_enabled(),
+        "langfuse_url": os.environ.get("LANGFUSE_BASE_URL", "http://localhost:3000"),
+    }
+
+
+# ──────────────────────────────────────────────
 # H1: Graphiti Cross-Session Memory Endpoints
 # ──────────────────────────────────────────────
+
+@app.get("/api/memory/stats")
+async def get_memory_stats():
+    """H1: Return Graphiti memory statistics."""
+    from graphiti_integration import is_enabled as graphiti_enabled
+    if not graphiti_enabled():
+        return {"enabled": False, "episodes": 0, "entities": 0}
+    try:
+        def _count_nodes():
+            ep_count = 0
+            ent_count = 0
+            if neo4j_driver:
+                with neo4j_driver.session() as sess:
+                    r1 = sess.run("MATCH (n:EpisodicNode) RETURN count(n) as c")
+                    ep_count = r1.single()["c"]
+                    r2 = sess.run("MATCH (n:EntityNode) RETURN count(n) as c")
+                    ent_count = r2.single()["c"]
+            return ep_count, ent_count
+        episodes, entities = await neo4j_exec(_count_nodes)
+        return {"enabled": True, "episodes": episodes, "entities": entities}
+    except Exception as e:
+        return {"enabled": True, "episodes": -1, "entities": -1, "error": str(e)}
+
 
 @app.get("/api/memory/search")
 async def search_graphiti_memory(

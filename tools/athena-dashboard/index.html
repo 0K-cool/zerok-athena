@@ -5525,6 +5525,14 @@
             <span class="sidebar-section-text">Neo4j Browser</span>
             <span class="section-badge" style="background: var(--zerok-low);" id="neo4j-mode-badge">Online</span>
           </button>
+          <button class="sidebar-section-item" onclick="window.open('http://localhost:3000', '_blank')">
+            <span class="backend-led led-checking" id="langfuse-sidebar-dot" title="Checking..."></span>
+            <span class="sidebar-section-text">Langfuse</span>
+          </button>
+          <button class="sidebar-section-item">
+            <span class="backend-led led-checking" id="graphiti-sidebar-dot" title="Checking..."></span>
+            <span class="sidebar-section-text">Graphiti</span>
+          </button>
         </div>
       </div>
 
@@ -6817,6 +6825,7 @@
             <button class="severity-filter-chip" data-cei-tab="false-positives" onclick="switchCeiTab('false-positives')">FALSE POSITIVES</button>
             <button class="severity-filter-chip" data-cei-tab="tool-roi" onclick="switchCeiTab('tool-roi')">TOOL ROI</button>
             <button class="severity-filter-chip" data-cei-tab="trends" onclick="switchCeiTab('trends')">TRENDS</button>
+            <button class="severity-filter-chip" data-cei-tab="memory" onclick="switchCeiTab('memory')">MEMORY</button>
           </div>
 
           <!-- Techniques Tab -->
@@ -6897,6 +6906,20 @@
                 </thead>
                 <tbody id="cei-trends-tbody"></tbody>
               </table>
+            </div>
+          </div>
+
+          <!-- Memory Tab -->
+          <div class="cei-tab-content" id="cei-tab-memory">
+            <div style="padding: 0.5rem 0; color: var(--zerok-text-secondary); font-size: 0.85em;" id="memory-stats-line">
+              Knowledge Graph: -- entities | -- episodes ingested
+            </div>
+            <div style="margin: 0.75rem 0;">
+              <input type="text" id="memory-search-input" placeholder="Search past engagement knowledge..."
+                style="width: 100%; padding: 8px 12px; background: var(--zerok-input-bg, var(--zerok-bg-alt)); color: var(--zerok-text); border: 1px solid var(--zerok-border); border-radius: 6px; font-size: 0.9em; outline: none;">
+            </div>
+            <div id="memory-search-results" style="margin-top: 0.5rem;">
+              <p style="color: var(--zerok-text-secondary); font-size: 0.85em;">Enter a query above to search cross-session memory.</p>
             </div>
           </div>
 
@@ -13155,6 +13178,7 @@
       else if (tab === 'false-positives') renderCeiFalsePositives();
       else if (tab === 'tool-roi') renderCeiToolRoi();
       else if (tab === 'trends') renderCeiTrends();
+      else if (tab === 'memory') loadMemoryStats();
     }
 
     function sortCeiTable(field) {
@@ -14058,6 +14082,123 @@
     }
     document.addEventListener('DOMContentLoaded', checkBackendStatus);
     setInterval(checkBackendStatus, 30000);
+
+    // ── H1+H3: Langfuse & Graphiti Status LEDs ──
+    async function checkObservabilityMemoryStatus() {
+      // Langfuse
+      try {
+        const resp = await fetch('/api/observability/status');
+        const data = await resp.json();
+        const dot = document.getElementById('langfuse-sidebar-dot');
+        if (dot) {
+          dot.className = 'backend-led ' + (data.langfuse_enabled ? 'led-online' : 'led-offline');
+          dot.title = data.langfuse_enabled ? 'Langfuse connected' : 'Langfuse not configured';
+        }
+      } catch (e) {
+        const dot = document.getElementById('langfuse-sidebar-dot');
+        if (dot) { dot.className = 'backend-led led-offline'; dot.title = 'Langfuse unreachable'; }
+      }
+      // Graphiti
+      try {
+        const resp = await fetch('/api/memory/stats');
+        const data = await resp.json();
+        const dot = document.getElementById('graphiti-sidebar-dot');
+        if (dot) {
+          dot.className = 'backend-led ' + (data.enabled ? 'led-online' : 'led-offline');
+          dot.title = data.enabled
+            ? 'Graphiti: ' + data.entities + ' entities, ' + data.episodes + ' episodes'
+            : 'Graphiti not configured';
+        }
+      } catch (e) {
+        const dot = document.getElementById('graphiti-sidebar-dot');
+        if (dot) { dot.className = 'backend-led led-offline'; dot.title = 'Graphiti unreachable'; }
+      }
+    }
+    document.addEventListener('DOMContentLoaded', checkObservabilityMemoryStatus);
+    setInterval(checkObservabilityMemoryStatus, 30000);
+
+    // ── H1: Memory Tab Functions ──
+    async function loadMemoryStats() {
+      try {
+        const resp = await fetch('/api/memory/stats');
+        const data = await resp.json();
+        const el = document.getElementById('memory-stats-line');
+        if (el) {
+          el.textContent = data.enabled
+            ? 'Knowledge Graph: ' + data.entities + ' entities | ' + data.episodes + ' episodes ingested'
+            : 'Cross-session memory not configured';
+        }
+      } catch (e) {
+        console.warn('Memory stats failed:', e);
+      }
+    }
+
+    document.getElementById('memory-search-input')?.addEventListener('keydown', async function(e) {
+      if (e.key !== 'Enter') return;
+      const query = e.target.value.trim();
+      if (!query) return;
+
+      const container = document.getElementById('memory-search-results');
+      container.textContent = '';
+      var loadingP = document.createElement('p');
+      loadingP.style.color = 'var(--zerok-text-secondary)';
+      loadingP.textContent = 'Searching...';
+      container.appendChild(loadingP);
+
+      try {
+        const resp = await fetch('/api/memory/search?q=' + encodeURIComponent(query) + '&include_global=true');
+        const data = await resp.json();
+        container.textContent = '';
+
+        if (!data.enabled) {
+          var p = document.createElement('p');
+          p.style.color = 'var(--zerok-text-dim)';
+          p.textContent = 'Cross-session memory not configured';
+          container.appendChild(p);
+          return;
+        }
+        if (data.results.length === 0) {
+          var p2 = document.createElement('p');
+          p2.style.color = 'var(--zerok-text-dim)';
+          p2.textContent = 'No matching memories found';
+          container.appendChild(p2);
+          return;
+        }
+
+        data.results.forEach(function(r) {
+          var card = document.createElement('div');
+          card.style.cssText = 'padding: 0.75rem; margin-bottom: 0.5rem; background: var(--zerok-card-bg); border: 1px solid var(--zerok-border); border-radius: 6px;';
+
+          var header = document.createElement('div');
+          header.style.cssText = 'display: flex; justify-content: space-between; margin-bottom: 0.25rem;';
+
+          var title = document.createElement('strong');
+          title.style.color = 'var(--zerok-text)';
+          title.textContent = (r.source_name || '') + ' \u2192 ' + (r.target_name || '');
+
+          var group = document.createElement('span');
+          group.style.cssText = 'color: var(--zerok-text-secondary); font-size: 0.8em;';
+          group.textContent = r.group_id || '';
+
+          header.appendChild(title);
+          header.appendChild(group);
+
+          var fact = document.createElement('p');
+          fact.style.cssText = 'margin: 0; color: var(--zerok-text-secondary);';
+          fact.textContent = r.fact || '';
+
+          card.appendChild(header);
+          card.appendChild(fact);
+          container.appendChild(card);
+        });
+      } catch (err) {
+        container.textContent = '';
+        var errP = document.createElement('p');
+        errP.style.color = 'var(--zerok-danger)';
+        errP.textContent = 'Search failed: ' + err.message;
+        container.appendChild(errP);
+      }
+    });
 
     // ── F6: Attack Chain Functions ─────────────
 
