@@ -10152,6 +10152,12 @@
         if (currentEngagementId) {
           loadEngagementSummary(currentEngagementId);
           loadDashboardFromAPI();
+          // BUG-025: Update intelligence badge without full reload
+          fetch('/api/cei/techniques').then(r => r.json()).then(d => {
+            const count = (d.techniques || []).length;
+            const badge = document.getElementById('nav-badge-intelligence');
+            if (badge) { badge.textContent = count; badge.style.display = count > 0 ? '' : 'none'; }
+          }).catch(() => {});
         }
       }, 5000);
     }
