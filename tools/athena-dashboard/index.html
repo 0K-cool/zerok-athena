@@ -11804,9 +11804,17 @@
       } else if (viewName === 'reports') {
         loadReports();
       } else if (viewName === 'attackGraph') {
-        initAttackGraph();
-        // Re-fit graph after container is fully visible (CSS transition)
-        setTimeout(() => { if (graphNetwork) graphNetwork.fit({ animation: { duration: 300, easingFunction: 'easeInOutQuad' } }); }, 150);
+        // BUG-032: Delay graph init until container is painted and has dimensions.
+        // vis.js drag/interaction breaks if Network is created on a zero-size container.
+        requestAnimationFrame(() => {
+          initAttackGraph();
+          setTimeout(() => {
+            if (graphNetwork) {
+              graphNetwork.redraw();
+              graphNetwork.fit({ animation: { duration: 300, easingFunction: 'easeInOutQuad' } });
+            }
+          }, 150);
+        });
       } else if (viewName === 'engagements') {
         loadEngagementsView();
       } else if (viewName === 'evidence') {
@@ -13875,6 +13883,9 @@
 
     async function refreshAttackGraphLive() {
       if (_graphRefreshPending) return;
+      // BUG-032: Don't create/update graph while container is hidden — breaks drag interaction
+      const graphView = document.getElementById('attackGraphView');
+      if (!graphView || !graphView.classList.contains('active')) return;
       _graphRefreshPending = true;
       try {
         const eidParam = currentEngagementId ? `?engagement=${currentEngagementId}` : '';
