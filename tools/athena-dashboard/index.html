@@ -6489,21 +6489,21 @@
                 <!-- Pre-Engagement -->
                 <div class="tactic-column">
                   <div class="tactic-header">Pre-Engagement</div>
-                  <div class="technique-cell none" data-ptes="PL" data-step="auth">
+                  <div class="technique-cell none" data-ptes="ST" data-step="auth">
                     <span class="technique-id">PTES-1</span>
                     <span class="technique-name">Authorization</span>
-                    <span class="technique-count">Planning Agent</span>
+                    <span class="technique-count">Strategy Agent</span>
                   </div>
-                  <div class="technique-cell none" data-ptes="PL" data-step="scope">
+                  <div class="technique-cell none" data-ptes="ST" data-step="scope">
                     <span class="technique-id">PTES-1</span>
                     <span class="technique-name">Scope Validation</span>
-                    <span class="technique-count">Planning Agent</span>
+                    <span class="technique-count">Strategy Agent</span>
                   </div>
                 </div>
                 <!-- Intelligence Gathering -->
                 <div class="tactic-column">
                   <div class="tactic-header">Intel Gathering</div>
-                  <div class="technique-cell none" data-ptes="PO">
+                  <div class="technique-cell none" data-ptes="AR">
                     <span class="technique-id">PTES-2</span>
                     <span class="technique-name">Passive OSINT</span>
                     <span class="technique-count">GAU, crt.sh, Amass</span>
@@ -6522,12 +6522,12 @@
                 <!-- Threat Modeling -->
                 <div class="tactic-column">
                   <div class="tactic-header">Threat Modeling</div>
-                  <div class="technique-cell none" data-ptes="CV">
+                  <div class="technique-cell none" data-ptes="WV">
                     <span class="technique-id">PTES-3</span>
                     <span class="technique-name">CVE Research</span>
                     <span class="technique-count">7+ databases</span>
                   </div>
-                  <div class="technique-cell none" data-ptes="AP">
+                  <div class="technique-cell none" data-ptes="ST">
                     <span class="technique-id">PTES-3</span>
                     <span class="technique-name">Attack Path Classification</span>
                     <span class="technique-count">LLM-based</span>
@@ -6536,7 +6536,7 @@
                 <!-- Vulnerability Analysis -->
                 <div class="tactic-column">
                   <div class="tactic-header">Vuln Analysis</div>
-                  <div class="technique-cell none" data-ptes="CV">
+                  <div class="technique-cell none" data-ptes="WV">
                     <span class="technique-id">PTES-4</span>
                     <span class="technique-name">Nuclei Scanning</span>
                     <span class="technique-count">10K+ templates</span>
@@ -9952,7 +9952,7 @@
       const findingTitle = (msg.title || '').toLowerCase();
       const exploitCategories = ['validated exploit', 'exploitation', 'lateral movement'];
       const isConfirmed = findingTitle.startsWith('confirmed:') || findingTitle.startsWith('confirmed -');
-      const isExploitAgent = ['EX', 'EC', 'VF'].includes(msg.agent);
+      const isExploitAgent = ['EX', 'VF'].includes(msg.agent);
       // BUG-017 fix: Track running totals for exploit gauge so it stays in sync with KPI
       if (!window._exploitGaugeTotals) window._exploitGaugeTotals = { discovered: 0, confirmed: 0 };
       window._exploitGaugeTotals.discovered += 1;
@@ -11667,10 +11667,10 @@
           ptesScans.filter(s => s.status === 'completed').forEach(s => {
             if (s.agent) covAgents.add(s.agent);
           });
-          // Planning always runs if engagement has activity
-          if (ptesScans.length > 0) covAgents.add('PL');
-          // CVE Researcher runs if we have findings with CVE or vuln analysis
-          if (_loadedFindingsCount > 0) covAgents.add('CV');
+          // Strategy always runs if engagement has activity
+          if (ptesScans.length > 0) covAgents.add('ST');
+          // Web Vuln Scanner runs if we have findings with CVE or vuln analysis
+          if (_loadedFindingsCount > 0) covAgents.add('WV');
           // Exploitation if any finding has evidence
           const findingsRes2 = await fetch(`/api/engagements/${currentEngagementId}/findings`);
           const findings2 = await findingsRes2.json();
@@ -11692,18 +11692,18 @@
           covAgents.forEach(agent => updatePtesFromAgent(agent, 'complete'));
         } else if (_loadedFindingsCount > 0) {
           // No scans but findings exist — derive PTES coverage from findings
-          const ptesFallback = new Set(['PL']);  // Planning always
+          const ptesFallback = new Set(['ST']);  // Strategy always
           const ptesFindings = await fetch(`/api/engagements/${currentEngagementId}/findings`);
           const ptesFF = await ptesFindings.json();
           if (Array.isArray(ptesFF) && ptesFF.length > 0) {
             // Intel Gathering: findings imply recon was done
-            ptesFallback.add('AR');  // Attack Researcher
-            ptesFallback.add('CV');  // CVE Researcher
+            ptesFallback.add('AR');  // Active Recon
+            ptesFallback.add('WV');  // Web Vuln Scanner
             // Port Scanner: check if services/ports were discovered
             try {
               const poSvc = await fetch(`/api/engagements/${currentEngagementId}/services-summary`);
               const poData = await poSvc.json();
-              if (Array.isArray(poData) && poData.length > 0) ptesFallback.add('PO');
+              if (Array.isArray(poData) && poData.length > 0) ptesFallback.add('AR');
             } catch (e) { /* ignore */ }
             // Web Vuln Scanner: any web-related finding category
             const webCats = ['injection', 'xss', 'cross-site', 'misconfiguration', 'cors',
@@ -11718,7 +11718,7 @@
             if (ptesFF.some(f => {
               const blob = ((f.category || '') + ' ' + (f.title || '')).toLowerCase();
               return appCats.some(kw => blob.includes(kw));
-            })) ptesFallback.add('AP');
+            })) ptesFallback.add('ST');
             // Exploitation: findings with evidence of successful exploit
             if (ptesFF.some(f => f.evidence_count > 0)) ptesFallback.add('EX');
             // Post-Exploitation: auth bypass, lateral movement, or post-exploit findings
