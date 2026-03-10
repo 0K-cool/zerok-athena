@@ -304,6 +304,7 @@ class AgentSessionManager:
         # Lifecycle
         self.is_running = False
         self._paused = False  # BUG-029: Manager-level pause flag (survives agent re-spawns)
+        self._deferred_spawns: list[dict] = []  # BUG-036: Deferred spawns while paused (no re-queue loop)
         self._manager_task: asyncio.Task | None = None
         # Cost tracking across all agents
         self.total_cost_usd: float = 0.0
@@ -479,13 +480,20 @@ class AgentSessionManager:
             {"control": "engagement_paused"})
 
     async def resume(self):
-        """Resume all paused agents."""
+        """Resume all paused agents and replay deferred spawn requests."""
         self._paused = False  # BUG-029: Allow re-spawns again
         for code, session in self.agents.items():
             if session.is_paused:
                 await session.resume()
-        await self._emit("system", "OR", "All agents resumed.",
-            {"control": "engagement_resumed"})
+        # BUG-036: Replay deferred spawns into the queue now that we're unpaused
+        deferred = self._deferred_spawns[:]
+        self._deferred_spawns.clear()
+        for req in deferred:
+            logger.info("Replaying deferred spawn: %s", req["agent"])
+            await self._agent_request_queue.put(req)
+        await self._emit("system", "OR",
+            f"All agents resumed.{f' Replaying {len(deferred)} deferred spawn(s).' if deferred else ''}",
+            {"control": "engagement_resumed", "deferred_replayed": len(deferred)})
 
     async def send_command(self, command: str) -> str:
         """Forward operator command to ST (the coordinator)."""
@@ -802,10 +810,10 @@ class AgentSessionManager:
                 If empty, the agent uses its default role prompt.
         """
         # BUG-029: Don't spawn agents while engagement is paused
-        # BUG-H5: Re-queue the request so it's retried on resume (not silently dropped)
+        # BUG-036: Store in deferred list instead of re-queuing (prevents infinite loop)
         if self._paused:
-            logger.info("Engagement paused — re-queuing spawn of %s", code)
-            await self._agent_request_queue.put({
+            logger.info("Engagement paused — deferring spawn of %s", code)
+            self._deferred_spawns.append({
                 "agent": code, "task": task_prompt or "",
                 "priority": "medium", "timestamp": time.time()
             })
