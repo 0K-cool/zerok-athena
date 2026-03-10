@@ -1126,7 +1126,7 @@ async def get_engagement_scope():
     """Get current engagement scope and allowed agent types."""
     allowed = set()
     for t in _engagement_types:
-        allowed |= _AGENTS_BY_TYPE.get(t, {"ST", "AR", "WV", "EX", "VF", "RP"})
+        allowed |= _AGENTS_BY_TYPE.get(t, {"ST", "PR", "AR", "WV", "DA", "PX", "EX", "VF", "RP"})
     return {
         "engagement_types": _engagement_types,
         "allowed_agents": sorted(allowed),
@@ -3262,9 +3262,9 @@ _engagement_types: list[str] = ["external"]  # BUG-006: Current engagement types
 
 # BUG-006: Agents allowed per engagement type (server-side enforcement)
 _AGENTS_BY_TYPE: dict[str, set[str]] = {
-    "external": {"ST", "AR", "EX", "VF", "RP"},
-    "web_app":  {"ST", "WV", "EX", "VF", "RP"},
-    "internal": {"ST", "AR", "EX", "VF", "RP"},
+    "external": {"ST", "PR", "AR", "EX", "VF", "RP"},
+    "web_app":  {"ST", "PR", "WV", "DA", "PX", "EX", "VF", "RP"},
+    "internal": {"ST", "PR", "AR", "EX", "VF", "RP"},
 }
 
 
@@ -9157,20 +9157,20 @@ Dashboard: http://localhost:8080
             st_context += f"\nSCOPE DOCUMENT:\n{scope_doc}\n"
         # BUG-006 fix: Tell ST which agents are appropriate for this engagement type
         _type_agents = {
-            "external": "AR (recon), EX (exploitation), VF (verification), RP (reporting). Do NOT request WV — no web app in scope.",
-            "web_app":  "WV (web vuln scan), EX (exploitation), VF (verification), RP (reporting). Do NOT request AR — network recon not in scope.",
-            "internal": "AR (recon), EX (exploitation), VF (verification), RP (reporting). Do NOT request WV — no web app in scope.",
+            "external": "PR (passive recon/OSINT), AR (active recon), EX (exploitation), VF (verification), RP (reporting). Do NOT request WV — no web app in scope.",
+            "web_app":  "PR (passive recon/OSINT), WV (web vuln scan), DA (deep analysis/CVE research), PX (probe executor), EX (exploitation), VF (verification), RP (reporting). Do NOT request AR — network recon not in scope.",
+            "internal": "PR (passive recon/OSINT), AR (active recon), EX (exploitation), VF (verification), RP (reporting). Do NOT request WV — no web app in scope.",
         }
         _type_str = ', '.join(engagement_types)
-        _allowed_agents = _type_agents.get(engagement_types[0], "AR, WV, EX, VF, RP") if len(engagement_types) == 1 else "AR, WV, EX, VF, RP"
+        _allowed_agents = _type_agents.get(engagement_types[0], "PR, AR, WV, DA, PX, EX, VF, RP") if len(engagement_types) == 1 else "PR, AR, WV, DA, PX, EX, VF, RP"
         st_context += f"""
 AGENT SELECTION (based on engagement type: {_type_str}):
 Allowed agents: {_allowed_agents}
 IMPORTANT: Only request agents appropriate for the engagement type. Do NOT request web app agents (WV) for external/network engagements, and do NOT request network recon agents (AR) for web-app-only engagements.
 
 Start by querying Neo4j for existing engagement state, then begin with
-Active Recon (AR) — request it via POST http://localhost:8080/api/agents/request
-Body: {{"agent":"AR","task":"Port scan and service enumeration against {target}","priority":"high"}}
+Passive Recon (PR) — request it via POST http://localhost:8080/api/agents/request
+Body: {{"agent":"PR","task":"Passive OSINT reconnaissance against {target} — subdomain enumeration, certificate transparency, WHOIS, DNS, Google dorking","priority":"high"}}
 """
 
     _active_session_manager = AgentSessionManager(
@@ -10092,7 +10092,7 @@ async def request_agent_spawn(payload: AgentRequestPayload):
     # BUG-006 fix: Gate agent requests by engagement type
     allowed = set()
     for t in _engagement_types:
-        allowed |= _AGENTS_BY_TYPE.get(t, {"ST", "AR", "WV", "EX", "VF", "RP"})
+        allowed |= _AGENTS_BY_TYPE.get(t, {"ST", "PR", "AR", "WV", "DA", "PX", "EX", "VF", "RP"})
     if payload.agent not in allowed:
         return JSONResponse(status_code=400, content={
             "error": f"Agent {payload.agent} not allowed for engagement type(s) {_engagement_types}. Allowed: {sorted(allowed)}"

@@ -502,12 +502,31 @@ class AgentSessionManager:
         # BUG-H4: Also check task.done() — is_running goes False in finally before task completes
         if st and (st.is_running or (st_task and not st_task.done())):
             return await st.send_command(command)
-        # BUG-028: ST is not running — queue the command for delivery on re-spawn
+        # BUG-028: ST is not running — queue command and re-spawn ST immediately
         self._pending_commands.append(command)
-        await self._emit("system", "OR",
-            f"ST not running — command queued for delivery on re-spawn.",
-            {"queued_command": True})
-        return "Command queued — ST will receive it on re-spawn."
+        if not self._st_spawning and self.is_running:
+            self._st_spawning = True
+            try:
+                await self._emit("system", "OR",
+                    f"ST not running — re-spawning to process operator command.",
+                    {"st_respawn": True, "operator_triggered": True})
+                await self._spawn_agent(
+                    "ST",
+                    task_prompt=(
+                        f"You are resuming as Strategy Agent. "
+                        f"The operator sent a command:\n{command}\n"
+                        f"Review the Neo4j graph for all findings so far, "
+                        f"process the operator's command, then decide next steps."
+                    )
+                )
+            finally:
+                self._st_spawning = False
+            return "Re-spawning ST to process your command."
+        else:
+            await self._emit("system", "OR",
+                f"ST not running — command queued for delivery on re-spawn.",
+                {"queued_command": True})
+            return "Command queued — ST will receive it on re-spawn."
 
     def signal_early_stop(self, agent_code: str):
         """Signal that an agent should be stopped due to budget exhaustion.

@@ -1251,7 +1251,7 @@
       border-radius: 0;
     }
     .strategy-bar.open {
-      max-height: 200px;
+      max-height: 80px;
       margin-bottom: 8px;
     }
     .strategy-bar-inner {
@@ -9322,8 +9322,10 @@
       const toggle = document.getElementById('strategyToggle');
       const panel = document.getElementById('strategyPanel');
 
-      // Update directive text (render markdown — reuse existing renderMarkdown)
-      const summary = (msg.metadata && msg.metadata.summary) || msg.content || 'Strategy updated';
+      // Update directive text — show only first line/sentence (full content goes to timeline)
+      const raw = (msg.metadata && msg.metadata.summary) || msg.content || 'Strategy updated';
+      const firstLine = raw.split('\n').filter(function(l){ return l.trim(); })[0] || raw;
+      const summary = firstLine.length > 200 ? firstLine.substring(0, 200) + '…' : firstLine;
       directive.innerHTML = renderMarkdown(summary);
 
       // Update meta counts
@@ -10610,7 +10612,13 @@
     }
 
     // ── Render AI Response to Operator Command ──
+    const _renderedResponseIds = new Set();
     function renderOperatorResponse(msg) {
+      // Deduplicate: event can arrive via live SSE AND history restore
+      const dedupKey = msg.id || (msg.agent + ':' + msg.content + ':' + Math.floor(msg.timestamp || 0));
+      if (_renderedResponseIds.has(dedupKey)) return;
+      _renderedResponseIds.add(dedupKey);
+
       const timeline = document.getElementById('aiTimeline');
       const empty = document.getElementById('aiEmpty');
       if (empty) empty.style.display = 'none';
