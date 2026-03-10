@@ -360,7 +360,7 @@ class DashboardState:
         """Send event to all connected WebSocket clients."""
         message = json.dumps(event)
         disconnected = set()
-        for ws in self.connected_clients:
+        for ws in list(self.connected_clients):  # BUG-C1: snapshot to avoid RuntimeError during async iteration
             try:
                 await ws.send_text(message)
             except (WebSocketDisconnect, RuntimeError):
@@ -759,11 +759,12 @@ async def websocket_endpoint(ws: WebSocket):
                 if cmd_text:
                     # Store and broadcast the command so it persists on reload
                     op_event = AgentEvent(
+                        id=str(uuid.uuid4()),
                         type="operator_command",
                         agent="OP",
-                        agent_name="Operator",
                         content=cmd_text,
-                        engagement=state.active_engagement_id or "",
+                        timestamp=time.time(),
+                        metadata={"agent_name": "Operator", "engagement": state.active_engagement_id or ""},
                     )
                     await state.add_event(op_event)
                     await state.broadcast({
@@ -4107,10 +4108,10 @@ async def get_shortest_attack_path(
             else:
                 # Auto-detect: initial access → sensitive target
                 result = session.run("""
-                    MATCH (entry:Host)
+                    MATCH (entry:Host {engagement_id: $eid})
                     WHERE entry.access_level = 'initial'
                        OR entry.compromised = true
-                    MATCH (target)
+                    MATCH (target {engagement_id: $eid})
                     WHERE (target:Service AND (target.contains_pii = true OR target.admin = true))
                        OR (target:Host AND target.root_access = true)
                     MATCH path = shortestPath((entry)-[*]-(target))
@@ -7431,7 +7432,7 @@ async def delete_events(engagement: Optional[str] = None):
     eid = engagement or state.active_engagement_id
     # Clear in-memory events
     if eid:
-        state.events = [e for e in state.events if e.metadata.get("engagement_id") != eid]
+        state.events = [e for e in state.events if (e.metadata or {}).get("engagement_id") != eid]
     else:
         state.events = []
     # Clear Neo4j Event nodes
@@ -9907,9 +9908,9 @@ async def _handle_multi_agent_operator_command(cmd_text: str):
         resp_agent = "ST"
         # Persist the response so it survives page reload
         await state.add_event(AgentEvent(
-            type="operator_response", agent=resp_agent,
-            agent_name=AGENT_NAMES.get(resp_agent, "Strategy"),
-            content=resp_content, engagement=state.active_engagement_id or "",
+            id=str(uuid.uuid4()), type="operator_response", agent=resp_agent,
+            content=resp_content, timestamp=time.time(),
+            metadata={"agent_name": AGENT_NAMES.get(resp_agent, "Strategy"), "engagement": state.active_engagement_id or ""},
         ))
         await state.broadcast({
             "type": "operator_response",
@@ -9921,9 +9922,9 @@ async def _handle_multi_agent_operator_command(cmd_text: str):
     except Exception as e:
         err_content = f"Error forwarding command: {str(e)[:200]}"
         await state.add_event(AgentEvent(
-            type="operator_response", agent="OR",
-            agent_name=AGENT_NAMES.get("OR", "Orchestrator"),
-            content=err_content, engagement=state.active_engagement_id or "",
+            id=str(uuid.uuid4()), type="operator_response", agent="OR",
+            content=err_content, timestamp=time.time(),
+            metadata={"agent_name": AGENT_NAMES.get("OR", "Orchestrator"), "engagement": state.active_engagement_id or ""},
         ))
         await state.broadcast({
             "type": "operator_response",

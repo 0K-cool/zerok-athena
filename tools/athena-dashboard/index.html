@@ -6099,9 +6099,9 @@
               <div style="display: flex; align-items: center; gap: 12px;">
                 <span class="widget-title">Methodology Coverage</span>
                 <div class="framework-tabs">
-                  <button class="framework-tab active" onclick="switchFramework('atlas')">PTES Phases</button>
-                  <button class="framework-tab" onclick="switchFramework('owasp-llm')">OWASP Top 10</button>
-                  <button class="framework-tab" onclick="switchFramework('owasp-agentic')">Tool Matrix</button>
+                  <button class="framework-tab active" onclick="switchFramework('atlas', this)">PTES Phases</button>
+                  <button class="framework-tab" onclick="switchFramework('owasp-llm', this)">OWASP Top 10</button>
+                  <button class="framework-tab" onclick="switchFramework('owasp-agentic', this)">Tool Matrix</button>
                 </div>
               </div>
               <div class="framework-stats">
@@ -7175,12 +7175,12 @@
     }
 
     // Framework Matrix Switcher
-    function switchFramework(framework) {
-      // Update tabs
+    function switchFramework(framework, tabEl) {
+      // Update tabs — BUG-C5: pass element explicitly, don't use implicit window.event
       document.querySelectorAll('.framework-tab').forEach(tab => {
         tab.classList.remove('active');
       });
-      event.target.classList.add('active');
+      if (tabEl) tabEl.classList.add('active');
 
       // Update matrix visibility
       document.querySelectorAll('.matrix-container').forEach(matrix => {
@@ -7228,7 +7228,10 @@
     let areaChart;
     let radarChart, remediationChart, mtteSparkline, vulnStatusDonut;
 
+    let _chartsInitialized = false;
     function initCharts() {
+      if (_chartsInitialized) return;  // BUG-H8: prevent double init from setAccent + DOMContentLoaded
+      _chartsInitialized = true;
       const primaryColor = getPrimaryColor();
       const primaryColorAlpha = primaryColor + '40'; // 25% opacity for fill
 
@@ -8485,9 +8488,10 @@
 
     // ── Handle Tool Complete ──
     function handleToolComplete(msg) {
+      if (!msg.metadata) return;  // BUG-C3: guard against missing metadata
       const toolId = msg.metadata.tool_id;
       const tool = runningTools[toolId];
-      const isCancelled = msg.metadata && msg.metadata.cancelled;
+      const isCancelled = msg.metadata.cancelled;
       if (tool) {
         const elapsed = Math.round((Date.now() - tool.startTime) / 1000);
 
@@ -9825,7 +9829,7 @@
     }
 
     function resolveApproval(approved) {
-      if (!pendingApproval || !ws) return;
+      if (!pendingApproval || !ws || ws.readyState !== WebSocket.OPEN) return;  // BUG-C4: check WS is OPEN
       ws.send(JSON.stringify({
         type: approved ? 'approve' : 'reject',
         request_id: pendingApproval.id,
@@ -9886,7 +9890,7 @@
               '<span><strong>Operator</strong> <span class="event-type" style="background:color-mix(in srgb,var(--zerok-primary) 20%,transparent);color:var(--zerok-primary);">COMMAND</span></span>' +
               '<span class="event-time">' + new Date().toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) + '</span>' +
             '</div>' +
-            '<div class="event-detail" style="color:var(--zerok-text);">' + text.replace(/</g,'&lt;') + '</div>' +
+            '<div class="event-detail" style="color:var(--zerok-text);">' + escHtml(text) + '</div>' +
           '</div>';
         timeline.appendChild(el);
         smartScroll(timeline);
@@ -13025,7 +13029,7 @@
 
     async function downloadReport(reportId, btn) {
       // BUG-022: Show loading feedback during download
-      if (!btn) btn = event && event.target;
+      // BUG-M6: removed implicit window.event fallback (broken in Firefox)
       const origText = btn ? btn.textContent : '';
       if (btn) { btn.disabled = true; btn.textContent = 'Downloading...'; }
       try {

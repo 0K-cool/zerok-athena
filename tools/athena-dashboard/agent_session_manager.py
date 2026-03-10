@@ -314,6 +314,8 @@ class AgentSessionManager:
         self._early_stop_queue: set[str] = set()
         # BUG-028: Commands queued while ST is dead (survives re-spawns)
         self._pending_commands: list[str] = []
+        # BUG-H3: Guard against concurrent ST re-spawns
+        self._st_spawning: bool = False
         # Phase G: Per-agent workspace isolation
         self._workspace_manager = WorkspaceManager(engagement_id, self.athena_root)
         # H3: Langfuse observability
@@ -650,33 +652,35 @@ class AgentSessionManager:
                 st = self.agents.get("ST")
                 if st and st.is_running:
                     await st.send_command(early_stop_msg)
-                elif code != "ST":
+                elif code != "ST" and not self._st_spawning:
                     # BUG-021 fix: Re-spawn ST to handle early-stop decision
-                    logger.info(
-                        "ST not running when %s early-stopped — re-spawning ST",
-                        code)
-                    # BUG-027 fix: Preserve old ST session cost before overwrite.
-                    # _spawn_agent sets self.agents["ST"] to a fresh session,
-                    # losing the previous session's accumulated cost. Capture it
-                    # now so the engagement total doesn't drop on re-spawn.
-                    old_st = self.agents.get("ST")
-                    if old_st and "ST" not in self._cost_aggregated:
-                        old_st_cost = old_st._total_cost_usd
-                        if old_st_cost > 0:
-                            self.total_cost_usd += old_st_cost
-                            self._cost_aggregated.add("ST")
-                            logger.info(
-                                "BUG-027: Preserved old ST cost $%.4f before re-spawn",
-                                old_st_cost)
-                    await self._spawn_agent(
-                        "ST",
-                        task_prompt=(
-                            f"You are resuming as Strategy Agent. "
-                            f"A worker agent was early-stopped:\n"
-                            f"{early_stop_msg}\n"
-                            f"Review the Neo4j graph, then decide next steps."
+                    # BUG-H3: Guard against concurrent ST re-spawns
+                    self._st_spawning = True
+                    try:
+                        logger.info(
+                            "ST not running when %s early-stopped — re-spawning ST",
+                            code)
+                        # BUG-027 fix: Preserve old ST session cost before overwrite.
+                        old_st = self.agents.get("ST")
+                        if old_st and "ST" not in self._cost_aggregated:
+                            old_st_cost = old_st._total_cost_usd
+                            if old_st_cost > 0:
+                                self.total_cost_usd += old_st_cost
+                                self._cost_aggregated.add("ST")
+                                logger.info(
+                                    "BUG-027: Preserved old ST cost $%.4f before re-spawn",
+                                    old_st_cost)
+                        await self._spawn_agent(
+                            "ST",
+                            task_prompt=(
+                                f"You are resuming as Strategy Agent. "
+                                f"A worker agent was early-stopped:\n"
+                                f"{early_stop_msg}\n"
+                                f"Review the Neo4j graph, then decide next steps."
+                            )
                         )
-                    )
+                    finally:
+                        self._st_spawning = False
             self._early_stop_queue.discard(code)
 
         completed = []
@@ -726,27 +730,32 @@ class AgentSessionManager:
                     st = self.agents.get("ST")
                     if st and st.is_running:
                         await st.send_command(msg)
-                    else:
+                    elif not self._st_spawning:
                         # BUG-021 fix: ST died (60s idle timeout) while workers
                         # were running. Re-spawn ST with accumulated context so
                         # it can decide next steps based on worker results.
-                        logger.info(
-                            "ST not running when %s completed — re-spawning ST",
-                            code)
-                        await self._emit("system", "OR",
-                            f"Agent {code} completed but ST was idle. "
-                            f"Re-spawning Strategy Agent to continue engagement.",
-                            {"st_respawn": True})
-                        await self._spawn_agent(
-                            "ST",
-                            task_prompt=(
-                                f"You are resuming as Strategy Agent. "
-                                f"A worker agent just completed:\n{msg}\n"
-                                f"Review the Neo4j graph for all findings so far, "
-                                f"then decide next steps: spawn new agents, "
-                                f"pivot strategy, or generate the final report."
+                        # BUG-H3: Guard against concurrent ST re-spawns
+                        self._st_spawning = True
+                        try:
+                            logger.info(
+                                "ST not running when %s completed — re-spawning ST",
+                                code)
+                            await self._emit("system", "OR",
+                                f"Agent {code} completed but ST was idle. "
+                                f"Re-spawning Strategy Agent to continue engagement.",
+                                {"st_respawn": True})
+                            await self._spawn_agent(
+                                "ST",
+                                task_prompt=(
+                                    f"You are resuming as Strategy Agent. "
+                                    f"A worker agent just completed:\n{msg}\n"
+                                    f"Review the Neo4j graph for all findings so far, "
+                                    f"then decide next steps: spawn new agents, "
+                                    f"pivot strategy, or generate the final report."
+                                )
                             )
-                        )
+                        finally:
+                            self._st_spawning = False
 
         # Clean up completed tasks
         for code in completed:
@@ -786,10 +795,15 @@ class AgentSessionManager:
                 If empty, the agent uses its default role prompt.
         """
         # BUG-029: Don't spawn agents while engagement is paused
+        # BUG-H5: Re-queue the request so it's retried on resume (not silently dropped)
         if self._paused:
-            logger.info("Engagement paused — deferring spawn of %s", code)
+            logger.info("Engagement paused — re-queuing spawn of %s", code)
+            await self._agent_request_queue.put({
+                "agent": code, "task": task_prompt or "",
+                "priority": "medium", "timestamp": time.time()
+            })
             await self._emit("system", "OR",
-                f"Spawn of {code} deferred — engagement is paused.",
+                f"Spawn of {code} deferred — engagement is paused. Will retry on resume.",
                 {"warning": True, "deferred_spawn": code})
             return
 
@@ -841,9 +855,6 @@ class AgentSessionManager:
         if self._event_callback:
             session.set_event_callback(self._event_callback)
 
-        # Store and start
-        self.agents[code] = session
-
         # Build the initial prompt for the agent (includes knowledge brief)
         prompt = format_prompt(role, self.engagement_id, self.target,
                                self.backend, prior_context,
@@ -855,6 +866,8 @@ class AgentSessionManager:
 
         try:
             await session.start(prompt)
+            # BUG-C7: Only store session after successful start (prevents zombie on failure)
+            self.agents[code] = session
             self._agent_tasks[code] = session._query_task
             await self._emit("agent_status", code, "running",
                 {"status": "running"})
@@ -863,14 +876,24 @@ class AgentSessionManager:
             # BUG-028: Drain any commands that arrived while ST was dead
             if code == "ST" and self._pending_commands:
                 pending_count = len(self._pending_commands)
+                failed_cmds = []
                 for cmd in self._pending_commands:
-                    await session.send_command(cmd)
-                logger.info("Delivered %d pending command(s) to re-spawned ST", pending_count)
-                await self._emit("system", "OR",
-                    f"Delivered {pending_count} queued operator command(s) to ST.",
-                    {"pending_commands_delivered": pending_count})
+                    result = await session.send_command(cmd)
+                    if isinstance(result, str) and result.startswith("Error:"):
+                        failed_cmds.append(cmd)
+                        logger.warning("Failed to deliver pending command to ST: %s", result)
                 self._pending_commands.clear()
+                if failed_cmds:
+                    self._pending_commands.extend(failed_cmds)  # BUG-M4: re-queue failed commands
+                else:
+                    logger.info("Delivered %d pending command(s) to re-spawned ST", pending_count)
+                    await self._emit("system", "OR",
+                        f"Delivered {pending_count} queued operator command(s) to ST.",
+                        {"pending_commands_delivered": pending_count})
         except Exception as e:
+            # BUG-C7: Clean up failed session resources
+            if hasattr(session, '_http_client') and session._http_client and not session._http_client.is_closed:
+                await session._http_client.aclose()
             logger.exception("Failed to spawn agent %s", code)
             await self._emit("system", "OR",
                 f"Failed to spawn {code}: {str(e)[:300]}",
@@ -1123,31 +1146,31 @@ class AgentSessionManager:
         messages sent to it before it was running.
         """
         try:
-            import aiohttp
-            async with aiohttp.ClientSession() as http:
-                async with http.get(
+            # BUG-H6: Use httpx (already available) instead of aiohttp (may not be installed)
+            import httpx
+            async with httpx.AsyncClient(timeout=3.0) as http:
+                resp = await http.get(
                     "http://localhost:8080/api/messages",
                     params={"agent": agent_code, "limit": "20"},
-                    timeout=aiohttp.ClientTimeout(total=3),
-                ) as resp:
-                    if resp.status != 200:
-                        return ""
-                    data = await resp.json()
-                    messages = data.get("messages", [])
-                    # Filter to messages addressed TO this agent (not FROM)
-                    incoming = [m for m in messages
-                                if m.get("to_agent") == agent_code]
-                    if not incoming:
-                        return ""
-                    lines = []
-                    for m in incoming[:10]:  # Cap at 10 most recent
-                        lines.append(
-                            f"[{m.get('msg_type','msg')}] "
-                            f"From {m.get('from_agent','?')} "
-                            f"(priority: {m.get('priority','medium')}): "
-                            f"{m.get('content','')[:300]}"
-                        )
-                    return "\n".join(lines)
+                )
+                if resp.status_code != 200:
+                    return ""
+                data = resp.json()
+                messages = data.get("messages", [])
+                # Filter to messages addressed TO this agent (not FROM)
+                incoming = [m for m in messages
+                            if m.get("to_agent") == agent_code]
+                if not incoming:
+                    return ""
+                lines = []
+                for m in incoming[:10]:  # Cap at 10 most recent
+                    lines.append(
+                        f"[{m.get('msg_type','msg')}] "
+                        f"From {m.get('from_agent','?')} "
+                        f"(priority: {m.get('priority','medium')}): "
+                        f"{m.get('content','')[:300]}"
+                    )
+                return "\n".join(lines)
         except Exception:
             return ""
 
