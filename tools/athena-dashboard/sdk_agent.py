@@ -142,6 +142,11 @@ def _is_tool_output_noise(text: str) -> bool:
     # "Todos have been modified successfully" internal SDK messages
     if "odos have been modified successfully" in stripped:
         return True
+    # Phase 4.5: DA↔PX bilateral probe noise
+    if "probe_request" in stripped and "msg_type" in stripped:
+        return True
+    if "probe_result" in stripped and "msg_type" in stripped:
+        return True
     return False
 
 
@@ -770,6 +775,9 @@ class AthenaAgentSession:
             return True
         # "AR agent shows as idle" — internal status polling
         if _RE_AGENT_SHOWS_IDLE.search(stripped):
+            return True
+        # Phase 4.5: DA hypothesis loop internal chatter
+        if "hypothesis" in stripped.lower() and "confidence" in stripped.lower() and len(stripped) < 200:
             return True
         return False
 
