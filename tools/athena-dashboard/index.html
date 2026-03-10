@@ -535,6 +535,10 @@
       height: 100%;
       overflow-y: auto;              /* BUG-018: scroll — don't squeeze widgets */
       overflow-x: hidden;
+      scrollbar-width: none;         /* Firefox: hide scrollbar */
+    }
+    #dashboardView.active::-webkit-scrollbar {
+      width: 0;                      /* Chromium: hide scrollbar */
     }
     #dashboardView > .stat-grid {
       flex: 0 0 auto;                /* KPI row: fixed height, no grow/shrink */
@@ -847,6 +851,7 @@
       padding: var(--zerok-content-padding);
       overflow-x: hidden;
       overflow-y: auto;             /* BUG-030: Scroll when content exceeds viewport (Findings, Scans, etc.) */
+      scrollbar-width: none;        /* Firefox: hide scrollbar */
     }
 
     /* Minimal theme: Uniform frame, left tight to sidebar */
@@ -1167,7 +1172,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 12px 0;
+      padding: 18px 0;
       border: 1px solid color-mix(in srgb, var(--zerok-primary) 25%, transparent);
       border-radius: 0;
       background: color-mix(in srgb, var(--zerok-primary) 8%, transparent);
@@ -1466,8 +1471,10 @@
       display: block;
       max-height: 160px;
       overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: #444 transparent;
+      scrollbar-width: none;
+    }
+    .matrix-container.active::-webkit-scrollbar {
+      width: 0;
     }
 
     /* Navigator-style table layout */
@@ -3859,7 +3866,7 @@
     .ai-drawer.open {
       width: 420px;
       min-width: 420px;
-      border-left-color: transparent;
+      border-left-color: var(--zerok-border);
     }
 
     .ai-drawer-header {
@@ -5483,7 +5490,6 @@
          Scrollbar is 6px + 2px padding-right = 8px to match left. */
       .content {
         padding: 8px !important;
-        padding-right: 0 !important;
       }
       .content::-webkit-scrollbar {
         width: 6px !important;
@@ -5571,6 +5577,12 @@
       .full-width {
         overflow-x: auto !important;
       }
+
+      /* AI Drawer: narrower on 13" to leave more room for widgets */
+      .ai-drawer.open {
+        width: 380px !important;
+        min-width: 380px !important;
+      }
     }
 
     /* ========== RESPONSIVE: TABLET LANDSCAPE (≤1024px) ========== */
@@ -5622,10 +5634,10 @@
         white-space: nowrap;
       }
       .layer-grid {
-        gap: 2px !important;
+        gap: 4px !important;
       }
       .layer-cell {
-        padding: 6px 0 !important;
+        padding: 14px 0 !important;  /* Taller chips — compensate for fewer agent rows */
         font-size: 10px !important;
       }
 
@@ -6163,8 +6175,8 @@
                 <button class="widget-action" onclick="document.getElementById('agent-status-grid').scrollIntoView({behavior:'smooth'})">See All</button>
               </div>
             </div>
-            <div class="widget-body" style="display:flex;align-items:center;">
-              <div class="layer-grid" id="agent-status-grid" style="width:100%">
+            <div class="widget-body" style="display:flex;align-items:stretch;">
+              <div class="layer-grid" id="agent-status-grid" style="width:100%;grid-template-rows:1fr 1fr;">
                 <!-- Row 1: Command & Recon -->
                 <div class="layer-cell" data-agent="ST" title="Strategy — Red Team Lead (cross-phase)" onclick="toggleStrategyPanel()"><span class="layer-id">ST</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="AR" title="Active Recon — Port Scanning &amp; Service Enum"><span class="layer-id">AR</span><span class="layer-blocks">Idle</span></div>
@@ -8316,12 +8328,23 @@
       const drawer = document.getElementById('aiDrawer');
       drawer.classList.toggle('open');
       const fab = document.getElementById('aiToggleBtn');
+      const sidebar = document.getElementById('sidebar');
       if (drawer.classList.contains('open')) {
         notificationCount = 0;
         updateNotifBadge();
         if (fab) fab.style.display = 'none';
+        // Auto-collapse sidebar on ≤1440px screens to give widgets room
+        if (window.innerWidth <= 1440 && sidebar && !sidebar.classList.contains('collapsed')) {
+          sidebar.classList.add('collapsed');
+          sidebar.dataset.autoCollapsed = 'true';
+        }
       } else {
         if (fab) fab.style.display = '';
+        // Restore sidebar if it was auto-collapsed
+        if (sidebar && sidebar.dataset.autoCollapsed === 'true') {
+          sidebar.classList.remove('collapsed');
+          delete sidebar.dataset.autoCollapsed;
+        }
       }
     }
 
