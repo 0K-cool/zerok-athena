@@ -10823,6 +10823,18 @@
         }
       } catch (e) { /* ignore */ }
 
+      // Restore Intelligence badge from CEI techniques API
+      try {
+        const ceiRes = await fetch('/api/cei/techniques');
+        const ceiData = await ceiRes.json();
+        const ceiCount = (ceiData.techniques || []).length;
+        const intelBadge = document.getElementById('nav-badge-intelligence');
+        if (intelBadge) {
+          intelBadge.textContent = ceiCount;
+          intelBadge.style.display = ceiCount > 0 ? '' : 'none';
+        }
+      } catch (e) { /* ignore */ }
+
       // Restore Scan Coverage — check engagement status (only if findings exist)
       if (_loadedFindingsCount > 0) {
         try {
