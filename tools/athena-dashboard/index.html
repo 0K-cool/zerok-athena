@@ -14307,9 +14307,9 @@
         const kaliLabel = anyUp ? cfg.kali.tools + ' tools' : 'No backends online';
         setBadge('cfg-kali-badge', kaliBadge, kaliLabel);
         setBadge('cfg-kali-detail-badge', kaliBadge, kaliLabel);
-        document.getElementById('cfg-kali-detail').textContent = anyUp
-          ? Object.keys(backends).filter(function(k) { return backends[k].available; }).join(', ')
-          : 'No backends online';
+        const totalBackends = Object.keys(backends).length;
+        const onlineBackends = Object.values(backends).filter(function(b) { return b.available; }).length;
+        document.getElementById('cfg-kali-detail').textContent = onlineBackends + '/' + totalBackends + ' backends online';
         document.getElementById('cfg-kali-tools').textContent = cfg.kali.tools + ' registered';
 
         // Build backend rows dynamically
