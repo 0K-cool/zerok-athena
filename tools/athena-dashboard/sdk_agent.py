@@ -950,10 +950,23 @@ class AthenaAgentSession:
                 "all findings to Neo4j and the dashboard API."
             )
 
+        def _sdk_stderr(line: str):
+            """Capture SDK CLI stderr for MCP/tool debugging."""
+            stripped = line.strip()
+            if stripped:
+                logger.debug("SDK stderr [%s]: %s",
+                             role.code if role else "SINGLE", stripped)
+                # Log MCP-related lines at INFO for visibility
+                if any(k in stripped.lower() for k in ("mcp", "server", "tool", "error", "fail", "timeout")):
+                    logger.info("SDK stderr [%s]: %s",
+                                role.code if role else "SINGLE", stripped)
+
+        # MCP servers loaded via project settings (setting_sources=["project"])
+        # which reads .mcp.json from cwd. Do NOT also pass mcp_servers to
+        # avoid duplicate server processes (causes silent tool unavailability).
         opts = ClaudeAgentOptions(
             model=model,
             cwd=str(self.athena_root),
-            mcp_servers=str(self.athena_root / ".mcp.json"),
             allowed_tools=allowed,
             permission_mode="bypassPermissions",
             max_budget_usd=budget,
@@ -966,6 +979,7 @@ class AthenaAgentSession:
             env={
                 "CLAUDECODE": "",
             },
+            stderr=_sdk_stderr,
         )
         if disallowed:
             opts.disallowed_tools = disallowed
@@ -998,6 +1012,8 @@ class AthenaAgentSession:
                     break
 
                 if isinstance(msg, SystemMessage):
+                    logger.info("SDK SystemMessage [%s]: %s",
+                                msg.subtype, json.dumps(msg.data, default=str)[:500])
                     if msg.subtype == "init" and "session_id" in msg.data:
                         self.session_id = msg.data["session_id"]
                         logger.info("SDK session_id: %s", self.session_id)

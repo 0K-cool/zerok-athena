@@ -4342,28 +4342,32 @@
     .ctf-bar {
       display: none;
       padding: 8px 16px;
-      background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(59, 130, 246, 0.15));
-      border: 1px solid rgba(168, 85, 247, 0.3);
-      border-radius: 8px;
-      margin-bottom: 12px;
-      font-family: var(--font-mono);
+      background: color-mix(in srgb, var(--zerok-primary) 6%, var(--zerok-card));
+      border: 1px solid color-mix(in srgb, var(--zerok-primary) 30%, transparent);
+      border-radius: 0;
+      margin-bottom: 8px;
+      font-family: var(--zerok-font-mono);
     }
     .ctf-bar.active { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
     .ctf-bar-label {
-      font-size: 11px;
+      font-size: 9px;
       font-weight: 700;
-      letter-spacing: 0.5px;
-      color: var(--zerok-purple, #a855f7);
+      letter-spacing: 0.08em;
+      color: var(--zerok-primary);
       text-transform: uppercase;
+      padding: 2px 6px;
+      border: 1px solid color-mix(in srgb, var(--zerok-primary) 50%, transparent);
+      border-radius: 2px;
+      white-space: nowrap;
     }
     .ctf-score {
       font-size: 18px;
       font-weight: 700;
-      color: var(--zerok-primary);
+      color: var(--zerok-text);
     }
     .ctf-score-label {
       font-size: 10px;
-      color: var(--text-secondary);
+      color: var(--zerok-text-muted);
       text-transform: uppercase;
     }
     .ctf-stat {
@@ -4376,7 +4380,7 @@
       font-size: 14px;
       font-weight: 600;
       font-variant-numeric: tabular-nums;
-      color: var(--text-primary);
+      color: var(--zerok-text);
     }
     .ctf-timer.warning { color: var(--zerok-medium); }
     .ctf-timer.critical { color: var(--zerok-high); animation: pulse 1s ease-in-out infinite; }
@@ -5561,10 +5565,14 @@
         overflow: auto !important;
       }
 
-      /* Agent chips: smaller to fit grid */
+      /* Agent chips: squared proportions on 13" */
       .agent-chip, .layer-cell {
-        padding: 3px 6px !important;
+        padding: 14px 6px !important;
         font-size: 9px !important;
+      }
+      #agent-status-grid {
+        grid-template-rows: auto auto !important;
+        align-content: center !important;
       }
 
       /* Donut charts: scale down slightly */
@@ -6303,7 +6311,7 @@
         </div>
 
         <!-- Widget Row 2 -->
-        <div class="widget-grid" style="grid-template-columns: 0.8fr 1.2fr 1fr;">
+        <div class="widget-grid" style="grid-template-columns: 0.8fr 1fr 1fr;">
           <!-- Vulnerability Status Donut -->
           <div class="widget">
             <div class="widget-header">
@@ -9110,6 +9118,7 @@
           '<div class="timeline-card-meta">' +
             '<span class="tool-status-badge running" data-status-badge="' + toolId + '">Running...</span>' +
             '<span class="tool-timer running" data-timer="' + toolId + '">0s</span>' +
+            (time ? '<span class="event-time">' + time + '</span>' : '') +
             '<span class="timeline-card-chevron">&#9654;</span>' +
           '</div>' +
         '</div>' +
@@ -15503,7 +15512,8 @@
           <div class="modal-field">
             <label class="modal-label" for="new-eng-evidence-mode">Engagement Mode</label>
             <select id="new-eng-evidence-mode" style="background: var(--zerok-bg-alt); color: var(--zerok-text); border: 1px solid var(--zerok-border); border-radius: 4px; padding: 6px 10px; width: 100%; margin-top: 4px;">
-              <option value="exploitable">Autonomous (lab/CTF) — full AI autonomy, no HITL gates</option>
+              <option value="exploitable">Autonomous (lab) — full AI autonomy, no HITL gates</option>
+              <option value="ctf">CTF Mode — flag capture, scoring, time-limited challenges</option>
               <option value="observable">Supervised (client/production) — HITL approval for exploitation &amp; novel tools</option>
             </select>
           </div>

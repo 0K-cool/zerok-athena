@@ -9092,37 +9092,43 @@ async def start_engagement_ai(
         })
 
     # Map evidence_mode → agent autonomy mode
-    # "exploitable" (lab/CTF) → full autonomy (ctf mode)
+    # "exploitable" (lab) → full autonomy, no CTF scoring
+    # "ctf" → full autonomy + CTF scoring/timer
     # "observable" (client/production) → supervised (multi-agent with HITL)
-    if mode == "ctf":
+    if mode == "ctf" or evidence_mode == "ctf":
         is_ctf = True
+        mode = "ctf"
+        logger.info("Engagement mode: CTF — evidence_mode=%s", evidence_mode)
     elif evidence_mode == "exploitable":
-        is_ctf = True
-        mode = "ctf"  # Override: autonomous engagement mode
-        logger.info("Engagement mode: Autonomous (lab/CTF) — evidence_mode=%s", evidence_mode)
+        is_ctf = False
+        mode = "autonomous"
+        logger.info("Engagement mode: Autonomous (lab) — evidence_mode=%s", evidence_mode)
     else:
         is_ctf = False
         logger.info("Engagement mode: Supervised (client) — evidence_mode=%s", evidence_mode)
 
-    mode_label = "Autonomous" if is_ctf else "Supervised"
+    mode_label = "CTF" if is_ctf else ("Autonomous" if mode == "autonomous" else "Supervised")
+    is_autonomous = is_ctf or mode == "autonomous"
 
     scope_info = f" Scope document loaded ({len(scope_doc)} chars)." if scope_doc else " No scope document — using target URL constraints only."
+    if is_ctf:
+        mode_msg = f"CTF MODE activated against {target}. Full AI autonomy — no HITL gates. Flag auto-detection and scoring enabled."
+    elif mode == "autonomous":
+        mode_msg = f"AUTONOMOUS MODE activated against {target}. Full AI autonomy — no HITL gates.{scope_info}"
+    else:
+        mode_msg = f"SUPERVISED MODE activated. PTES phases 1-7 against {target}. HITL required for exploitation and novel tools.{scope_info}"
     await state.add_event(AgentEvent(
         id=str(uuid.uuid4())[:8],
         type="system",
         agent="ST",
-        content=(
-            f"AUTONOMOUS MODE activated against {target}. Full AI autonomy — no HITL gates. Flag auto-detection enabled."
-            if is_ctf else
-            f"SUPERVISED MODE activated. PTES phases 1-7 against {target}. HITL required for exploitation and novel tools.{scope_info}"
-        ),
+        content=mode_msg,
         timestamp=time.time(),
     ))
 
     await state.broadcast({
         "type": "engagement_started",
         "engagement_id": eid,
-        "mode": "ai-ctf" if is_ctf else "ai-multi-agent",
+        "mode": "ai-ctf" if is_ctf else ("ai-autonomous" if mode == "autonomous" else "ai-multi-agent"),
         "engagement_active": True,
         "timestamp": time.time(),
     })
@@ -9201,7 +9207,7 @@ Body: {{"agent":"AR","task":"Port scan and service enumeration against {target}"
         backend=backend,
         dashboard_state=state,
         athena_root=athena_dir,
-        mode=mode if is_ctf else "multi-agent",
+        mode=mode if is_ctf else ("autonomous" if is_autonomous else "multi-agent"),
     )
     _active_session_manager.set_event_callback(
         lambda evt: _sdk_event_to_dashboard(evt, eid)
@@ -9215,27 +9221,32 @@ Body: {{"agent":"AR","task":"Port scan and service enumeration against {target}"
             "error": f"Multi-agent session failed to start: {str(e)[:300]}"
         })
 
+    if is_ctf:
+        started_content = f"CTF session started. ST coordinating flag capture against {target}."
+        started_mode = "ai-ctf"
+        started_msg = f"CTF engagement started against {target}. ST coordinating flag capture."
+    elif is_autonomous:
+        started_content = f"Autonomous session started. ST coordinating against {target}. No HITL gates."
+        started_mode = "ai-autonomous"
+        started_msg = f"Autonomous engagement started against {target}. ST is coordinating."
+    else:
+        started_content = "Multi-agent session started. ST coordinating, workers on standby."
+        started_mode = "ai-multi-agent"
+        started_msg = f"Multi-agent engagement started against {target}. ST is coordinating."
+
     await state.add_event(AgentEvent(
         id=str(uuid.uuid4())[:8],
         type="system",
         agent="ST",
-        content=(
-            f"CTF session started. ST coordinating flag capture against {target}."
-            if is_ctf else
-            "Multi-agent session started. ST coordinating, workers on standby."
-        ),
+        content=started_content,
         timestamp=time.time(),
     ))
 
     return {
         "ok": True,
         "engagement_id": eid,
-        "mode": "ai-ctf" if is_ctf else "ai-multi-agent",
-        "message": (
-            f"CTF engagement started against {target}. ST coordinating flag capture."
-            if is_ctf else
-            f"Multi-agent engagement started against {target}. ST is coordinating."
-        ),
+        "mode": started_mode,
+        "message": started_msg,
     }
 
 
