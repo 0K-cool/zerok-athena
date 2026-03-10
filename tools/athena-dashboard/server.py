@@ -118,23 +118,14 @@ async def neo4j_exec(fn):
 # ──────────────────────────────────────────────
 
 class AgentCode(str, Enum):
-    PLANNING = "PL"
-    ORCHESTRATOR = "OR"
-    PASSIVE_OSINT = "PO"
     ACTIVE_RECON = "AR"
-    CVE_RESEARCHER = "CV"
-    ATTACK_PATH = "AP"
     WEB_VULN_SCANNER = "WV"
-    EXPLOIT_CRAFTER = "EC"
     EXPLOITATION = "EX"
     VERIFICATION = "VF"
     POST_EXPLOITATION = "PE"
-    DETECTION_VALIDATOR = "DV"
     REPORTING = "RP"
     # Phase E: Web App Testing & Attack Path Chaining
     JS_ANALYZER = "JS"
-    PARAM_DISCOVERY = "PD"
-    WEBAPP_FUZZER = "WA"
     AUTH_TESTER = "AT"
     API_ATTACKER = "AA"
     LATERAL_MOVER = "LM"
@@ -147,23 +138,14 @@ class AgentCode(str, Enum):
 
 
 AGENT_NAMES = {
-    "PL": "Planning Agent",
-    "OR": "Orchestrator",
-    "PO": "Passive OSINT",
     "AR": "Active Recon",
-    "CV": "CVE Researcher",
-    "AP": "Attack Path Analyzer",
     "WV": "Web Vuln Scanner",
-    "EC": "Exploit Crafter",
     "EX": "Exploitation",
     "VF": "Verification",
     "PE": "Post-Exploitation",
-    "DV": "Detection Validator",
     "RP": "Reporting",
     # Phase E
     "JS": "JS Analyzer",
-    "PD": "Param Discovery",
-    "WA": "Web App Fuzzer",
     "AT": "Auth Tester",
     "AA": "API Attacker",
     "LM": "Lateral Mover",
@@ -176,11 +158,10 @@ AGENT_NAMES = {
 }
 
 AGENT_PTES_PHASE = {
-    "PL": 1, "OR": 0, "PO": 2, "AR": 2,
-    "CV": 3, "AP": 3, "WV": 4, "EC": 4,
-    "EX": 5, "VF": 5, "PE": 6, "DV": 6, "RP": 7,
+    "AR": 2, "WV": 4,
+    "EX": 5, "VF": 5, "PE": 6, "RP": 7,
     # Phase E
-    "JS": 2, "PD": 4, "WA": 4, "AT": 4, "AA": 5, "LM": 6,
+    "JS": 2, "AT": 4, "AA": 5, "LM": 6,
     # Phase F: Cross-phase (runs at phase gates)
     "ST": 0,
     # Phase F: Source Code Analyst (vuln analysis phase)
@@ -788,8 +769,8 @@ async def websocket_endpoint(ws: WebSocket):
                     else:
                         await state.broadcast({
                             "type": "operator_response",
-                            "agent": "OR",
-                            "agentName": AGENT_NAMES.get("OR", "Orchestrator"),
+                            "agent": "ST",
+                            "agentName": AGENT_NAMES.get("ST", "Strategy"),
                             "content": "No active AI engagement. Start one from the dashboard.",
                             "timestamp": time.time(),
                         })
@@ -924,13 +905,13 @@ class AgentMessagePayload(BaseModel):
 # Communication rules: who can message whom and for what
 AGENT_COMM_RULES: dict[str, list[str]] = {
     # Event → allowed recipients
-    "discovery":      ["CV", "WV", "AP", "SC", "ST"],  # Recon agents → vuln + code + strategy
-    "vulnerability":  ["EX", "EC", "VF", "ST"],        # Vuln agents → exploit + verify + strategy
+    "discovery":      ["WV", "DA", "SC", "ST"],        # Recon agents → vuln + deep analysis + code + strategy
+    "vulnerability":  ["EX", "VF", "ST"],              # Vuln agents → exploit + verify + strategy
     "credential":     ["PE", "LM", "ST"],              # Exploit → post-exploit + strategy
     "verification":   ["ST", "RP"],                    # Verify → strategy + report
     "strategy":       list(AGENT_NAMES.keys()),        # Strategy → anyone
-    "pivot":          ["PO", "AR", "WV", "SC", "ST"],  # PostExploit → recon + code + strategy
-    "code_finding":   ["VF", "EX", "EC", "ST"],        # SC → verify + exploit + strategy
+    "pivot":          ["AR", "WV", "SC", "ST"],        # PostExploit → recon + code + strategy
+    "code_finding":   ["VF", "EX", "ST"],              # SC → verify + exploit + strategy
 }
 
 # Rate limit: max messages per agent per engagement phase
@@ -2622,13 +2603,13 @@ CTF_EARLY_STOP_THRESHOLD = 40
 
 # Category-specific agent assignments
 CTF_CATEGORY_AGENTS: dict[str, list[str]] = {
-    "web":       ["WV", "JS", "AT", "AA", "EC", "EX"],
-    "crypto":    ["SC", "EC", "EX"],
-    "forensics": ["PO", "SC", "AR"],
-    "reverse":   ["SC", "EC"],
-    "pwnable":   ["EC", "EX", "SC"],
-    "misc":      ["PO", "AR", "SC", "EC"],
-    "osint":     ["PO", "AR"],
+    "web":       ["WV", "JS", "AT", "AA", "EX"],
+    "crypto":    ["SC", "DA", "EX"],
+    "forensics": ["AR", "SC", "DA"],
+    "reverse":   ["SC", "DA"],
+    "pwnable":   ["EX", "DA", "SC"],
+    "misc":      ["AR", "SC", "DA"],
+    "osint":     ["AR"],
 }
 
 # Challenge auto-classification keywords
@@ -2804,8 +2785,8 @@ async def add_ctf_challenge(challenge: CTFChallenge):
     _ctf_session["total_points"] += challenge.points
 
     # Auto-assign primary agent based on category
-    agents = CTF_CATEGORY_AGENTS.get(challenge.category.value, ["EC"])
-    ch["assigned_agent"] = agents[0] if agents else "EC"
+    agents = CTF_CATEGORY_AGENTS.get(challenge.category.value, ["DA"])
+    ch["assigned_agent"] = agents[0] if agents else "DA"
 
     await _emit("system", "ST",
         f"Challenge added: [{challenge.category.value.upper()}] {challenge.name} "
@@ -2838,8 +2819,8 @@ async def add_ctf_challenges_batch(challenges: list[CTFChallenge]):
 
         ch = challenge.model_dump()
         ch["tool_calls"] = 0
-        agents = CTF_CATEGORY_AGENTS.get(challenge.category.value, ["EC"])
-        ch["assigned_agent"] = agents[0] if agents else "EC"
+        agents = CTF_CATEGORY_AGENTS.get(challenge.category.value, ["DA"])
+        ch["assigned_agent"] = agents[0] if agents else "DA"
         _ctf_session["challenges"][challenge.id] = ch
         _ctf_session["total_points"] += challenge.points
         added.append({"id": challenge.id, "assigned_agent": ch["assigned_agent"]})
@@ -3177,8 +3158,8 @@ async def load_benchmark(file_path: str, engagement_id: str = "eng-001"):
 
         ch_dict = challenge.model_dump()
         ch_dict["tool_calls"] = 0
-        agents = CTF_CATEGORY_AGENTS.get(category, ["EC"])
-        ch_dict["assigned_agent"] = agents[0] if agents else "EC"
+        agents = CTF_CATEGORY_AGENTS.get(category, ["DA"])
+        ch_dict["assigned_agent"] = agents[0] if agents else "DA"
         _ctf_session["challenges"][ch_id] = ch_dict
         _ctf_session["total_points"] += points
         loaded.append({"id": ch_id, "name": ch_name, "difficulty": difficulty,
@@ -3257,36 +3238,29 @@ AGENT_BUDGETS: dict[str, dict] = {
     # limits only prevent a single runaway agent from burning the whole budget.
     # Observed: Sonnet ~$0.008/call, Opus ~$0.04/call. At 200 Sonnet calls = $1.60.
     #
+    # Strategy — Opus coordinator, lots of Neo4j queries + reasoning
+    "ST": {"max_tool_calls": 200, "max_cost": 6.00, "label": "Strategy"},
     # Recon agents — broad scanning (nmap, httpx, gobuster, etc.)
-    "PO": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Passive OSINT"},
     "AR": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Active Recon"},
     # Vuln analysis — moderate scanning + Neo4j queries
-    "CV": {"max_tool_calls": 150, "max_cost": 2.50, "label": "CVE Researcher"},
-    "AP": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Attack Path"},
     "WV": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Web Vuln Scanner"},
     "SC": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Source Code Analyst"},
+    # Deep analysis — 0-day hunting
+    "DA": {"max_tool_calls": 150, "max_cost": 4.00, "label": "Deep Analysis"},
+    "PX": {"max_tool_calls": 150, "max_cost": 3.00, "label": "Probe Executor"},
     # Exploitation — higher per-call cost (Opus reasoning)
-    "EC": {"max_tool_calls": 150, "max_cost": 4.00, "label": "Exploit Crafter"},
     "EX": {"max_tool_calls": 150, "max_cost": 4.00, "label": "Exploitation"},
     # Verification — focused re-testing
     "VF": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Verification"},
     # Post-exploitation — depends on access
     "PE": {"max_tool_calls": 150, "max_cost": 3.00, "label": "Post-Exploitation"},
     "LM": {"max_tool_calls": 150, "max_cost": 3.00, "label": "Lateral Mover"},
-    # Strategy — Opus coordinator, lots of Neo4j queries + reasoning
-    "ST": {"max_tool_calls": 200, "max_cost": 6.00, "label": "Strategy"},
     # Reporting — writing-heavy (Opus)
     "RP": {"max_tool_calls": 100, "max_cost": 4.00, "label": "Reporting"},
     # Web app testing agents
     "JS": {"max_tool_calls": 150, "max_cost": 2.50, "label": "JS Analyzer"},
-    "PD": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Param Discovery"},
-    "WA": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Web App Fuzzer"},
     "AT": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Auth Tester"},
     "AA": {"max_tool_calls": 150, "max_cost": 2.50, "label": "API Attacker"},
-    "DV": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Detection Validator"},
-    # Management agents — coordination headroom (OR makes many small polling calls)
-    "PL": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Planning"},
-    "OR": {"max_tool_calls": 500, "max_cost": 6.00, "label": "Orchestrator"},
 }
 
 # Default budget for unlisted agents
@@ -3302,7 +3276,7 @@ PRICING = {
     "sonnet": {"input": 3.0, "output": 15.0},
     "opus":   {"input": 15.0, "output": 75.0},
 }
-OPUS_AGENTS = {"ST", "EC", "EX", "RP"}  # Agents that use Opus
+OPUS_AGENTS = {"ST", "EX", "RP"}  # Agents that use Opus
 
 # In-memory budget tracking: agent_code → {tool_calls, estimated_cost, findings}
 _agent_budgets: dict[str, dict] = {}
@@ -7323,14 +7297,14 @@ def _synthesize_events_from_neo4j(eid: str) -> list[AgentEvent]:
                 else:
                     start_ts = time.time() - 3600  # fallback: 1hr ago
                 events.append(AgentEvent(
-                    id=f"synth-eng-{eid[:8]}", type="system", agent="OR",
+                    id=f"synth-eng-{eid[:8]}", type="system", agent="ST",
                     content=f"Engagement started: {rec.get('name', eid)} — Target: {rec.get('scope', 'N/A')}",
                     timestamp=start_ts,
                     metadata={"engagement": eid, "synthesized": True}
                 ))
                 # Planning agent event
                 events.append(AgentEvent(
-                    id=f"synth-pl-{eid[:8]}", type="agent_status", agent="PL",
+                    id=f"synth-st-{eid[:8]}", type="agent_status", agent="ST",
                     content="Authorization validated, scope confirmed",
                     timestamp=start_ts + 1,
                     metadata={"engagement": eid, "synthesized": True}
@@ -7405,7 +7379,7 @@ def _synthesize_events_from_neo4j(eid: str) -> list[AgentEvent]:
             for rec in result:
                 ts = rec.get("ts") or time.time()
                 events.append(AgentEvent(
-                    id=f"synth-ap-{rec.get('id', '')[:8]}", type="attack_chain", agent="AP",
+                    id=f"synth-da-{rec.get('id', '')[:8]}", type="attack_chain", agent="DA",
                     content=f"Attack chain identified: {rec.get('title', 'Unknown')}",
                     timestamp=ts,
                     metadata={"engagement": eid, "severity": rec.get("severity", "critical"), "synthesized": True}
@@ -8302,22 +8276,18 @@ def _get_framework_instructions(client_industry: str) -> str:
 
     # Agent code → PTES phase mapping for Scan Coverage tracking
 _AGENT_TO_PHASE = {
-    "PL": "PLANNING",
-    "PO": "INTELLIGENCE GATHERING",
+    "ST": "PLANNING",
     "AR": "INTELLIGENCE GATHERING",
-    "CV": "VULNERABILITY ANALYSIS",
-    "AP": "THREAT MODELING",
     "WV": "WEB APP TESTING",
     "JS": "WEB APP TESTING",
-    "PD": "WEB APP TESTING",
-    "WA": "WEB APP TESTING",
     "AT": "WEB APP TESTING",
     "AA": "WEB APP TESTING",
-    "EC": "EXPLOITATION",
+    "SC": "VULNERABILITY ANALYSIS",
+    "DA": "VULNERABILITY ANALYSIS",
+    "PX": "VULNERABILITY ANALYSIS",
     "EX": "EXPLOITATION",
     "VF": "EXPLOITATION",
     "PE": "POST-EXPLOITATION",
-    "DV": "POST-EXPLOITATION",
     "LM": "LATERAL MOVEMENT",
     "RP": "REPORTING",
 }
@@ -8928,7 +8898,7 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
 
         # BUG-010/004 fix: For exploit/verification agents, bypass debounce to sync
         # findings faster — enables VF to queue earlier while EX is still running
-        if agent_code in ("EX", "EC", "VF") and "create_" in tool_name:
+        if agent_code in ("EX", "DA", "VF") and "create_" in tool_name:
             global _last_findings_sync
             _last_findings_sync = 0.0  # Reset debounce for immediate sync
 
@@ -9683,62 +9653,60 @@ async def _run_demo_scenario():
     # ── Phase 1: PLANNING ──
     if not await _demo_checkpoint(): return
     await _emit_phase("PLANNING")
-    await state.update_agent_status("PL", AgentStatus.RUNNING, "Validating authorization")
-    await _emit_thinking("PL",
+    await state.update_agent_status("ST", AgentStatus.RUNNING, "Validating authorization")
+    await _emit_thinking("ST",
         thought="Need to validate Rules of Engagement before any scanning begins.",
         reasoning="Authorization is the first step in PTES methodology. Without confirmed scope, all subsequent scanning could be unauthorized.",
         action="validate_roe")
     await asyncio.sleep(2)
 
-    pl_tool = str(uuid.uuid4())[:8]
-    await _emit_tool_start("PL", "Validating authorization scope...", "roe_validator", pl_tool)
+    st_tool = str(uuid.uuid4())[:8]
+    await _emit_tool_start("ST", "Validating authorization scope...", "roe_validator", st_tool)
     await asyncio.sleep(0.5)
-    await _emit_chunk("PL", pl_tool, "Loading Rules of Engagement document...\n")
+    await _emit_chunk("ST", st_tool, "Loading Rules of Engagement document...\n")
     await asyncio.sleep(0.3)
-    await _emit_chunk("PL", pl_tool, "Scope: *.acme.com, 10.0.0.0/24\n")
+    await _emit_chunk("ST", st_tool, "Scope: *.acme.com, 10.0.0.0/24\n")
     await asyncio.sleep(0.3)
-    await _emit_chunk("PL", pl_tool, "Excluded: mail.acme.com, 10.0.0.1 (prod gateway)\n")
+    await _emit_chunk("ST", st_tool, "Excluded: mail.acme.com, 10.0.0.1 (prod gateway)\n")
     await asyncio.sleep(0.3)
-    await _emit_chunk("PL", pl_tool, "Authorization: SIGNED — Valid through 2026-03-15\n")
-    await _emit_tool_complete("PL", "Authorization validated. Scope: *.acme.com, 10.0.0.0/24", pl_tool)
-    await state.update_agent_status("PL", AgentStatus.COMPLETED)
+    await _emit_chunk("ST", st_tool, "Authorization: SIGNED — Valid through 2026-03-15\n")
+    await _emit_tool_complete("ST", "Authorization validated. Scope: *.acme.com, 10.0.0.0/24", st_tool)
     await asyncio.sleep(1)
 
     # ── Phase 2: INTELLIGENCE GATHERING ──
     if not await _demo_checkpoint(): return
     await _emit_phase("INTELLIGENCE GATHERING")
-    await state.update_agent_status("OR", AgentStatus.RUNNING, "Dispatching recon agents")
-    await _emit_thinking("OR",
+    await _emit_thinking("ST",
         thought="Target scope validated. Time to dispatch recon agents in parallel.",
-        reasoning="Running Passive OSINT and Active Recon simultaneously maximizes coverage while minimizing elapsed time.",
+        reasoning="Running Active Recon with broad and deep scanning simultaneously maximizes coverage while minimizing elapsed time.",
         action="dispatch_agents")
     await asyncio.sleep(1.5)
 
-    # Passive OSINT
-    await state.update_agent_status("PO", AgentStatus.RUNNING, "Historical URL discovery")
-    await _emit_thinking("PO",
+    # Active Recon — historical URL discovery
+    await state.update_agent_status("AR", AgentStatus.RUNNING, "Historical URL discovery")
+    await _emit_thinking("AR",
         thought="Starting passive reconnaissance against acme.com.",
         reasoning="GAU + Wayback Machine will reveal historical endpoints without touching the target directly.")
 
-    po_tool = str(uuid.uuid4())[:8]
-    await _emit_tool_start("PO", "Running GAU against acme.com...", "gau_discover", po_tool)
+    ar_gau_tool = str(uuid.uuid4())[:8]
+    await _emit_tool_start("AR", "Running GAU against acme.com...", "gau_discover", ar_gau_tool)
     await asyncio.sleep(0.5)
-    await _emit_chunk("PO", po_tool, "Fetching from Wayback Machine...\n")
+    await _emit_chunk("AR", ar_gau_tool, "Fetching from Wayback Machine...\n")
     await asyncio.sleep(0.4)
-    await _emit_chunk("PO", po_tool, "  [+] 1,247 URLs from web.archive.org\n")
+    await _emit_chunk("AR", ar_gau_tool, "  [+] 1,247 URLs from web.archive.org\n")
     await asyncio.sleep(0.3)
-    await _emit_chunk("PO", po_tool, "Fetching from Common Crawl...\n")
+    await _emit_chunk("AR", ar_gau_tool, "Fetching from Common Crawl...\n")
     await asyncio.sleep(0.4)
-    await _emit_chunk("PO", po_tool, "  [+] 892 URLs from commoncrawl.org\n")
+    await _emit_chunk("AR", ar_gau_tool, "  [+] 892 URLs from commoncrawl.org\n")
     await asyncio.sleep(0.3)
-    await _emit_chunk("PO", po_tool, "Fetching from AlienVault OTX...\n")
+    await _emit_chunk("AR", ar_gau_tool, "Fetching from AlienVault OTX...\n")
     await asyncio.sleep(0.3)
-    await _emit_chunk("PO", po_tool, "  [+] 708 URLs from otx.alienvault.com\n")
+    await _emit_chunk("AR", ar_gau_tool, "  [+] 708 URLs from otx.alienvault.com\n")
     await asyncio.sleep(0.3)
-    await _emit_chunk("PO", po_tool, "\nTotal: 2,847 unique URLs\n")
+    await _emit_chunk("AR", ar_gau_tool, "\nTotal: 2,847 unique URLs\n")
     await asyncio.sleep(0.2)
-    await _emit_chunk("PO", po_tool, "  API endpoints: 23\n  Admin paths: 8\n  Login forms: 3\n")
-    await _emit_tool_complete("PO", "GAU found 2,847 historical URLs. 23 API endpoints, 8 admin paths.", po_tool)
+    await _emit_chunk("AR", ar_gau_tool, "  API endpoints: 23\n  Admin paths: 8\n  Login forms: 3\n")
+    await _emit_tool_complete("AR", "GAU found 2,847 historical URLs. 23 API endpoints, 8 admin paths.", ar_gau_tool)
     await asyncio.sleep(0.5)
 
     # Active Recon — Naabu (streaming)
@@ -9804,47 +9772,46 @@ async def _run_demo_scenario():
     await _emit_tool_complete("AR", "Httpx identified 89 web services. WordPress: 3, React SPA: 5, API: 12.", httpx_id)
     await _emit_stats(hosts=156, services=89)
 
-    await state.update_agent_status("PO", AgentStatus.COMPLETED)
     await state.update_agent_status("AR", AgentStatus.COMPLETED)
     await asyncio.sleep(1)
 
     # ── Phase 3: THREAT MODELING ──
     if not await _demo_checkpoint(): return
     await _emit_phase("THREAT MODELING")
-    await state.update_agent_status("CV", AgentStatus.RUNNING, "CVE database queries")
-    await _emit_thinking("CV",
+    await state.update_agent_status("DA", AgentStatus.RUNNING, "CVE database queries")
+    await _emit_thinking("DA",
         thought="Cross-referencing detected technologies with vulnerability databases.",
         reasoning="Apache Struts 2.5 and WordPress 6.4 are priority targets. Need to check NVD, Exploit-DB, and CISA KEV for known exploits.",
         action="query_nvd")
     await asyncio.sleep(3)
 
-    cv_tool = str(uuid.uuid4())[:8]
-    await _emit_tool_start("CV", "Querying NVD, Exploit-DB, CISA KEV...", "cve_lookup", cv_tool)
+    da_tool = str(uuid.uuid4())[:8]
+    await _emit_tool_start("DA", "Querying NVD, Exploit-DB, CISA KEV...", "cve_lookup", da_tool)
     await asyncio.sleep(0.4)
-    await _emit_chunk("CV", cv_tool, "[NVD] Querying Apache Struts 2.5.x...\n")
+    await _emit_chunk("DA", da_tool, "[NVD] Querying Apache Struts 2.5.x...\n")
     await asyncio.sleep(0.5)
-    await _emit_chunk("CV", cv_tool, "  CVE-2026-21345 CVSS:10.0 — RCE via OGNL injection [CISA KEV]\n")
+    await _emit_chunk("DA", da_tool, "  CVE-2026-21345 CVSS:10.0 — RCE via OGNL injection [CISA KEV]\n")
     await asyncio.sleep(0.4)
-    await _emit_chunk("CV", cv_tool, "  CVE-2025-48901 CVSS:9.1 — Auth bypass [CISA KEV]\n")
+    await _emit_chunk("DA", da_tool, "  CVE-2025-48901 CVSS:9.1 — Auth bypass [CISA KEV]\n")
     await asyncio.sleep(0.4)
-    await _emit_chunk("CV", cv_tool, "[NVD] Querying WordPress 6.4...\n")
+    await _emit_chunk("DA", da_tool, "[NVD] Querying WordPress 6.4...\n")
     await asyncio.sleep(0.4)
-    await _emit_chunk("CV", cv_tool, "  CVE-2026-10234 CVSS:7.5 — SQLi in REST API\n")
+    await _emit_chunk("DA", da_tool, "  CVE-2026-10234 CVSS:7.5 — SQLi in REST API\n")
     await asyncio.sleep(0.3)
-    await _emit_chunk("CV", cv_tool, "\n[CISA KEV] 3 actively exploited CVEs found\n")
-    await _emit_tool_complete("CV", "Found 8 critical CVEs. 3 in CISA KEV. CVE-2026-21345 (Struts RCE) high priority.", cv_tool)
-    await state.update_agent_status("CV", AgentStatus.COMPLETED)
+    await _emit_chunk("DA", da_tool, "\n[CISA KEV] 3 actively exploited CVEs found\n")
+    await _emit_tool_complete("DA", "Found 8 critical CVEs. 3 in CISA KEV. CVE-2026-21345 (Struts RCE) high priority.", da_tool)
+    await state.update_agent_status("DA", AgentStatus.COMPLETED)
     await asyncio.sleep(0.5)
 
-    # Attack Path Analyzer — graph-based kill chain discovery
-    await state.update_agent_status("AP", AgentStatus.RUNNING, "Building attack graph")
-    await _emit_thinking("AP",
+    # Deep Analysis — graph-based kill chain discovery
+    await state.update_agent_status("DA", AgentStatus.RUNNING, "Building attack graph")
+    await _emit_thinking("DA",
         thought="Constructing multi-step attack paths from CVE data and network topology.",
         reasoning="8 CVEs across 156 hosts create multiple kill chains. Need to identify paths from external-facing services to high-value targets (databases, AD controllers).",
         action="analyze_attack_paths")
     await asyncio.sleep(2)
-    await _emit("agent_complete", "AP", "3 critical attack paths identified. Priority: Struts RCE → lateral movement → DB compromise.")
-    await state.update_agent_status("AP", AgentStatus.COMPLETED)
+    await _emit("agent_complete", "DA", "3 critical attack paths identified. Priority: Struts RCE → lateral movement → DB compromise.")
+    await state.update_agent_status("DA", AgentStatus.COMPLETED)
     await asyncio.sleep(1)
 
     # ── Phase 4: VULNERABILITY ANALYSIS ──
@@ -9940,14 +9907,14 @@ async def _run_demo_scenario():
     await state.update_agent_status("WV", AgentStatus.COMPLETED)
     await asyncio.sleep(0.5)
 
-    # Exploit Crafter — custom payload generation for unmatched vulns
-    await state.update_agent_status("EC", AgentStatus.RUNNING, "Crafting custom payloads")
-    await _emit_thinking("EC",
+    # Deep Analysis — custom payload generation for unmatched vulns
+    await state.update_agent_status("DA", AgentStatus.RUNNING, "Crafting custom payloads")
+    await _emit_thinking("DA",
         thought="Nuclei confirmed standard CVEs. Checking for edge cases where no pre-built exploit exists.",
         reasoning="The CORS misconfiguration + missing CSP combo could allow chained exploitation. Crafting a custom XSS-to-CSRF payload for the admin panel.")
     await asyncio.sleep(2.5)
-    await _emit("agent_complete", "EC", "Custom payload crafted: chained XSS→CSRF for admin panel. Ready for exploitation phase.")
-    await state.update_agent_status("EC", AgentStatus.COMPLETED)
+    await _emit("agent_complete", "DA", "Custom payload crafted: chained XSS→CSRF for admin panel. Ready for exploitation phase.")
+    await state.update_agent_status("DA", AgentStatus.COMPLETED)
     await asyncio.sleep(1)
 
     # ── Phase 5: EXPLOITATION ── (HITL required)
@@ -10046,14 +10013,14 @@ async def _run_demo_scenario():
     await state.update_agent_status("PE", AgentStatus.COMPLETED)
     await asyncio.sleep(0.5)
 
-    # Detection Validator — purple team detection coverage
-    await state.update_agent_status("DV", AgentStatus.RUNNING, "Checking detection coverage")
-    await _emit_thinking("DV",
+    # Verification — purple team detection coverage
+    await state.update_agent_status("VF", AgentStatus.RUNNING, "Checking detection coverage")
+    await _emit_thinking("VF",
         thought="Querying client SIEM/EDR for detection of exploitation and post-exploitation activity.",
         reasoning="Need to determine if the SQLi exploitation, lateral movement simulation, and UDF escalation attempts triggered any alerts. Undetected activity is often the most critical finding for the client.")
     await asyncio.sleep(2.5)
-    await _emit("agent_complete", "DV", "Detection gaps: SQLi exploitation UNDETECTED by WAF. Lateral movement triggered 1 of 3 EDR rules. UDF escalation UNDETECTED.")
-    await state.update_agent_status("DV", AgentStatus.COMPLETED)
+    await _emit("agent_complete", "VF", "Detection gaps: SQLi exploitation UNDETECTED by WAF. Lateral movement triggered 1 of 3 EDR rules. UDF escalation UNDETECTED.")
+    await state.update_agent_status("VF", AgentStatus.COMPLETED)
     await asyncio.sleep(1)
 
     # ── Phase 7: REPORTING ──
@@ -10077,7 +10044,7 @@ async def _run_demo_scenario():
     await _emit_chunk("RP", rp_tool, "Report saved: acme-corp-external-2026-02-18.pdf\n")
     await _emit_tool_complete("RP", "Report generated: 2 critical, 1 high, 4 medium findings. Executive summary + technical detail + remediation roadmap.", rp_tool)
     await state.update_agent_status("RP", AgentStatus.COMPLETED)
-    await state.update_agent_status("OR", AgentStatus.COMPLETED, "Engagement complete")
+    await state.update_agent_status("ST", AgentStatus.COMPLETED, "Engagement complete")
 
     await _emit_phase("COMPLETE")
     await _emit("system", "OR", "Acme Corp External engagement completed. All 13 agents finished. Report ready for review.")
@@ -10105,14 +10072,14 @@ async def _handle_multi_agent_operator_command(cmd_text: str):
     except Exception as e:
         err_content = f"Error forwarding command: {str(e)[:200]}"
         await state.add_event(AgentEvent(
-            id=str(uuid.uuid4()), type="operator_response", agent="OR",
+            id=str(uuid.uuid4()), type="operator_response", agent="ST",
             content=err_content, timestamp=time.time(),
-            metadata={"agent_name": AGENT_NAMES.get("OR", "Orchestrator"), "engagement": state.active_engagement_id or ""},
+            metadata={"agent_name": AGENT_NAMES.get("ST", "Strategy"), "engagement": state.active_engagement_id or ""},
         ))
         await state.broadcast({
             "type": "operator_response",
-            "agent": "OR",
-            "agentName": AGENT_NAMES.get("OR", "Orchestrator"),
+            "agent": "ST",
+            "agentName": AGENT_NAMES.get("ST", "Strategy"),
             "content": err_content,
             "timestamp": time.time(),
         })
@@ -10267,8 +10234,8 @@ async def _emit_system(message: str):
     await state.broadcast({
         "type": "system",
         "content": message,
-        "agent": "OR",
-        "agentName": "Orchestrator",
+        "agent": "ST",
+        "agentName": "Strategy",
         "timestamp": time.time(),
     })
 
