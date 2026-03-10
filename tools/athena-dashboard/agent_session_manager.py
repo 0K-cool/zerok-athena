@@ -312,6 +312,8 @@ class AgentSessionManager:
         self._pending_rp_request: dict | None = None
         # F5: Budget-exhausted agents pending early-stop
         self._early_stop_queue: set[str] = set()
+        # BUG-028: Commands queued while ST is dead (survives re-spawns)
+        self._pending_commands: list[str] = []
         # Phase G: Per-agent workspace isolation
         self._workspace_manager = WorkspaceManager(engagement_id, self.athena_root)
         # H3: Langfuse observability
@@ -488,7 +490,12 @@ class AgentSessionManager:
         st = self.agents.get("ST")
         if st and st.is_running:
             return await st.send_command(command)
-        return "Error: Strategy Agent (ST) is not running."
+        # BUG-028: ST is not running — queue the command for delivery on re-spawn
+        self._pending_commands.append(command)
+        await self._emit("system", "OR",
+            f"ST not running — command queued for delivery on re-spawn.",
+            {"queued_command": True})
+        return "Command queued — ST will receive it on re-spawn."
 
     def signal_early_stop(self, agent_code: str):
         """Signal that an agent should be stopped due to budget exhaustion.
@@ -648,6 +655,19 @@ class AgentSessionManager:
                     logger.info(
                         "ST not running when %s early-stopped — re-spawning ST",
                         code)
+                    # BUG-027 fix: Preserve old ST session cost before overwrite.
+                    # _spawn_agent sets self.agents["ST"] to a fresh session,
+                    # losing the previous session's accumulated cost. Capture it
+                    # now so the engagement total doesn't drop on re-spawn.
+                    old_st = self.agents.get("ST")
+                    if old_st and "ST" not in self._cost_aggregated:
+                        old_st_cost = old_st._total_cost_usd
+                        if old_st_cost > 0:
+                            self.total_cost_usd += old_st_cost
+                            self._cost_aggregated.add("ST")
+                            logger.info(
+                                "BUG-027: Preserved old ST cost $%.4f before re-spawn",
+                                old_st_cost)
                     await self._spawn_agent(
                         "ST",
                         task_prompt=(
@@ -840,6 +860,16 @@ class AgentSessionManager:
                 {"status": "running"})
             logger.info("Spawned agent %s (%s) — model=%s, budget=$%.2f",
                         code, role.name, role.model, role.max_cost_usd)
+            # BUG-028: Drain any commands that arrived while ST was dead
+            if code == "ST" and self._pending_commands:
+                pending_count = len(self._pending_commands)
+                for cmd in self._pending_commands:
+                    await session.send_command(cmd)
+                logger.info("Delivered %d pending command(s) to re-spawned ST", pending_count)
+                await self._emit("system", "OR",
+                    f"Delivered {pending_count} queued operator command(s) to ST.",
+                    {"pending_commands_delivered": pending_count})
+                self._pending_commands.clear()
         except Exception as e:
             logger.exception("Failed to spawn agent %s", code)
             await self._emit("system", "OR",

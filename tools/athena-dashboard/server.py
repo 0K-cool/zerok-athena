@@ -3312,14 +3312,21 @@ async def record_budget_tool_call(agent: str, finding: bool = False):
 
     Called by the SDK event handler on each tool_complete.
     Returns budget status including early-stop signal.
-    """
-    global _engagement_cost
 
+    BUG-027: No longer increments _engagement_cost with estimates.
+    Estimates are still accumulated in budget["estimated_cost"] for
+    early-stop detection only (actual cost arrives slower, once per
+    query turn via /api/budget/actual-cost). The displayed engagement
+    total is derived from actual costs only.
+    """
+    global _engagement_cost  # read-only here — needed for response/broadcast
     budget = _get_agent_budget(agent)
     budget["tool_calls"] += 1
     cost = _estimate_tool_cost(agent)
     budget["estimated_cost"] += cost
-    _engagement_cost += cost
+    # NOTE: Do NOT touch _engagement_cost here. Estimates competing with
+    # actual costs caused oscillation (BUG-027). _engagement_cost is now
+    # the sum of per-agent actual costs only, updated in report_actual_cost.
 
     if finding:
         budget["findings_count"] += 1
@@ -3407,12 +3414,17 @@ async def report_actual_cost(agent: str, cost_usd: float):
 
     budget = _get_agent_budget(agent)
 
-    # Replace estimated cost with actual — delta can be negative when actual < estimated
-    cost_delta = cost_usd - budget["estimated_cost"]
-    budget["estimated_cost"] = cost_usd
-    _engagement_cost = max(0, _engagement_cost + cost_delta)
-
+    # BUG-027: Store actual cost per agent. Do NOT touch estimated_cost —
+    # it is used exclusively for early-stop detection in tool-call endpoint.
+    # _engagement_cost is now the authoritative sum of all agents' latest
+    # actual costs. No delta math — recalculate from scratch to avoid drift.
     budget["actual_cost"] = cost_usd
+
+    # Recompute engagement total as sum of all per-agent actual costs.
+    # Agents that have no actual_cost yet contribute 0 (not their estimate).
+    _engagement_cost = sum(
+        b.get("actual_cost", 0.0) for b in _agent_budgets.values()
+    )
 
     # Re-check budget thresholds with actual cost
     pct_cost = cost_usd / budget["max_cost"] * 100 if budget["max_cost"] > 0 else 0
@@ -3596,9 +3608,11 @@ async def get_engagement_budget(engagement_id: str = ""):
     """Get engagement-level cost summary with efficiency metrics."""
     global _engagement_cost
     active = {k: v for k, v in _agent_budgets.items() if v["tool_calls"] > 0}
-    # Use _engagement_cost (includes SDK actual costs from report_actual_cost)
-    # as primary; fall back to agent budget sum only if higher
-    agent_sum = sum(b.get("actual_cost", b["estimated_cost"]) for b in active.values())
+    # BUG-027: Use actual costs only. _engagement_cost is kept in sync as the
+    # sum of per-agent actual costs (updated in report_actual_cost). Agents
+    # that haven't reported an actual cost yet contribute 0 — not their
+    # estimates — so the total can only monotonically increase.
+    agent_sum = sum(b.get("actual_cost", 0.0) for b in active.values())
     total_cost = max(_engagement_cost, agent_sum)
     # Restore from Neo4j if in-memory is zero (server restart scenario)
     if total_cost == 0 and neo4j_available and neo4j_driver:
@@ -8416,6 +8430,20 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
         # Sync findings when an agent completes (all findings should be written)
         if status_str == "completed":
             await _sync_neo4j_findings(eid)
+            # BUG-022 fix: Mark any "running" scans for this agent as completed
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for scan in state.scans:
+                if (scan.get("status") == "running" and
+                        scan.get("agent") == agent_code and
+                        scan.get("engagement_id") == eid):
+                    scan["status"] = "completed"
+                    if not scan.get("completed_at"):
+                        scan["completed_at"] = now_iso
+                    await state.broadcast({
+                        "type": "scan_complete",
+                        "scan": scan,
+                        "timestamp": time.time(),
+                    })
 
         # BUG-005 fix: Inject pending bilateral messages when agent starts running
         if status_str == "running" and agent_code in _pending_bilateral_messages:
