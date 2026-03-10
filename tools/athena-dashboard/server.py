@@ -9004,6 +9004,7 @@ async def start_engagement_ai(
     scope_doc = ""
     client_industry = "general"
     engagement_types = ["external"]  # default
+    evidence_mode = "observable"  # default to supervised (HITL gates)
     if not target:
         eng = next((e for e in state.engagements if e.id == eid), None)
         if eng:
@@ -9012,7 +9013,7 @@ async def start_engagement_ai(
             try:
                 with neo4j_driver.session() as session:
                     result = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.target AS target, e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types, e.budget AS budget",
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.target AS target, e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types, e.budget AS budget, e.evidence_mode AS evidence_mode",
                         eid=eid,
                     )
                     record = result.single()
@@ -9030,6 +9031,8 @@ async def start_engagement_ai(
                         # P2-FIX: Load per-engagement budget cap from Neo4j
                         if record.get("budget") and float(record["budget"]) > 0:
                             ENGAGEMENT_COST_CAP = float(record["budget"])
+                        if record.get("evidence_mode"):
+                            evidence_mode = record["evidence_mode"]
             except Exception as e:
                 logger.warning("Failed to load engagement config from Neo4j: %s", e)
         if not target:
@@ -9037,11 +9040,11 @@ async def start_engagement_ai(
                 "error": "Target scope required. Pass ?target=<ip/cidr/url>"
             })
     elif neo4j_available and neo4j_driver:
-        # Target was provided, but still fetch scope_doc, client_industry, types, and budget from Neo4j
+        # Target was provided, but still fetch scope_doc, client_industry, types, budget, and evidence_mode from Neo4j
         try:
             with neo4j_driver.session() as session:
                 result = session.run(
-                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types, e.budget AS budget",
+                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types, e.budget AS budget, e.evidence_mode AS evidence_mode",
                     eid=eid,
                 )
                 record = result.single()
@@ -9055,6 +9058,8 @@ async def start_engagement_ai(
                     # P2-FIX: Load per-engagement budget cap from Neo4j
                     if record.get("budget") and float(record["budget"]) > 0:
                         ENGAGEMENT_COST_CAP = float(record["budget"])
+                    if record.get("evidence_mode"):
+                        evidence_mode = record["evidence_mode"]
         except Exception as e:
             logger.warning("Failed to load engagement config from Neo4j: %s", e)
 
@@ -9108,8 +9113,20 @@ async def start_engagement_ai(
             "error": "Multi-agent system not available. Check agent_session_manager.py and claude_agent_sdk installation."
         })
 
-    is_ctf = mode == "ctf"
-    mode_label = "CTF" if is_ctf else "PTES"
+    # Map evidence_mode → agent autonomy mode
+    # "exploitable" (lab/CTF) → full autonomy (ctf mode)
+    # "observable" (client/production) → supervised (multi-agent with HITL)
+    if mode == "ctf":
+        is_ctf = True
+    elif evidence_mode == "exploitable":
+        is_ctf = True
+        mode = "ctf"  # Override: autonomous engagement mode
+        logger.info("Engagement mode: Autonomous (lab/CTF) — evidence_mode=%s", evidence_mode)
+    else:
+        is_ctf = False
+        logger.info("Engagement mode: Supervised (client) — evidence_mode=%s", evidence_mode)
+
+    mode_label = "Autonomous" if is_ctf else "Supervised"
 
     scope_info = f" Scope document loaded ({len(scope_doc)} chars)." if scope_doc else " No scope document — using target URL constraints only."
     await state.add_event(AgentEvent(
@@ -9117,9 +9134,9 @@ async def start_engagement_ai(
         type="system",
         agent="OR",
         content=(
-            f"CTF MODE activated against {target}. Flag auto-detection enabled."
+            f"AUTONOMOUS MODE activated against {target}. Full AI autonomy — no HITL gates. Flag auto-detection enabled."
             if is_ctf else
-            f"Multi-Agent AI activated. PTES phases 1-7 against {target}. HITL required for exploitation.{scope_info}"
+            f"SUPERVISED MODE activated. PTES phases 1-7 against {target}. HITL required for exploitation and novel tools.{scope_info}"
         ),
         timestamp=time.time(),
     ))
