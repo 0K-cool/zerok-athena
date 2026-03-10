@@ -3509,6 +3509,7 @@
       height: 100%;
       position: sticky;
       top: 0;
+      z-index: 10;
       background: var(--zerok-card);
       border-left: 1px solid transparent;
       display: flex;
@@ -5378,6 +5379,40 @@
       .widget-grid > :last-child:nth-child(odd) {
         grid-column: 1 / -1;
       }
+
+      /* R-1 fix: Auto-collapse sidebar at tablet/mobile for usable content area */
+      .sidebar {
+        width: 64px !important;
+        min-width: 64px !important;
+      }
+      .sidebar .nav-label,
+      .sidebar .nav-badge,
+      .sidebar .sidebar-title,
+      .sidebar .nav-chevron,
+      .sidebar .settings-panel {
+        display: none !important;
+      }
+
+      /* R-2 fix: Increase nav item touch targets for tablet/mobile */
+      .sidebar .nav-item {
+        min-height: 44px !important;
+        min-width: 44px !important;
+      }
+      .sidebar .collapse-btn {
+        min-height: 44px !important;
+        min-width: 44px !important;
+      }
+
+      /* R-3 fix: Allow horizontal scroll on data tables at narrow viewports */
+      .findings-table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      /* R-5 fix: FAB bottom margin to avoid overlapping last content row */
+      .ai-toggle-btn {
+        bottom: 24px !important;
+      }
     }
   </style>
 </head>
@@ -5407,7 +5442,7 @@
       </div>
 
       <nav class="sidebar-nav">
-        <button class="nav-item active" data-view="dashboard">
+        <button class="nav-item active" data-view="dashboard" title="Dashboard">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="2" y="2" width="5" height="5" rx="1"/>
             <rect x="11" y="2" width="5" height="5" rx="1"/>
@@ -5416,14 +5451,14 @@
           </svg>
           <span class="nav-label">Dashboard</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" title="Engagements">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M4 3h10a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1zM7 7h4M7 11h4"/>
           </svg>
           <span class="nav-label">Engagements</span>
           <span class="nav-badge" id="nav-badge-engagements" style="display:none">0</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" title="Scans">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="9" cy="9" r="6"/>
             <path d="M12 12l4 4"/>
@@ -5431,14 +5466,14 @@
           <span class="nav-label">Scans</span>
           <span class="nav-badge" id="nav-badge-scans" style="display:none">0</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" title="Findings">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M9 2l1.5 5H16l-4 3 1.5 5L9 12l-4.5 3 1.5-5-4-3h5.5z"/>
           </svg>
           <span class="nav-label">Findings</span>
           <span class="nav-badge" id="nav-badge-findings" style="display:none">0</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" title="Vulnerabilities">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M9 2L3 6v6l6 4 6-4V6z"/>
             <path d="M9 8v3M9 13h.01"/>
@@ -5455,7 +5490,7 @@
           <span class="nav-label">Evidence</span>
           <span class="nav-badge" id="nav-badge-evidence" style="display:none">0</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" title="Attack Graph">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="6" cy="6" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="12" cy="12" r="2"/>
             <path d="M8 6h2M6 8v2M12 8v2M8 12h2"/>
@@ -5463,14 +5498,14 @@
           <span class="nav-label">Attack Graph</span>
           <span class="nav-badge" id="nav-badge-attack-graph" style="display:none">0</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" title="Reports">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M3 6h12M3 12h12M6 3v12M12 3v12"/>
           </svg>
           <span class="nav-label">Reports</span>
           <span class="nav-badge" id="nav-badge-reports" style="display:none">0</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" title="Intelligence">
           <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="9" cy="9" r="6"/>
             <circle cx="9" cy="9" r="2"/>
@@ -5480,7 +5515,7 @@
           <span class="nav-badge" id="nav-badge-intelligence" style="display:none">0</span>
         </button>
         <div class="nav-section">
-          <button class="nav-item" onclick="toggleSettings()">
+          <button class="nav-item" title="Settings" onclick="toggleSettings()">
             <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="9" cy="9" r="2.5"/>
               <path d="M9 2v2M9 14v2M2 9h2M14 9h2M4 4l1.5 1.5M12.5 12.5L14 14M4 14l1.5-1.5M12.5 5.5L14 4"/>
@@ -5700,7 +5735,7 @@
             </div>
             <div class="stat-value-row">
               <span class="stat-value" id="kpi-hosts" style="color: var(--zerok-primary);">0</span>
-              <span style="font-size: 16px; color: var(--zerok-text-dim);">hosts</span>
+              <span id="kpi-hosts-label" style="font-size: 16px; color: var(--zerok-text-dim);">hosts</span>
             </div>
           </div>
           <!-- Open Ports KPI Card -->
@@ -7002,7 +7037,7 @@
         <option value="">Loading...</option>
       </select>
       <div class="engagement-stats" id="engagementStats" style="display: none;">
-        <span class="engagement-stat"><span id="stat-hosts">0</span> hosts</span>
+        <span class="engagement-stat"><span id="stat-hosts">0</span> <span id="stat-hosts-label">hosts</span></span>
         <span class="engagement-stat"><span id="stat-services">0</span> services</span>
         <span class="engagement-stat"><span id="stat-vulns">0</span> vulns</span>
         <span class="engagement-stat"><span id="stat-findings">0</span> findings</span>
@@ -8828,7 +8863,11 @@
     // ── Handle Stat Updates ──
     function handleStatUpdate(msg) {
       // AI drawer stats
-      if (msg.hosts !== undefined) document.getElementById('stat-hosts').textContent = msg.hosts;
+      if (msg.hosts !== undefined) {
+        document.getElementById('stat-hosts').textContent = msg.hosts;
+        const sl = document.getElementById('stat-hosts-label');
+        if (sl) sl.textContent = (parseInt(msg.hosts) === 1) ? 'host' : 'hosts';
+      }
       if (msg.services !== undefined) document.getElementById('stat-services').textContent = msg.services;
       if (msg.vulns !== undefined) document.getElementById('stat-vulns').textContent = msg.vulns;
       if (msg.findings !== undefined) document.getElementById('stat-findings').textContent = msg.findings;
@@ -8842,7 +8881,11 @@
       if (msg.hosts !== undefined && kpiHosts) {
         const newHosts = parseInt(msg.hosts) || 0;
         const curHosts = parseInt(kpiHosts.textContent) || 0;
-        if (newHosts >= curHosts || !currentEngagementId) kpiHosts.textContent = msg.hosts;
+        if (newHosts >= curHosts || !currentEngagementId) {
+          kpiHosts.textContent = msg.hosts;
+          const lbl = document.getElementById('kpi-hosts-label');
+          if (lbl) lbl.textContent = (parseInt(msg.hosts) === 1) ? 'host' : 'hosts';
+        }
       }
       if (msg.findings !== undefined && kpiFindings) {
         const newFindings = parseInt(msg.findings) || 0;
@@ -11286,7 +11329,11 @@
         const isActive = _currentCtrlState === 'running' || _currentCtrlState === 'paused';
         if (statHosts) {
           const v = summary.hosts || 0;
-          if (!isActive || v >= (parseInt(statHosts.textContent) || 0)) statHosts.textContent = v;
+          if (!isActive || v >= (parseInt(statHosts.textContent) || 0)) {
+            statHosts.textContent = v;
+            const sl = document.getElementById('stat-hosts-label');
+            if (sl) sl.textContent = (v === 1) ? 'host' : 'hosts';
+          }
         }
         if (statServices) {
           const v = summary.services || 0;
@@ -11312,7 +11359,11 @@
         if (kpiHosts) {
           const summaryHosts = summary.hosts || 0;
           const currentHosts = parseInt(kpiHosts.textContent) || 0;
-          if (summaryHosts >= currentHosts) kpiHosts.textContent = summaryHosts;
+          if (summaryHosts >= currentHosts) {
+            kpiHosts.textContent = summaryHosts;
+            const lbl = document.getElementById('kpi-hosts-label');
+            if (lbl) lbl.textContent = (summaryHosts === 1) ? 'host' : 'hosts';
+          }
         }
         // BUG-026: During active engagement, never decrease findings KPI (prevents flicker
         // when summary endpoint returns 0 but WebSocket stat_update already set correct value)
@@ -11798,6 +11849,11 @@
       // BUG-010 fix: Dismiss any open modals when navigating between views
       document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
       if (_confirmResolve) { _confirmResolve(false); _confirmResolve = null; }
+      // N-1 fix: Collapse settings panel when navigating to other sections
+      const sp = document.getElementById('settingsPanel');
+      const sc = document.getElementById('settingsChevron');
+      if (sp) sp.classList.remove('expanded');
+      if (sc) sc.classList.remove('expanded');
 
       // Hide all views
       document.querySelectorAll('.view-container, .findings-view').forEach(v => v.classList.remove('active'));
