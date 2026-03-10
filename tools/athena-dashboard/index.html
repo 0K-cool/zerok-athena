@@ -541,10 +541,13 @@
     }
     #dashboardView > .widget-grid {
       flex: 0 0 auto;                /* Widget rows: natural height, never clip */
-      min-height: 160px;             /* Minimum visible height per widget row */
+      min-height: 200px;             /* Minimum visible height per widget row */
     }
     #dashboardView > .full-width {
       flex: 0 0 auto;                /* Full-width rows: natural height */
+    }
+    #dashboardView > .full-width:last-child {
+      flex: 1 0 auto;               /* Last section fills remaining viewport */
     }
 
     /* Content Header - same charcoal as sidebar (upside-down L) */
