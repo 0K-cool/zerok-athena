@@ -7196,6 +7196,10 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 View Reports
               </button>
+              <button class="btn-danger-sm" onclick="clearAllIntelligence()" title="Clear all intelligence data" style="font-size: 12px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 3px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                Clear Data
+              </button>
             </div>
           </div>
 
@@ -13910,6 +13914,34 @@
     // ────────────────────────────────────────
     // INTELLIGENCE (Cross-Engagement Intelligence)
     // ────────────────────────────────────────
+
+    async function clearAllIntelligence() {
+      const confirmed = await showConfirmModal({
+        title: 'Clear Intelligence Data',
+        message: 'Permanently delete <strong>all</strong> cross-engagement intelligence data? This includes:<br><br>' +
+          '• Technique success rates and costs<br>' +
+          '• False positive tracking<br>' +
+          '• Tool ROI metrics<br><br>' +
+          '<span style="color:var(--zerok-text-muted);font-size:11px;">Engagement history (targets, findings counts) is preserved in engagement records. Only learned intelligence metrics are removed.</span>',
+        actionLabel: 'Clear All Intelligence',
+        variant: 'danger'
+      });
+      if (!confirmed) return;
+      try {
+        const res = await fetch('/api/cei', { method: 'DELETE' });
+        const data = await res.json();
+        if (data.ok) {
+          showToast('success', 'Intelligence Cleared', 'Deleted ' + data.deleted.techniques + ' techniques, ' + data.deleted.false_positives + ' false positives');
+          const badge = document.getElementById('nav-badge-intelligence');
+          if (badge) { badge.textContent = '0'; badge.style.display = 'none'; }
+          loadIntelligence();
+        } else {
+          showToast('success', 'Error', data.error || 'Failed to clear intelligence');
+        }
+      } catch (e) {
+        showToast('success', 'Error', 'Failed to clear intelligence: ' + e.message);
+      }
+    }
 
     let _ceiTechniques = [];
     let _ceiFalsePositives = [];

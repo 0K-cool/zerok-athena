@@ -109,6 +109,7 @@ fi
 
 # ── H3: Langfuse LLM Observability ──
 LANGFUSE_ENV="$DIR/docker/.env.langfuse"
+LANGFUSE_COMPOSE="$DIR/docker/docker-compose.langfuse.yml"
 if [ -z "$LANGFUSE_SECRET_KEY" ]; then
     # Bridge from Docker env file if it exists
     if [ -f "$LANGFUSE_ENV" ]; then
@@ -123,6 +124,42 @@ if [ -z "$LANGFUSE_SECRET_KEY" ]; then
     fi
 else
     echo "  Langfuse:   env var ✓"
+fi
+
+# Auto-start Langfuse Docker stack if configured
+if [ -n "$LANGFUSE_SECRET_KEY" ] && [ -f "$LANGFUSE_COMPOSE" ]; then
+    if command -v docker &>/dev/null; then
+        # Check if Docker daemon is running
+        if docker info &>/dev/null 2>&1; then
+            # Check if Langfuse containers are already running
+            LANGFUSE_RUNNING=$(docker ps --filter "name=athena-langfuse-web" --filter "status=running" -q 2>/dev/null)
+            if [ -z "$LANGFUSE_RUNNING" ]; then
+                echo "  Langfuse:   Starting Docker containers..."
+                docker compose -f "$LANGFUSE_COMPOSE" --env-file "$LANGFUSE_ENV" up -d --quiet-pull 2>/dev/null
+                if [ $? -eq 0 ]; then
+                    # Wait for web health (up to 60s)
+                    TRIES=0
+                    while [ $TRIES -lt 12 ]; do
+                        if docker ps --filter "name=athena-langfuse-web" --filter "health=healthy" -q 2>/dev/null | grep -q .; then
+                            echo "  Langfuse:   Docker stack healthy ✓"
+                            break
+                        fi
+                        TRIES=$((TRIES + 1))
+                        sleep 5
+                    done
+                    if [ $TRIES -eq 12 ]; then
+                        echo "  Langfuse:   Docker started (still initializing — check http://localhost:3000)"
+                    fi
+                else
+                    echo "  Langfuse:   Docker start failed — check 'docker compose logs'"
+                fi
+            else
+                echo "  Langfuse:   Docker stack running ✓"
+            fi
+        else
+            echo "  Langfuse:   Docker not running — start Docker Desktop for observability"
+        fi
+    fi
 fi
 
 # ── Kali Backend ──

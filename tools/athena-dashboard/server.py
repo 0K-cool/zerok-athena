@@ -2004,6 +2004,25 @@ async def get_cei_engagement_history():
         return {"engagements": [], "available": False, "error": "Query failed"}
 
 
+@app.delete("/api/cei")
+async def clear_all_cei():
+    """Delete ALL cross-engagement intelligence data (TechniqueRecords, FalsePositiveRecords, USED_IN relationships)."""
+    deleted = {"techniques": 0, "false_positives": 0}
+    if not neo4j_available or not neo4j_driver:
+        return JSONResponse(status_code=503, content={"error": "Neo4j unavailable"})
+    try:
+        with neo4j_driver.session() as session:
+            t_result = session.run("MATCH (t:TechniqueRecord) DETACH DELETE t RETURN count(t) AS cnt")
+            deleted["techniques"] = t_result.single()["cnt"]
+            fp_result = session.run("MATCH (fp:FalsePositiveRecord) DETACH DELETE fp RETURN count(fp) AS cnt")
+            deleted["false_positives"] = fp_result.single()["cnt"]
+        print(f"[DELETE] CEI cleared: {deleted['techniques']} techniques, {deleted['false_positives']} false positives")
+        return {"ok": True, "deleted": deleted}
+    except Exception as e:
+        print(f"CEI clear error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 # ── F3: Validation Pipeline ("The Moat") ─────────────────────
 
 class VerificationStatus(str, Enum):
