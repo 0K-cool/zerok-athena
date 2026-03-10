@@ -6185,6 +6185,8 @@
                 <div class="layer-cell" data-agent="AT" title="Auth Tester — Authentication &amp; Session Testing"><span class="layer-id">AT</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="AA" title="API Attacker — REST/GraphQL API Testing"><span class="layer-id">AA</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="LM" title="Lateral Mover — Network Pivoting &amp; Propagation"><span class="layer-id">LM</span><span class="layer-blocks">Idle</span></div>
+                <div class="layer-cell" data-agent="DA" title="Deep Analysis — 0-Day Hunting &amp; Deep Dive"><span class="layer-id">DA</span><span class="layer-blocks">Idle</span></div>
+                <div class="layer-cell" data-agent="PX" title="Probe Executor — Targeted Probe Execution"><span class="layer-id">PX</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="RP" title="Reporting — Final Report Generation"><span class="layer-id">RP</span><span class="layer-blocks">Idle</span></div>
               </div>
             </div>
@@ -7698,6 +7700,8 @@
       <span class="agent-chip" data-agent="AT" onclick="toggleChipFilter('AT')">AT<span class="chip-event-count" data-agent-count="AT">0</span></span>
       <span class="agent-chip" data-agent="AA" onclick="toggleChipFilter('AA')">AA<span class="chip-event-count" data-agent-count="AA">0</span></span>
       <span class="agent-chip" data-agent="LM" onclick="toggleChipFilter('LM')">LM<span class="chip-event-count" data-agent-count="LM">0</span></span>
+      <span class="agent-chip" data-agent="DA" onclick="toggleChipFilter('DA')">DA<span class="chip-event-count" data-agent-count="DA">0</span></span>
+      <span class="agent-chip" data-agent="PX" onclick="toggleChipFilter('PX')">PX<span class="chip-event-count" data-agent-count="PX">0</span></span>
       <span class="agent-chip" data-agent="RP" onclick="toggleChipFilter('RP')">RP<span class="chip-event-count" data-agent-count="RP">0</span></span>
     </div>
     <div class="phase-badge-row" id="phaseBadgeRow" style="display:none">
@@ -8233,7 +8237,8 @@
       EX: 'Exploitation', VF: 'Verification', PE: 'Post-Exploitation',
       DV: 'Detection Validator', JS: 'JS Analyzer', PD: 'Param Discovery',
       WA: 'Web App Fuzzer', AT: 'Auth Tester', AA: 'API Attacker',
-      LM: 'Lateral Mover', RP: 'Reporting', ST: 'Strategy'
+      LM: 'Lateral Mover', DA: 'Deep Analysis', PX: 'Probe Executor',
+      RP: 'Reporting', ST: 'Strategy'
     };
 
     const EVENT_ICONS = {
