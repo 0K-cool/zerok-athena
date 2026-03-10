@@ -119,6 +119,7 @@ async def neo4j_exec(fn):
 
 class AgentCode(str, Enum):
     STRATEGY = "ST"
+    PASSIVE_RECON = "PR"
     ACTIVE_RECON = "AR"
     WEB_VULN_SCANNER = "WV"
     DEEP_ANALYSIS = "DA"
@@ -130,6 +131,7 @@ class AgentCode(str, Enum):
 
 AGENT_NAMES = {
     "ST": "Strategy",
+    "PR": "Passive Recon",
     "AR": "Active Recon",
     "WV": "Web Vuln Scanner",
     "DA": "Deep Analysis",
@@ -141,7 +143,8 @@ AGENT_NAMES = {
 
 AGENT_PTES_PHASE = {
     "ST": 0,   # Cross-phase (runs at phase gates)
-    "AR": 2,   # Information Gathering
+    "PR": 1,   # Intelligence Gathering (passive)
+    "AR": 2,   # Information Gathering (active)
     "WV": 4,   # Vulnerability Analysis
     "DA": 4,   # Deep Analysis (between vuln scan and exploitation)
     "PX": 4,   # Probe Executor (targeted probing)
@@ -885,12 +888,12 @@ class AgentMessagePayload(BaseModel):
 # Communication rules: who can message whom and for what
 AGENT_COMM_RULES: dict[str, list[str]] = {
     # Event → allowed recipients
-    "discovery":      ["WV", "DA", "ST"],              # Recon → vuln + deep analysis + strategy
+    "discovery":      ["AR", "WV", "DA", "ST"],         # Recon → active recon + vuln + deep analysis + strategy
     "vulnerability":  ["EX", "VF", "ST"],              # Vuln → exploit + verify + strategy
     "credential":     ["EX", "ST"],                    # Exploit → exploitation + strategy
     "verification":   ["ST", "RP"],                    # Verify → strategy + report
     "strategy":       list(AGENT_NAMES.keys()),        # Strategy → anyone
-    "pivot":          ["AR", "WV", "DA", "ST"],        # PostExploit → recon + deep analysis + strategy
+    "pivot":          ["PR", "AR", "WV", "DA", "ST"],  # PostExploit → recon + deep analysis + strategy
     "code_finding":   ["VF", "EX", "ST"],              # DA → verify + exploit + strategy
 }
 
@@ -2589,7 +2592,7 @@ CTF_CATEGORY_AGENTS: dict[str, list[str]] = {
     "reverse":   ["DA", "EX"],
     "pwnable":   ["EX", "DA"],
     "misc":      ["AR", "DA"],
-    "osint":     ["AR"],
+    "osint":     ["PR", "AR"],
 }
 
 # Challenge auto-classification keywords
@@ -3220,7 +3223,9 @@ AGENT_BUDGETS: dict[str, dict] = {
     #
     # Strategy — Opus coordinator, lots of Neo4j queries + reasoning
     "ST": {"max_tool_calls": 200, "max_cost": 6.00, "label": "Strategy"},
-    # Recon agents — broad scanning (nmap, httpx, gobuster, etc.)
+    # Passive recon — OSINT, subdomain enum, Shodan/Censys (no target contact)
+    "PR": {"max_tool_calls": 100, "max_cost": 1.50, "label": "Passive Recon"},
+    # Active recon — port scanning, service enum (nmap, httpx, naabu)
     "AR": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Active Recon"},
     # Vuln analysis — moderate scanning + Neo4j queries
     "WV": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Web Vuln Scanner"},
@@ -8249,6 +8254,7 @@ def _get_framework_instructions(client_industry: str) -> str:
     # Agent code → PTES phase mapping for Scan Coverage tracking
 _AGENT_TO_PHASE = {
     "ST": "PLANNING",
+    "PR": "PASSIVE RECON",
     "AR": "INTELLIGENCE GATHERING",
     "WV": "WEB APP TESTING",
     "DA": "VULNERABILITY ANALYSIS",

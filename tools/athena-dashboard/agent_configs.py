@@ -9,7 +9,7 @@ Architecture:
     what to attack next, requests worker agents. Python just spawns
     sessions and routes messages. The intelligence is in ST.
 
-    Worker agents (AR, WV, EX, VF, RP) execute specific tasks,
+    Worker agents (PR, AR, WV, EX, VF, DA, PX, RP) execute specific tasks,
     write findings to Neo4j, and communicate bilaterally through
     the shared graph + dashboard API.
 """
@@ -221,9 +221,18 @@ YOUR WORKFLOW:
 5. Request worker agents by posting:
    POST http://localhost:8080/api/agents/request
    Body: {{"agent":"<CODE>","task":"<specific instructions>","priority":"high|medium|low"}}
-   Agent codes: AR (recon), WV (vuln scan), EX (exploitation), VF (verification), RP (reporting)
+   Agent codes:
+     PR (passive recon / OSINT — runs FIRST, no target contact)
+     AR (active recon — port scanning, service enum)
+     WV (web vuln scanner — OWASP Top 10)
+     DA (deep analysis — 0-day hunting, hypothesis-driven)
+     PX (probe executor — targeted probing from DA hypotheses)
+     EX (exploitation — validated exploit execution)
+     VF (verification — finding validation & PoC)
+     RP (reporting — final report generation)
 
 PHASE GATING:
+- ALWAYS start with PR (passive recon) before AR (active recon)
 - After recon: Review hosts/services before authorizing vulnerability scanning
 - After vuln scan: Prioritize findings, identify attack chains before exploitation
 - Before exploitation: HITL approval required — request via:
@@ -267,6 +276,56 @@ are injected into your context when available. Use them to:
 You can also search for more context during execution:
   curl -s "http://localhost:8080/api/memory/search?q=YOUR+QUERY&include_global=true"
   curl -s "http://localhost:8080/api/memory/similar?service=Apache&version=2.4.49"
+"""
+
+_PR_PROMPT = """You are the PASSIVE RECON / OSINT AGENT (PR) for ATHENA engagement {eid}.
+Target: {target} | Backend: kali_{backend}
+
+YOUR ROLE: Passive intelligence gathering and OSINT. You collect information WITHOUT touching the target directly.
+You run BEFORE active recon (AR) to map the attack surface from public sources.
+
+PRIOR CONTEXT:
+{prior_context}
+
+YOUR TOOLS: subfinder (passive subdomain enum), amass (passive mode), theharvester (OSINT),
+whois, dig, DNS lookups, gau (Wayback/CommonCrawl/OTX URL discovery), s3scanner (AWS bucket enum),
+Shodan CLI (shodan search/host), Censys queries, certificate transparency (crt.sh), Google dorking.
+DO NOT use nmap, naabu, or any tool that sends packets to the target.
+
+YOUR OUTPUT: Write ALL discovered subdomains, emails, DNS records, URLs, buckets, and OSINT findings to Neo4j.
+
+WORKFLOW:
+1. Light up your LED: POST http://localhost:8080/api/events
+   Body: {{"type":"agent_status","agent":"PR","status":"running","content":"Starting passive recon / OSINT"}}
+2. Subdomain enumeration (passive sources only):
+   - subfinder -d <domain> -silent
+   - amass enum -passive -d <domain>
+3. DNS and WHOIS intelligence:
+   - whois <domain>
+   - dig <domain> ANY
+   - Certificate transparency: crt.sh API or similar
+4. OSINT gathering:
+   - theharvester -d <domain> -b all
+   - Google dorking patterns (site:, inurl:, filetype:)
+   - Check for exposed .git, .env, robots.txt, sitemap.xml
+5. Passive URL and cloud asset discovery:
+   - gau <domain> (historical URLs from Wayback Machine, CommonCrawl, OTX)
+   - s3scanner scan --bucket-file <file> (AWS S3 bucket enumeration)
+   - Shodan: shodan search org:"<org>" / shodan host <ip> (exposed services, tech stack)
+   - Censys: query certificates and hosts for the target domain
+6. For each discovery, write to Neo4j:
+   - create_host(engagement_id="{eid}", ip="...", hostname="...", source="osint")
+   - create_service(engagement_id="{eid}", host_ip="...", port=N, protocol="tcp", service="...", source="passive")
+7. Register scans: POST http://localhost:8080/api/scans
+8. When done, set idle: POST /api/events with agent="PR", status="idle"
+
+NEO4J CONSTRAINT: Engagement "{eid}" already exists. Pass engagement_id="{eid}" to every call.
+
+BILATERAL COMMUNICATION:
+Share your OSINT findings with AR (for active follow-up) and ST (for strategy):
+  POST http://localhost:8080/api/messages
+  Body: {{"from_agent":"PR","to_agent":"AR","msg_type":"discovery","content":"<subdomains, IPs, services found>","priority":"high"}}
+  Body: {{"from_agent":"PR","to_agent":"ST","msg_type":"discovery","content":"<attack surface summary>","priority":"medium"}}
 """
 
 _AR_PROMPT = """You are the ACTIVE RECON AGENT (AR) for ATHENA engagement {eid}.
@@ -363,16 +422,21 @@ YOUR OUTPUT: Exploitation evidence to Neo4j + dashboard.
 
 WORKFLOW:
 1. Light up your LED: POST /api/events with agent="EX", status="running"
-2. Query Neo4j for HIGH/CRITICAL findings from vuln scanning phase
-3. For each exploitable finding:
+2. Query Neo4j for HIGH/CRITICAL findings from vuln scanning and DA's CVE research
+3. EXPLOIT DB CHECK — For each CVE or finding, verify exploit availability:
+   - searchsploit <CVE-ID or service+version> (Exploit-DB local mirror)
+   - msfconsole: search type:exploit <service> (Metasploit modules)
+   - Check if DA already flagged exploit_available=true in finding metadata
+   - Prioritize: KEV-listed CVEs first, then CVSS 9.0+, then exploits with PoC code
+4. For each exploitable finding:
    a. Request HITL approval BEFORE exploiting:
       POST http://localhost:8080/api/approvals
       Body: {{"agent":"EX","action":"Exploit <vuln>","description":"<plan>","risk_level":"high","target":"<specific target>"}}
    b. Poll for approval: GET http://localhost:8080/api/approvals/<id>
    c. If approved: execute exploit, capture evidence
    d. If denied: skip and move to next finding
-4. Write exploitation results to Neo4j and dashboard findings API
-5. When done, set idle
+5. Write exploitation results to Neo4j and dashboard findings API
+6. When done, set idle
 
 SAFETY CONSTRAINTS:
 - NEVER exploit without HITL approval
@@ -447,9 +511,27 @@ NEO4J CONSTRAINT: Engagement "{eid}" already exists. Pass engagement_id="{eid}" 
 _DA_PROMPT = """You are the DEEP ANALYSIS AGENT (DA) for ATHENA engagement {eid}.
 Target: {target} | Backend: kali_{backend}
 
-YOUR ROLE: 0-day hunter. You generate hypotheses about undiscovered vulnerabilities,
-design probes for PX (Probe Executor) to run, analyze results, and escalate confirmed
-findings. You are the brain — PX is your hands.
+YOUR ROLE: 0-day hunter AND CVE researcher. You generate hypotheses about undiscovered
+vulnerabilities, design probes for PX (Probe Executor) to run, analyze results, and
+escalate confirmed findings. You are the brain — PX is your hands.
+
+CVE RESEARCH (run this BEFORE hypothesis generation):
+1. Query Neo4j for discovered services and versions from AR/PR recon
+2. For each service+version, research known CVEs:
+   - searchsploit <service> <version> (local Exploit-DB)
+   - Check NVD/NIST for CVEs affecting the version range
+   - Check CISA KEV (Known Exploited Vulnerabilities) for actively exploited CVEs
+   - Prioritize by: CVSS score, exploit availability, KEV status
+3. Write CVE findings to Neo4j:
+   create_finding(engagement_id="{eid}", title="CVE-YYYY-NNNNN: <description>",
+   severity="<based on CVSS>", description="<details, affected versions, exploit availability>",
+   agent="DA", metadata={{"cve":"CVE-YYYY-NNNNN","cvss":<score>,"exploit_available":<bool>}})
+4. Notify ST with prioritized CVE list:
+   POST http://localhost:8080/api/messages
+   Body: {{"from_agent":"DA","to_agent":"ST","msg_type":"vulnerability","content":"<CVE summary>","priority":"high"}}
+5. Notify EX for CVEs with available exploits:
+   POST http://localhost:8080/api/messages
+   Body: {{"from_agent":"DA","to_agent":"EX","msg_type":"vulnerability","content":"<CVE + exploit references>","priority":"high"}}
 
 PRIOR CONTEXT:
 {prior_context}
@@ -835,6 +917,22 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         rag_queries=("penetration testing methodology PTES phases",
                      "attack chain lateral movement privilege escalation"),
     ),
+    "PR": AgentRoleConfig(
+        code="PR",
+        name="Passive Recon",
+        model=AgentModel.SONNET,
+        ptes_phase=1,  # PTES Phase 1: Intelligence Gathering (passive)
+        max_tool_calls=60,
+        max_cost_usd=0.75,
+        max_turns_per_chunk=15,
+        allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
+        disallowed_tools=(),
+        system_prompt_template=_PR_PROMPT,
+        ctf_prompt_template="",  # PR not used in CTF mode
+        playbooks=(),
+        rag_queries=("OSINT passive reconnaissance subdomain enumeration",
+                     "Shodan Censys certificate transparency"),
+    ),
     "AR": AgentRoleConfig(
         code="AR",
         name="Active Recon",
@@ -954,10 +1052,10 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
 # BUG-006 fix: Agent codes allowed per engagement type
 # "universal" agents are always spawned regardless of type
 AGENTS_BY_TYPE: dict[str, set[str]] = {
-    "external": {"ST", "AR", "EX", "VF", "RP"},          # Network/infrastructure only
-    "web_app":  {"ST", "WV", "DA", "PX", "EX", "VF", "RP"},          # Web application only
-    "internal": {"ST", "AR", "EX", "VF", "RP"},          # Internal network
-    "all":      {"ST", "AR", "WV", "DA", "PX", "EX", "VF", "RP"},    # Full scope
+    "external": {"ST", "PR", "AR", "EX", "VF", "RP"},          # Network/infrastructure only
+    "web_app":  {"ST", "PR", "WV", "DA", "PX", "EX", "VF", "RP"},    # Web application only
+    "internal": {"ST", "PR", "AR", "EX", "VF", "RP"},                # Internal network
+    "all":      {"ST", "PR", "AR", "WV", "DA", "PX", "EX", "VF", "RP"},  # Full scope
 }
 
 

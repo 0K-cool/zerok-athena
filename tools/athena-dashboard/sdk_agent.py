@@ -259,10 +259,12 @@ _RE_AGENT_SHOWS_IDLE = re.compile(
 # ──────────────────────────────────────────────
 
 TOOL_TO_AGENT: dict[str, str] = {
-    # Active Recon (AR) — port scanning, service enum, OSINT
-    "nmap": "AR", "httpx": "AR", "amass": "AR", "gau": "AR",
-    "subfinder": "AR", "whois": "AR", "dig": "AR", "theharvester": "AR",
-    "naabu": "AR",
+    # Passive Recon (PR) — OSINT, subdomain enum, DNS intel, Shodan/Censys
+    "subfinder": "PR", "amass": "PR", "theharvester": "PR",
+    "whois": "PR", "dig": "PR", "gau": "PR",
+    "shodan": "PR", "s3scanner": "PR", "censys": "PR",
+    # Active Recon (AR) — port scanning, service enum
+    "nmap": "AR", "httpx": "AR", "naabu": "AR",
     # Web Vulnerability scanning (WV)
     "nuclei": "WV", "nikto": "WV", "gobuster": "WV", "ffuf": "WV",
     "wpscan": "WV", "dirsearch": "WV",
