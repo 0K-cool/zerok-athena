@@ -43,18 +43,32 @@ async def init_graphiti() -> bool:
         logger.warning("Graphiti: ANTHROPIC_API_KEY not set. Cross-session memory disabled.")
         return False
 
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_key:
+        logger.warning("Graphiti: OPENAI_API_KEY not set (needed for embeddings). Cross-session memory disabled.")
+        return False
+
     try:
         from graphiti_core import Graphiti
         from graphiti_core.llm_client.anthropic_client import AnthropicClient
+        from graphiti_core.llm_client.config import LLMConfig
+        from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 
+        # LLM: Anthropic Haiku 4.5 for entity extraction
         llm_model = os.environ.get("GRAPHITI_LLM_MODEL", "claude-haiku-4-5")
-        llm_client = AnthropicClient(api_key=anthropic_key, model=llm_model)
+        llm_config = LLMConfig(api_key=anthropic_key, model=llm_model)
+        llm_client = AnthropicClient(config=llm_config)
+
+        # Embedder: OpenAI text-embedding-3-small (Anthropic has no embeddings API)
+        embedder_config = OpenAIEmbedderConfig(api_key=openai_key)
+        embedder = OpenAIEmbedder(config=embedder_config)
 
         _graphiti = Graphiti(
-            neo4j_uri=neo4j_uri,
-            neo4j_user=neo4j_user,
-            neo4j_password=neo4j_password,
+            uri=neo4j_uri,
+            user=neo4j_user,
+            password=neo4j_password,
             llm_client=llm_client,
+            embedder=embedder,
         )
         await _graphiti.build_indices_and_constraints()
 

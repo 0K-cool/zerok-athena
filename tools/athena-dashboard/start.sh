@@ -87,6 +87,52 @@ else
     fi
 fi
 
+# ── H1: Graphiti Cross-Session Memory (Anthropic API key from 1Password) ──
+if [ -z "$ANTHROPIC_API_KEY" ]; then
+    if command -v op &>/dev/null; then
+        export ANTHROPIC_API_KEY=$(op read "op://Vex/Athena-Graphiti API/credential" 2>/dev/null)
+        # Graphiti embedder needs OpenAI for text-embedding-3-small
+        if [ -z "$OPENAI_API_KEY" ]; then
+            export OPENAI_API_KEY=$(op read "op://Vex/OpenAI API/credential" 2>/dev/null)
+        fi
+        if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "  Graphiti:   1Password (Haiku 4.5 + OpenAI embeddings) ✓"
+        else
+            echo "  Graphiti:   No API key — cross-session memory disabled"
+        fi
+    else
+        echo "  Graphiti:   No 1Password CLI — cross-session memory disabled"
+    fi
+else
+    echo "  Graphiti:   env var ✓"
+fi
+
+# ── H3: Langfuse LLM Observability ──
+LANGFUSE_ENV="$DIR/docker/.env.langfuse"
+if [ -z "$LANGFUSE_SECRET_KEY" ]; then
+    # Bridge from Docker env file if it exists
+    if [ -f "$LANGFUSE_ENV" ]; then
+        export LANGFUSE_SECRET_KEY=$(grep "^LANGFUSE_PROJECT_SECRET_KEY=" "$LANGFUSE_ENV" | cut -d= -f2)
+        if [ -n "$LANGFUSE_SECRET_KEY" ]; then
+            echo "  Langfuse:   docker/.env.langfuse ✓"
+        else
+            echo "  Langfuse:   Key not found in docker/.env.langfuse"
+        fi
+    else
+        echo "  Langfuse:   Not configured — observability disabled"
+    fi
+else
+    echo "  Langfuse:   env var ✓"
+fi
+
+# ── Kali Backend ──
+if grep -q "^KALI_EXTERNAL_URL=.\+" "$ENV_FILE" 2>/dev/null; then
+    KALI_URL=$(grep "^KALI_EXTERNAL_URL=" "$ENV_FILE" | cut -d= -f2)
+    echo "  Kali:       $KALI_URL ✓"
+else
+    echo "  Kali:       Not configured"
+fi
+
 echo ""
 
 cd "$DIR" && exec "$VENV/bin/uvicorn" $ARGS

@@ -7895,6 +7895,28 @@ async def get_observability_status():
 
 
 # ──────────────────────────────────────────────
+# Unified Feature Configuration Status
+# ──────────────────────────────────────────────
+
+@app.get("/api/config/features")
+async def get_feature_config():
+    """Aggregated feature configuration status for Settings UI."""
+    from graphiti_integration import is_enabled as graphiti_enabled
+    from langfuse_integration import is_enabled as langfuse_enabled
+
+    kali_backends = {}
+    for name, backend in kali_client.backends.items():
+        kali_backends[name] = {"available": backend.available, "url": backend.base_url}
+
+    return {
+        "neo4j": {"enabled": neo4j_available, "uri": os.environ.get("NEO4J_URI", "bolt://localhost:7687")},
+        "graphiti": {"enabled": graphiti_enabled(), "model": os.environ.get("GRAPHITI_LLM_MODEL", "claude-haiku-4-5")},
+        "langfuse": {"enabled": langfuse_enabled(), "url": os.environ.get("LANGFUSE_BASE_URL", "http://localhost:3000")},
+        "kali": {"backends": kali_backends, "tools": len(kali_client.list_tools())},
+    }
+
+
+# ──────────────────────────────────────────────
 # H1: Graphiti Cross-Session Memory Endpoints
 # ──────────────────────────────────────────────
 
