@@ -1259,7 +1259,7 @@ async def _handle_scope_expansion_approval(request_id: str, approved: bool, reas
     _pending_scope_expansion = None
 
     if not approved:
-        await _emit("system", "OR",
+        await _emit("system", "ST",
             f"Scope expansion REJECTED by operator. {reason}",
             {"scope_rejected": True})
         # Notify ST that scope expansion was rejected
@@ -1313,7 +1313,7 @@ async def _handle_scope_expansion_approval(request_id: str, approved: bool, reas
 
         agents_str = ", ".join(f"{a} ({AGENT_NAMES.get(a, a)})" for a in newly_unlocked)
 
-        await _emit("system", "OR",
+        await _emit("system", "ST",
             f"SCOPE EXPANDED: {', '.join(old_types)} → {', '.join(_engagement_types)}. "
             f"New agents available: {agents_str}",
             {"scope_expanded": True, "new_types": new_types,
@@ -4950,7 +4950,7 @@ async def get_engagement_summary(eid: str):
                                toLower(f.category) CONTAINS 'privilege escalation' OR
                                toLower(f.category) CONTAINS 'lateral movement' OR
                                toLower(f.category) CONTAINS 'authentication bypass' OR
-                               f.agent IN ['EX', 'EC'] OR
+                               f.agent IN ['EX'] OR
                                f.evidence IS NOT NULL
                            THEN f END) AS exploits
                 """, eid=eid)
@@ -5004,7 +5004,7 @@ async def get_engagement_summary(eid: str):
                             agent = getattr(f, 'agent', '') or ''
                             if (f.evidence or
                                 any(kw in cat for kw in _exploit_kw) or
-                                agent.upper() in ('EX', 'EC')):
+                                agent.upper() == 'EX'):
                                 mem_exploits += 1
                         return {
                             "hosts": max(neo4j_hosts, len(mem_hosts)),
@@ -5753,7 +5753,7 @@ async def get_attack_chains(eid: str):
             steps = []
             for f in findings_list:
                 steps.append({
-                    "agent": getattr(f, "agent", "") or "OR",
+                    "agent": getattr(f, "agent", "") or "ST",
                     "finding_id": f.id,
                     "description": f.title,
                 })
@@ -7270,10 +7270,10 @@ def _synthesize_events_from_neo4j(eid: str) -> list[AgentEvent]:
     # Map finding categories to agent codes
     cat_to_agent = {
         'injection': 'EX', 'sql injection': 'EX', 'command injection': 'EX',
-        'broken authentication': 'AT', 'authentication': 'AT',
+        'broken authentication': 'EX', 'authentication': 'EX',
         'information disclosure': 'AR', 'directory listing': 'AR',
         'security misconfiguration': 'WV', 'misconfiguration': 'WV',
-        'vulnerable component': 'CV', 'outdated': 'CV',
+        'vulnerable component': 'WV', 'outdated': 'WV',
         'xss': 'WV', 'cross-site': 'WV', 'cors': 'WV',
         'path traversal': 'WV', 'file inclusion': 'WV',
     }
@@ -7811,7 +7811,7 @@ async def delete_engagement_graph(eid: str):
     # Broadcast cost reset so KPI updates to $0.00
     await state.broadcast({
         "type": "cost_update",
-        "agent": "OR",
+        "agent": "ST",
         "engagement_cost": 0.0,
         "timestamp": time.time(),
     })
@@ -8377,7 +8377,7 @@ async def _sync_neo4j_findings(eid: str):
                     severity=sev,
                     category=rec.get("category") or "",
                     target=rec.get("target") or "",
-                    agent=rec.get("agent") or "OR",
+                    agent=rec.get("agent") or "ST",
                     description=rec.get("description") or "",
                     cvss=rec.get("cvss") or 0.0,
                     cve=rec.get("cve"),
@@ -8594,7 +8594,7 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
     Handles both the event stream (timeline) AND agent status updates
     (LED chips) so the dashboard stays in sync with SDK activity.
     """
-    agent_code = event.get("agent", "OR")
+    agent_code = event.get("agent", "ST")
     event_type = event["type"]
     metadata = event.get("metadata") or {}
 
@@ -8656,7 +8656,7 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
         control = metadata.get("control")
         if control == "engagement_ended":
             # BUG-014 fix: Reset ALL agent LEDs on engagement end, not just 6.
-            # Previously OR, PO, and specialist agents stayed "running" after
+            # Previously some agents stayed "running" after
             # budget exhaustion or natural completion.
             for ac in AGENT_NAMES:
                 await state.update_agent_status(ac, AgentStatus.IDLE)
@@ -8729,7 +8729,7 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
         if _engagement_cost_live >= ENGAGEMENT_COST_CAP:
             if not getattr(state, '_engagement_cap_warned', False):
                 state._engagement_cap_warned = True
-                await _emit("system", "OR",
+                await _emit("system", "ST",
                     f"ENGAGEMENT COST CAP REACHED: ${_engagement_cost_live:.2f} >= "
                     f"${ENGAGEMENT_COST_CAP:.2f}. All agents should wrap up.",
                     {"engagement_cap": True, "cost": round(_engagement_cost_live, 4)})
@@ -9110,7 +9110,7 @@ async def start_engagement_ai(
     await state.add_event(AgentEvent(
         id=str(uuid.uuid4())[:8],
         type="system",
-        agent="OR",
+        agent="ST",
         content=(
             f"AUTONOMOUS MODE activated against {target}. Full AI autonomy — no HITL gates. Flag auto-detection enabled."
             if is_ctf else
@@ -9218,7 +9218,7 @@ Body: {{"agent":"AR","task":"Port scan and service enumeration against {target}"
     await state.add_event(AgentEvent(
         id=str(uuid.uuid4())[:8],
         type="system",
-        agent="OR",
+        agent="ST",
         content=(
             f"CTF session started. ST coordinating flag capture against {target}."
             if is_ctf else
@@ -10047,7 +10047,7 @@ async def _run_demo_scenario():
     await state.update_agent_status("ST", AgentStatus.COMPLETED, "Engagement complete")
 
     await _emit_phase("COMPLETE")
-    await _emit("system", "OR", "Acme Corp External engagement completed. All 13 agents finished. Report ready for review.")
+    await _emit("system", "ST", "Acme Corp External engagement completed. All agents finished. Report ready for review.")
 
 
 async def _handle_multi_agent_operator_command(cmd_text: str):
