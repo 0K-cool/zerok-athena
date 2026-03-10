@@ -145,13 +145,13 @@
 
     html, body {
       width: 100%;
-      height: 100dvh;
+      height: 100%;
       overflow: hidden;
-      background: var(--zerok-bg);
     }
 
     body {
       font-family: var(--zerok-font-sans);
+      background: var(--zerok-bg);
       color: var(--zerok-text);
       margin: 0;
     }
@@ -159,8 +159,8 @@
     /* Upside-down L Layout: Sidebar full height, content beside it */
     .dashboard {
       display: flex;
-      height: 100dvh;
-      max-height: 100dvh;
+      height: 100vh;
+      max-height: 100vh;
       overflow: hidden;
       width: 100%;
       box-sizing: border-box;
@@ -532,7 +532,7 @@
     #dashboardView.active {
       display: flex;
       flex-direction: column;
-      min-height: 100%;
+      height: 100%;
       overflow-y: auto;              /* BUG-018: scroll — don't squeeze widgets */
       overflow-x: hidden;
       scrollbar-width: none;         /* Firefox: hide scrollbar */
@@ -544,14 +544,10 @@
       flex: 0 0 auto;                /* KPI row: fixed height, no grow/shrink */
     }
     #dashboardView > .widget-grid {
-      flex: 0 0 auto;                /* Widget rows: natural height, never clip */
-      min-height: 200px;             /* Minimum visible height per widget row */
+      flex: 1 0 200px;               /* Widget rows: grow evenly, min 200px */
     }
     #dashboardView > .full-width {
-      flex: 0 0 auto;                /* Full-width rows: natural height */
-    }
-    #dashboardView > .full-width:last-child {
-      flex: 1 0 auto;               /* Last section fills remaining viewport */
+      flex: 1 0 auto;                /* Full-width rows: grow evenly to fill viewport */
     }
 
     /* Content Header - same charcoal as sidebar (upside-down L) */
@@ -849,7 +845,7 @@
       flex: 1;
       height: 0;                    /* Forces % children to resolve against flex height */
       padding: var(--zerok-content-padding);
-      padding-bottom: 0;            /* No bottom gap — last section fills to edge */
+      padding-bottom: var(--zerok-content-padding);
       overflow-x: hidden;
       overflow-y: auto;             /* BUG-030: Scroll when content exceeds viewport (Findings, Scans, etc.) */
       scrollbar-width: none;        /* Firefox: hide scrollbar */
@@ -10722,6 +10718,13 @@
         // BUG-6: Stop ST strategy toggle from pulsing after engagement ends
         const stToggle = document.getElementById('strategyToggle');
         if (stToggle) stToggle.classList.remove('has-decision');
+        // BUG-014 FIX: Clear stale strategy bar on engagement end
+        const stratPanel = document.getElementById('strategyPanel');
+        if (stratPanel) stratPanel.classList.remove('open');
+        const stratDirective = document.getElementById('strategyDirective');
+        if (stratDirective) stratDirective.textContent = 'No strategy decisions yet';
+        const stratMeta = document.getElementById('strategyMeta');
+        if (stratMeta) stratMeta.innerHTML = '';
         const _endPulse = document.getElementById('aiPulseDot');
         if (_endPulse) {
           _endPulse.classList.remove('active');

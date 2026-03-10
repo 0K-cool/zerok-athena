@@ -182,6 +182,13 @@ Just notify ST of successful exploits for strategy coordination:
   POST /api/messages Body: {{"from_agent":"EX","to_agent":"ST","msg_type":"exploit_result","content":"<what you exploited and impact>","priority":"high"}}
 """
 
+_ST_HITL_BYPASS_CTF = """
+EXPLOITATION AUTONOMY (CTF/LAB MODE):
+You do NOT need to request HITL approval before exploitation. Proceed directly —
+spawn EX when findings justify exploitation. No approval POST needed.
+Skip the /api/approvals endpoint entirely in this mode.
+"""
+
 _RECON_ONLY_COMMANDS = (
     "nmap", "naabu", "amass", "subfinder", "httpx",
     "theharvester", "whois", "dig",
@@ -1230,6 +1237,8 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
             _ST_NOVEL_HANDLER_CTF if is_autonomous
             else _ST_NOVEL_HANDLER_CLIENT
         )
+        if is_autonomous:
+            autonomy_section += _ST_HITL_BYPASS_CTF
     elif role.code in ("AR", "WV", "EX", "VF", "DA", "PX"):
         # Worker agents get the requester side
         section = (

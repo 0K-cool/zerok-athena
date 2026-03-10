@@ -669,7 +669,9 @@ class AgentSessionManager:
                     self.total_tool_calls += session._tool_count
                     self._cost_aggregated.add(code)
                 await self._emit("agent_status", code, "completed",
-                    {"status": "completed", "reason": "budget_exhausted"})
+                    {"status": "completed", "reason": "budget_exhausted",
+                     "cost_usd": round(session._total_cost_usd, 4),
+                     "tool_calls": session._tool_count})
                 # Notify ST (or re-spawn if ST died)
                 early_stop_msg = (
                     f"Agent {code} was EARLY-STOPPED (budget exhausted). "
@@ -733,8 +735,15 @@ class AgentSessionManager:
                         f"Agent {code} failed: {str(exc)[:300]}",
                         {"agent_error": True, "agent": code})
                 else:
+                    # BUG-013 fix: Include per-agent cost in completion event.
+                    # Previously this had no cost data, so the frontend showed
+                    # the manager's accumulated total instead of this agent's cost.
+                    agent_cost = round(session._total_cost_usd, 4) if session else 0
+                    agent_tools = session._tool_count if session else 0
                     await self._emit("agent_status", code, "completed",
-                        {"status": "completed"})
+                        {"status": "completed",
+                         "cost_usd": agent_cost,
+                         "tool_calls": agent_tools})
 
                 # F1: Notify ST with enriched completion summary
                 # Include Neo4j stats so ST can reason about next steps
@@ -813,8 +822,26 @@ class AgentSessionManager:
 
         # Check if ST itself completed (engagement done)
         # BUG-037: Don't declare engagement finished if we're paused — pause cancels
-        # SDK queries which looks like "completion" but isn't
-        if "ST" in completed and not self._agent_tasks and not self._paused:
+        # SDK queries which looks like "completion" but isn't.
+        # BUG-FIX: Previously required `not self._agent_tasks` (all agents done),
+        # but when ST budget-exhausts, workers keep running with no coordinator.
+        # Now: ST completion = engagement over. Stop any remaining workers.
+        if "ST" in completed and not self._paused:
+            # Stop any still-running workers gracefully
+            remaining = [c for c, t in self._agent_tasks.items() if not t.done()]
+            for code in remaining:
+                session = self.agents.get(code)
+                if session and session.is_running:
+                    logger.info("Stopping %s — ST completed, engagement ending", code)
+                    await session.stop()
+                    if code not in self._cost_aggregated:
+                        self.total_cost_usd += session._total_cost_usd
+                        self.total_tool_calls += session._tool_count
+                        self._cost_aggregated.add(code)
+                    await self._emit("agent_status", code, "completed",
+                        {"status": "completed", "reason": "engagement_ended",
+                         "cost_usd": round(session._total_cost_usd, 4),
+                         "tool_calls": session._tool_count})
             await self._emit("system", "OR",
                 "Strategy Agent completed. Engagement finished.",
                 {"control": "engagement_ended"})
@@ -890,6 +917,12 @@ class AgentSessionManager:
         # Wire event callback (same pipeline as single-agent mode)
         if self._event_callback:
             session.set_event_callback(self._event_callback)
+
+        # BUG-013: Suppress per-agent engagement_ended — manager owns that event.
+        # Without this, each agent's finally block emits engagement_ended,
+        # causing the frontend to reset the cost KPI to that agent's cost
+        # instead of the engagement total.
+        session._suppress_engagement_ended = True
 
         # Build the initial prompt for the agent (includes knowledge brief)
         prompt = format_prompt(role, self.engagement_id, self.target,
