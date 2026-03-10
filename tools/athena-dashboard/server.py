@@ -628,8 +628,19 @@ async def lifespan(app: FastAPI):
         logger.info("Graphiti cross-session memory active")
     else:
         logger.info("Graphiti disabled — running without cross-session memory")
+    # Start internet connectivity monitor
+    global _network_monitor_task
+    _network_monitor_task = asyncio.create_task(_network_connectivity_monitor())
+    print("  Network Monitor: active (checking every 10s)")
     print()
     yield
+    # Stop network monitor
+    if _network_monitor_task and not _network_monitor_task.done():
+        _network_monitor_task.cancel()
+        try:
+            await _network_monitor_task
+        except asyncio.CancelledError:
+            pass
     # H1: Close Graphiti before Neo4j
     await shutdown_graphiti()
     # H3: Flush Langfuse before shutdown
@@ -7996,6 +8007,82 @@ async def start_engagement(eid: str, backend: str = ""):
 
 _active_session_manager: "AgentSessionManager | None" = None
 
+# ── Internet Connectivity Monitor ──────────────────────────────
+_network_down: bool = False
+_network_consecutive_failures: int = 0
+_network_down_since: float | None = None
+_network_paused: bool = False  # True if WE paused due to network (vs user pause)
+_network_monitor_task: asyncio.Task | None = None
+NETWORK_CHECK_URL = "https://www.google.com/generate_204"
+NETWORK_CHECK_INTERVAL = 10  # seconds
+NETWORK_FAILURE_THRESHOLD = 2  # consecutive failures to declare outage
+NETWORK_CHECK_TIMEOUT = 5  # seconds
+
+
+async def _network_connectivity_monitor():
+    """Background task: detect internet outages and auto-pause/resume agents."""
+    global _network_down, _network_consecutive_failures, _network_down_since, _network_paused
+
+    client = httpx.AsyncClient(timeout=NETWORK_CHECK_TIMEOUT)
+    try:
+        while True:
+            await asyncio.sleep(NETWORK_CHECK_INTERVAL)
+            try:
+                resp = await client.get(NETWORK_CHECK_URL)
+                # Google returns 204, but any 2xx means connectivity works
+                is_up = 200 <= resp.status_code < 400
+            except Exception:
+                is_up = False
+
+            if is_up:
+                _network_consecutive_failures = 0
+                if _network_down:
+                    # Recovery
+                    downtime = int(time.time() - (_network_down_since or time.time()))
+                    _network_down = False
+                    _network_down_since = None
+                    logger.info("Internet connectivity restored (was down %ds)", downtime)
+                    await state.broadcast({
+                        "type": "network_status",
+                        "status": "up",
+                        "downtime_s": downtime,
+                        "timestamp": time.time(),
+                    })
+                    # Auto-resume only if WE paused (not the user)
+                    if _network_paused and _active_session_manager and _active_session_manager._paused:
+                        _network_paused = False
+                        await _active_session_manager.resume()
+                        # Tell agents what happened
+                        st = _active_session_manager.agents.get("ST")
+                        if st and st.is_running:
+                            await st.send_command(
+                                f"Internet connectivity restored after {downtime}s outage. "
+                                f"Continue your task."
+                            )
+            else:
+                _network_consecutive_failures += 1
+                if _network_consecutive_failures >= NETWORK_FAILURE_THRESHOLD and not _network_down:
+                    # Declare outage
+                    _network_down = True
+                    _network_down_since = time.time()
+                    logger.warning("Internet connectivity lost (after %d consecutive failures)",
+                                   _network_consecutive_failures)
+                    await state.broadcast({
+                        "type": "network_status",
+                        "status": "down",
+                        "timestamp": time.time(),
+                    })
+                    # Auto-pause if engagement is running and not already paused
+                    if (_active_session_manager and
+                            _active_session_manager.is_running and
+                            not _active_session_manager._paused):
+                        _network_paused = True
+                        await _active_session_manager.pause()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await client.aclose()
+
 
 def _parse_target_scope(target: str) -> dict:
     """Parse a target URL/IP into structured scope constraints.
@@ -9298,6 +9385,10 @@ async def cleanup_orphan_scans(eid: str):
 @app.post("/api/engagement/{eid}/pause")
 async def pause_engagement(eid: str):
     """Pause a running engagement. Kills in-flight Kali processes immediately."""
+    global _network_paused
+    # User-initiated pause clears network_paused flag so auto-resume doesn't
+    # override the user's intent.
+    _network_paused = False
     # Pause multi-agent session manager
     if _active_session_manager and _active_session_manager.is_running:
         await _active_session_manager.pause()
@@ -10062,6 +10153,17 @@ async def _emit_stats(hosts=None, services=None, vulns=None, findings=None):
     if findings is not None:
         data["findings"] = findings
     await state.broadcast(data)
+
+
+@app.get("/api/network/status")
+async def get_network_status():
+    """Get current internet connectivity status."""
+    return {
+        "status": "down" if _network_down else "up",
+        "down_since": _network_down_since,
+        "downtime_s": int(time.time() - _network_down_since) if _network_down_since else 0,
+        "network_paused": _network_paused,
+    }
 
 
 # ──────────────────────────────────────────────

@@ -647,6 +647,42 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.7; }
     }
+
+    /* Internet Outage Banner */
+    .network-banner {
+      background: linear-gradient(90deg, rgba(234, 179, 8, 0.15), rgba(234, 179, 8, 0.08));
+      border-bottom: 1px solid rgba(234, 179, 8, 0.3);
+      padding: 8px 16px;
+      animation: networkBannerPulse 2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    .network-banner-inner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      max-width: 100%;
+    }
+    .network-banner-icon {
+      color: #eab308;
+      flex-shrink: 0;
+    }
+    .network-banner-text {
+      color: #eab308;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .network-banner-timer {
+      margin-left: auto;
+      color: rgba(234, 179, 8, 0.7);
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+    }
+    @keyframes networkBannerPulse {
+      0%, 100% { background: linear-gradient(90deg, rgba(234, 179, 8, 0.15), rgba(234, 179, 8, 0.08)); }
+      50% { background: linear-gradient(90deg, rgba(234, 179, 8, 0.22), rgba(234, 179, 8, 0.12)); }
+    }
     @keyframes engDotPulse {
       0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
       50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
@@ -5624,6 +5660,23 @@
         </div>
       </div>
 
+      <!-- Internet Outage Banner -->
+      <div id="networkBanner" class="network-banner" style="display:none;">
+        <div class="network-banner-inner">
+          <svg class="network-banner-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="1" y1="1" x2="23" y2="23"/>
+            <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+            <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+            <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
+            <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+            <line x1="12" y1="20" x2="12.01" y2="20"/>
+          </svg>
+          <span class="network-banner-text">Internet connectivity lost — agents paused, waiting for recovery...</span>
+          <span class="network-banner-timer" id="networkDownTimer">Down: 0s</span>
+        </div>
+      </div>
+
       <!-- Dashboard Content -->
       <main class="content">
         <!-- Dashboard View -->
@@ -7969,6 +8022,29 @@
         return;
       }
 
+      // Internet connectivity events
+      if (type === 'network_status') {
+        const banner = document.getElementById('networkBanner');
+        if (msg.status === 'down') {
+          banner.style.display = '';
+          window._networkDownSince = Date.now();
+          if (!window._networkTimerInterval) {
+            window._networkTimerInterval = setInterval(() => {
+              const elapsed = Math.round((Date.now() - (window._networkDownSince || Date.now())) / 1000);
+              const timerEl = document.getElementById('networkDownTimer');
+              if (timerEl) timerEl.textContent = 'Down: ' + elapsed + 's';
+            }, 1000);
+          }
+        } else {
+          banner.style.display = 'none';
+          if (window._networkTimerInterval) {
+            clearInterval(window._networkTimerInterval);
+            window._networkTimerInterval = null;
+          }
+        }
+        return;
+      }
+
       // F5: Budget events
       if (type === 'cost_update') {
         updateBudgetBadge(msg.agent, msg.tool_calls, msg.max_tool_calls, msg.estimated_cost);
@@ -10263,6 +10339,19 @@
     document.addEventListener('DOMContentLoaded', function() {
       // Try connecting — if server isn't running, it will retry silently
       setTimeout(connectWebSocket, 500);
+      // Check network status on page load
+      fetch('/api/network/status').then(r => r.json()).then(d => {
+        if (d.status === 'down') {
+          const banner = document.getElementById('networkBanner');
+          if (banner) banner.style.display = '';
+          window._networkDownSince = Date.now() - (d.downtime_s * 1000);
+          window._networkTimerInterval = setInterval(() => {
+            const elapsed = Math.round((Date.now() - (window._networkDownSince || Date.now())) / 1000);
+            const timerEl = document.getElementById('networkDownTimer');
+            if (timerEl) timerEl.textContent = 'Down: ' + elapsed + 's';
+          }, 1000);
+        }
+      }).catch(() => {});
       // Load engagements list, then populate dashboard from API + sync engagement state
       loadEngagements().then(() => {
         loadDashboardFromAPI();
