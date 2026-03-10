@@ -3355,9 +3355,12 @@ async def record_budget_tool_call(agent: str, finding: bool = False):
             f"(${budget['estimated_cost']:.3f}/${budget['max_cost']})",
             {"budget_warning": True, "pct_calls": pct_calls})
 
-    # Budget exhausted
-    if budget["tool_calls"] >= budget["max_tool_calls"] or \
-       budget["estimated_cost"] >= budget["max_cost"]:
+    # Budget exhausted — tool-call count only.
+    # BUG-FIX: Previously also checked estimated_cost >= max_cost, which
+    # triggered at ~50 calls for Opus agents ($0.12/call × 50 = $6.00)
+    # despite a 200-call limit. Actual cost enforcement is handled
+    # exclusively by /api/budget/actual-cost endpoint.
+    if budget["tool_calls"] >= budget["max_tool_calls"]:
         budget["exhausted"] = True
         response["early_stop"] = True
 
@@ -3366,7 +3369,7 @@ async def record_budget_tool_call(agent: str, finding: bool = False):
             action = "with findings" if budget["findings_count"] > 0 else "WITHOUT findings"
             await _emit("system", agent,
                 f"BUDGET EXHAUSTED: {AGENT_NAMES.get(agent, agent)} — "
-                f"{budget['tool_calls']} calls, ${budget['estimated_cost']:.3f} "
+                f"{budget['tool_calls']}/{budget['max_tool_calls']} calls "
                 f"({action}). Strategy Agent notified.",
                 {"budget_exhausted": True, "findings_count": budget["findings_count"]})
 

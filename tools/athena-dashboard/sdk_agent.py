@@ -388,6 +388,9 @@ class AthenaAgentSession:
             re.compile(r"0xL4BS\{[^}]+\}"),
         ]
         self._engagement_id = engagement_id  # H3: Langfuse trace correlation
+        # BUG-013: In multi-agent mode, suppress per-agent engagement_ended
+        # emission — the manager emits the authoritative engagement_ended event.
+        self._suppress_engagement_ended = False
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to the dashboard.
@@ -690,12 +693,16 @@ class AthenaAgentSession:
                     data = resp.json()
                     eng_remaining = data.get("engagement_remaining")
                     if data.get("early_stop"):
+                        # BUG-FIX: Only warn, don't set _budget_exhausted.
+                        # Tool-call endpoint is the single authority for
+                        # early stop. Actual-cost early_stop was a second
+                        # competing trigger that killed agents prematurely.
                         remaining_msg = (f" (engagement has ${eng_remaining:.2f} remaining)"
                                          if eng_remaining is not None else "")
                         await self._emit("system", agent,
-                            f"EARLY STOP: {agent} per-agent budget exhausted"
-                            f"{remaining_msg}",
-                            {"budget_early_stop": True, "agent": agent,
+                            f"COST WARNING: {agent} actual cost ${cost_usd:.2f} "
+                            f"approaching per-agent cap{remaining_msg}",
+                            {"budget_cost_warning": True, "agent": agent,
                              "actual_cost": round(cost_usd, 4),
                              "engagement_remaining": eng_remaining})
                     if data.get("engagement_cap_exceeded"):
@@ -1119,19 +1126,22 @@ class AthenaAgentSession:
 
                 if tools_used == 0:
                     # AI didn't use any tools — likely done or waiting for input
-                    # Enter idle mode with moderate timeout (60s, not 300s)
+                    # BUG-012 FIX: ST waiting for workers needs a longer timeout.
+                    # Workers report back to ST via send_command(), so ST legitimately
+                    # sits idle while waiting. Use 300s for ST, 60s for workers.
+                    idle_timeout = 300.0 if self._current_agent == 'ST' else 60.0
                     await self._emit("system", "OR",
                         "AI turn complete. Waiting for operator commands...",
                         {"control": "awaiting_commands"})
                     try:
                         cmd = await asyncio.wait_for(
-                            self._command_queue.get(), timeout=60.0)
+                            self._command_queue.get(), timeout=idle_timeout)
                         await self._emit("system", "OR",
                             f"Processing operator command: {_clean_cmd_display(cmd)}")
                         prompt = cmd
                     except asyncio.TimeoutError:
                         await self._emit("system", "OR",
-                            "No operator commands for 60 seconds. Ending session.")
+                            f"No operator commands for {int(idle_timeout)} seconds. Ending session.")
                         break
                 else:
                     # AI is actively working — check for operator commands frequently
@@ -1165,6 +1175,21 @@ class AthenaAgentSession:
                     {"control": "engagement_paused",
                      "cost_usd": round(self._total_cost_usd, 4),
                      "tool_calls": self._tool_count})
+            elif self._suppress_engagement_ended:
+                # BUG-013: In multi-agent mode, don't emit engagement_ended —
+                # that would cause the frontend to reset as if the whole
+                # engagement ended. The manager emits the authoritative event.
+                # Emit agent_session_ended instead (filtered as noise by frontend).
+                agent_code = (self._role_config.code
+                              if self._role_config else "OR")
+                await self._emit("system", agent_code,
+                    f"Agent {agent_code} session ended. "
+                    f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} cost.",
+                    {"control": "agent_session_ended",
+                     "cost_usd": round(self._total_cost_usd, 4),
+                     "tool_calls": self._tool_count,
+                     "agent": agent_code})
+                await self._cleanup_orphan_scans()
             else:
                 await self._emit("system", "OR",
                     f"AI engagement session ended. "
@@ -1317,6 +1342,18 @@ class AthenaAgentSession:
                     {"control": "engagement_paused",
                      "cost_usd": round(self._total_cost_usd, 4),
                      "tool_calls": self._tool_count})
+            elif self._suppress_engagement_ended:
+                # BUG-013: Multi-agent mode — emit agent-scoped event, not engagement_ended
+                agent_code = (self._role_config.code
+                              if self._role_config else "OR")
+                await self._emit("system", agent_code,
+                    f"Agent {agent_code} session ended. "
+                    f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} cost.",
+                    {"control": "agent_session_ended",
+                     "cost_usd": round(self._total_cost_usd, 4),
+                     "tool_calls": self._tool_count,
+                     "agent": agent_code})
+                await self._cleanup_orphan_scans()
             else:
                 await self._emit("system", "OR",
                     f"AI engagement session ended. "
