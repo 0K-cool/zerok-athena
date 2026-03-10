@@ -10,13 +10,14 @@ ATHENA is a multi-agent AI penetration testing platform that coordinates special
 
 ## Key Features
 
-- **Multi-Agent AI Team** — 6 specialized agents (Strategy, Recon, Vuln Scanner, Exploitation, Verification, Reporting) coordinate through a shared knowledge graph
+- **Multi-Agent AI Team** — 8 specialized agents (Strategy, Recon, Vuln Scanner, Exploitation, Verification, Reporting, Deep Analysis, Probe Executor) coordinate through a shared knowledge graph
+- **0-Day Hunting (Phase 4.5)** — DA (Opus) generates vulnerability hypotheses, PX (Sonnet) executes targeted probes. Confirmed findings auto-generate Vulnerability Disclosure Reports (VDRs) with full reproduction steps
 - **Tiered Autonomy** — CTF/Lab mode (full autonomy) vs Client mode (HITL gates) vs Client Auto (client-approved automation)
 - **Cross-Engagement Intelligence (CEI)** — Learns from past engagements. Agents skip known dead-ends and prioritize proven techniques
 - **Bilateral Communication** — Agents coordinate through Neo4j + real-time messaging, not just sequential handoffs
 - **Real-Time Dashboard** — Single-page web UI with agent LEDs, live event feed, HITL approval modals, and scope management
 - **Dual Kali Backends** — External (cloud) + Internal (on-premise via ZeroTier) with 50+ offensive tools
-- **PTES Methodology** — Full 7-phase penetration testing execution standard with phase gating
+- **PTES Methodology** — Full 8-phase penetration testing execution standard with phase gating
 - **One-Command Startup** — `./start.sh` handles everything including Docker services
 
 ---
@@ -56,7 +57,7 @@ Worker agents (AR, WV, EX, VF) aren't limited to predefined MCP tools. They can 
 └──┬────┬────┬────┬────┬────┬─────────────────────────┘
    │    │    │    │    │    │
    ▼    ▼    ▼    ▼    ▼    ▼
-  ST   AR   WV   EX   VF   RP
+  ST   AR   WV   EX   VF   RP   DA   PX
 ```
 
 | Agent | Role | Model | Phase |
@@ -67,6 +68,8 @@ Worker agents (AR, WV, EX, VF) aren't limited to predefined MCP tools. They can 
 | **EX** (Exploitation) | Exploit confirmed vulnerabilities, prove impact | Opus | 5 |
 | **VF** (Verification) | Independent verification using different tools — no false positives get through | Sonnet | 4 |
 | **RP** (Reporting) | Generate technical, executive, and remediation reports | Opus | 7 |
+| **DA** (Deep Analysis) | 0-day hunting — hypothesis generation, response analysis, payload crafting | Opus | 4.5 |
+| **PX** (Probe Executor) | Execute probes directed by DA — rapid HTTP, binary search, fuzzing, Kali tools | Sonnet | 4.5 |
 
 ### How Agents Communicate
 
@@ -219,9 +222,10 @@ Temporal knowledge graph for cross-session memory. Agents can query past finding
 2. **Reconnaissance** — Active scanning, service enumeration (AR agent)
 3. **Threat Modeling** — Attack surface analysis (ST agent)
 4. **Vulnerability Analysis** — Scanning and detection (WV agent)
-5. **Exploitation** — Prove impact with HITL approval (EX agent)
-6. **Post-Exploitation** — Verify and validate findings (VF agent)
-7. **Reporting** — Professional deliverables (RP agent)
+5. **Deep Analysis** — 0-day hunting with hypothesis-driven probing (DA + PX agents)
+6. **Exploitation** — Prove impact with HITL approval (EX agent)
+7. **Post-Exploitation** — Verify and validate findings (VF agent)
+8. **Reporting** — Professional deliverables (RP agent)
 
 ### Compliance Support
 
