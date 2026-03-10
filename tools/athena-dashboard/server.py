@@ -7898,6 +7898,73 @@ async def get_observability_status():
 # Unified Feature Configuration Status
 # ──────────────────────────────────────────────
 
+_ENV_FILE = Path(__file__).parent / ".env"
+
+# Keys that are safe to expose in the GET response (no secrets)
+_PUBLIC_KEYS = {
+    "NEO4J_URI", "NEO4J_USER", "KALI_EXTERNAL_URL", "KALI_INTERNAL_URL",
+    "GRAPHITI_LLM_MODEL", "LANGFUSE_BASE_URL",
+}
+
+# Keys that hold secrets — only show masked hint in GET, full value never returned
+_SECRET_KEYS = {
+    "NEO4J_PASS", "KALI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "LANGFUSE_SECRET_KEY", "LANGFUSE_PUBLIC_KEY",
+}
+
+# All keys allowed to be written via the config API
+_WRITABLE_KEYS = _PUBLIC_KEYS | _SECRET_KEYS
+
+
+def _read_env_file() -> dict[str, str]:
+    """Parse .env file into a dict. Ignores comments and blank lines."""
+    result = {}
+    if not _ENV_FILE.exists():
+        return result
+    for line in _ENV_FILE.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" in stripped:
+            key, _, value = stripped.partition("=")
+            result[key.strip()] = value.strip()
+    return result
+
+
+def _write_env_file(updates: dict[str, str]):
+    """Merge updates into .env file, preserving comments and order.
+    New keys are appended. Empty string values remove the key."""
+    lines = []
+    seen = set()
+    if _ENV_FILE.exists():
+        for line in _ENV_FILE.read_text().splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                key = stripped.partition("=")[0].strip()
+                if key in updates:
+                    seen.add(key)
+                    if updates[key]:  # non-empty: update in place
+                        lines.append(f"{key}={updates[key]}")
+                    # empty string: skip line (remove key)
+                    continue
+            lines.append(line)
+    # Append any new keys not already in the file
+    for key, value in updates.items():
+        if key not in seen and value:
+            lines.append(f"{key}={value}")
+    _ENV_FILE.write_text("\n".join(lines) + "\n")
+    _ENV_FILE.chmod(0o600)
+
+
+def _mask_secret(value: str) -> str:
+    """Return masked version of a secret for display."""
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "••••••••"
+    return "••••••••" + value[-4:]
+
+
 @app.get("/api/config/features")
 async def get_feature_config():
     """Aggregated feature configuration status for Settings UI."""
@@ -7908,11 +7975,55 @@ async def get_feature_config():
     for name, backend in kali_client.backends.items():
         kali_backends[name] = {"available": backend.available, "url": backend.base_url}
 
+    # Read .env to show configured (not just active) values
+    env_data = _read_env_file()
+
+    # Build editable config map: public values in full, secrets masked
+    editable = {}
+    for key in _PUBLIC_KEYS:
+        editable[key] = os.environ.get(key, env_data.get(key, ""))
+    for key in _SECRET_KEYS:
+        raw = os.environ.get(key, env_data.get(key, ""))
+        editable[key] = _mask_secret(raw)
+
     return {
         "neo4j": {"enabled": neo4j_available, "uri": os.environ.get("NEO4J_URI", "bolt://localhost:7687")},
         "graphiti": {"enabled": graphiti_enabled(), "model": os.environ.get("GRAPHITI_LLM_MODEL", "claude-haiku-4-5")},
         "langfuse": {"enabled": langfuse_enabled(), "url": os.environ.get("LANGFUSE_BASE_URL", "http://localhost:3000")},
         "kali": {"backends": kali_backends, "tools": len(kali_client.list_tools())},
+        "editable": editable,
+    }
+
+
+@app.post("/api/config/update")
+async def update_config(body: dict):
+    """Update .env configuration. Requires server restart for changes to take effect.
+    Accepts a dict of key-value pairs. Only whitelisted keys are accepted.
+    Values starting with '••••' are treated as unchanged (masked secrets)."""
+    updates = {}
+    rejected = []
+    for key, value in body.items():
+        if key not in _WRITABLE_KEYS:
+            rejected.append(key)
+            continue
+        # Skip masked values (user didn't change the secret)
+        if isinstance(value, str) and value.startswith("••••"):
+            continue
+        updates[key] = str(value).strip()
+
+    if not updates:
+        return {"saved": 0, "rejected": rejected, "restart_required": False,
+                "message": "No changes to save."}
+
+    _write_env_file(updates)
+    logger.info(f"Config updated: {list(updates.keys())} — restart required")
+
+    return {
+        "saved": len(updates),
+        "keys": list(updates.keys()),
+        "rejected": rejected,
+        "restart_required": True,
+        "message": f"Saved {len(updates)} setting(s) to .env. Restart the server to apply changes.",
     }
 
 

@@ -2011,6 +2011,71 @@
       line-height: 1.5;
     }
 
+    .config-edit-field {
+      margin-bottom: 10px;
+    }
+
+    .config-edit-field label {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .config-input {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--zerok-bg-alt);
+      color: var(--zerok-text);
+      border: 1px solid var(--zerok-border);
+      border-radius: 6px;
+      font-family: var(--zerok-font-mono);
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .config-input:focus {
+      border-color: var(--zerok-primary);
+    }
+
+    .config-input::placeholder {
+      color: var(--zerok-text-dim);
+      font-family: var(--zerok-font-sans);
+      font-style: italic;
+    }
+
+    select.config-input {
+      font-family: var(--zerok-font-sans);
+      cursor: pointer;
+      appearance: auto;
+    }
+
+    .config-edit-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 14px;
+      padding-top: 10px;
+      border-top: 1px solid var(--zerok-border);
+    }
+
+    .config-edit-actions .modal-btn {
+      padding: 8px 16px;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+
+    .config-kv-value.secret {
+      font-family: var(--zerok-font-mono);
+      color: var(--zerok-text-dim);
+      letter-spacing: 1px;
+    }
+
+    .config-kv-value.not-set {
+      color: var(--zerok-text-dim);
+      font-style: italic;
+      font-family: var(--zerok-font-sans);
+    }
+
     @media (max-width: 768px) {
       .config-status-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -7307,94 +7372,204 @@
             <button class="severity-filter-chip" data-settings-tab="about" onclick="switchSettingsTab('about')">ABOUT</button>
           </div>
 
+          <!-- Restart Banner (hidden by default) -->
+          <div id="configRestartBanner" style="display:none; background: rgba(249,115,22,0.15); border: 1px solid var(--zerok-high); border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; display: none; align-items: center; gap: 10px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--zerok-high)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span style="font-size: 13px; color: var(--zerok-high);">Configuration saved. <strong>Restart the server</strong> to apply changes.</span>
+          </div>
+
           <!-- Integrations Tab -->
           <div class="settings-tab-content active" id="settings-tab-integrations">
             <div class="config-detail-grid" id="configDetailGrid">
 
               <!-- Neo4j Card -->
-              <div class="config-detail-card">
+              <div class="config-detail-card" id="cfg-card-neo4j">
                 <div class="config-detail-header">
                   <span class="config-detail-title">Neo4j Database</span>
-                  <span class="config-status-badge disabled" id="cfg-neo4j-detail-badge"><span class="config-status-dot"></span> —</span>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <span class="config-status-badge disabled" id="cfg-neo4j-detail-badge"><span class="config-status-dot"></span> —</span>
+                    <button class="widget-action" onclick="toggleConfigEdit('neo4j')">Edit</button>
+                  </div>
                 </div>
-                <div class="config-detail-body">
+                <!-- Read mode -->
+                <div class="config-detail-body config-read-mode" id="cfg-neo4j-read">
                   <div class="config-kv-row">
                     <span class="config-kv-label">URI</span>
                     <span class="config-kv-value" id="cfg-neo4j-uri">—</span>
                   </div>
                   <div class="config-kv-row">
-                    <span class="config-kv-label">Source</span>
-                    <span class="config-kv-value" id="cfg-neo4j-source">.env file</span>
+                    <span class="config-kv-label">User</span>
+                    <span class="config-kv-value" id="cfg-neo4j-user">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Password</span>
+                    <span class="config-kv-value" id="cfg-neo4j-pass-display">—</span>
                   </div>
                   <div class="config-kv-row">
                     <span class="config-kv-label">Purpose</span>
                     <span class="config-kv-value muted">Attack graph, findings, engagement data</span>
                   </div>
                 </div>
+                <!-- Edit mode -->
+                <div class="config-detail-body config-edit-mode" id="cfg-neo4j-edit" style="display:none;">
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">URI</label>
+                    <input type="text" class="config-input" id="cfg-input-NEO4J_URI" placeholder="bolt://localhost:7687">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">User</label>
+                    <input type="text" class="config-input" id="cfg-input-NEO4J_USER" placeholder="neo4j">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">Password</label>
+                    <input type="password" class="config-input" id="cfg-input-NEO4J_PASS" placeholder="Enter password">
+                  </div>
+                  <div class="config-edit-actions">
+                    <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('neo4j')">Save</button>
+                    <button class="modal-btn modal-btn-cancel" onclick="toggleConfigEdit('neo4j')">Cancel</button>
+                  </div>
+                </div>
               </div>
 
               <!-- Graphiti Card -->
-              <div class="config-detail-card">
+              <div class="config-detail-card" id="cfg-card-graphiti">
                 <div class="config-detail-header">
                   <span class="config-detail-title">Graphiti Memory</span>
-                  <span class="config-status-badge disabled" id="cfg-graphiti-detail-badge"><span class="config-status-dot"></span> —</span>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <span class="config-status-badge disabled" id="cfg-graphiti-detail-badge"><span class="config-status-dot"></span> —</span>
+                    <button class="widget-action" onclick="toggleConfigEdit('graphiti')">Edit</button>
+                  </div>
                 </div>
-                <div class="config-detail-body">
+                <!-- Read mode -->
+                <div class="config-detail-body config-read-mode" id="cfg-graphiti-read">
                   <div class="config-kv-row">
-                    <span class="config-kv-label">LLM</span>
+                    <span class="config-kv-label">LLM Model</span>
                     <span class="config-kv-value" id="cfg-graphiti-model">—</span>
                   </div>
                   <div class="config-kv-row">
-                    <span class="config-kv-label">Embedder</span>
-                    <span class="config-kv-value">OpenAI text-embedding-3-small</span>
+                    <span class="config-kv-label">Anthropic Key</span>
+                    <span class="config-kv-value" id="cfg-graphiti-anthropic-display">—</span>
                   </div>
                   <div class="config-kv-row">
-                    <span class="config-kv-label">Source</span>
-                    <span class="config-kv-value" id="cfg-graphiti-source">1Password</span>
+                    <span class="config-kv-label">OpenAI Key</span>
+                    <span class="config-kv-value" id="cfg-graphiti-openai-display">—</span>
                   </div>
                   <div class="config-kv-row">
                     <span class="config-kv-label">Purpose</span>
                     <span class="config-kv-value muted">Cross-session temporal knowledge graph</span>
                   </div>
                 </div>
+                <!-- Edit mode -->
+                <div class="config-detail-body config-edit-mode" id="cfg-graphiti-edit" style="display:none;">
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">LLM Model</label>
+                    <select class="config-input" id="cfg-input-GRAPHITI_LLM_MODEL">
+                      <option value="claude-haiku-4-5">claude-haiku-4-5 (fast, low cost)</option>
+                      <option value="claude-sonnet-4-6">claude-sonnet-4-6 (balanced)</option>
+                    </select>
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">Anthropic API Key</label>
+                    <input type="password" class="config-input" id="cfg-input-ANTHROPIC_API_KEY" placeholder="sk-ant-api03-...">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">OpenAI API Key <span style="color:var(--zerok-text-dim);font-weight:400;">(for embeddings)</span></label>
+                    <input type="password" class="config-input" id="cfg-input-OPENAI_API_KEY" placeholder="sk-...">
+                  </div>
+                  <div class="config-edit-actions">
+                    <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('graphiti')">Save</button>
+                    <button class="modal-btn modal-btn-cancel" onclick="toggleConfigEdit('graphiti')">Cancel</button>
+                  </div>
+                </div>
               </div>
 
               <!-- Langfuse Card -->
-              <div class="config-detail-card">
+              <div class="config-detail-card" id="cfg-card-langfuse">
                 <div class="config-detail-header">
                   <span class="config-detail-title">Langfuse Observability</span>
-                  <span class="config-status-badge disabled" id="cfg-langfuse-detail-badge"><span class="config-status-dot"></span> —</span>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <span class="config-status-badge disabled" id="cfg-langfuse-detail-badge"><span class="config-status-dot"></span> —</span>
+                    <button class="widget-action" onclick="toggleConfigEdit('langfuse')">Edit</button>
+                  </div>
                 </div>
-                <div class="config-detail-body">
+                <!-- Read mode -->
+                <div class="config-detail-body config-read-mode" id="cfg-langfuse-read">
                   <div class="config-kv-row">
                     <span class="config-kv-label">URL</span>
                     <span class="config-kv-value" id="cfg-langfuse-url">—</span>
                   </div>
                   <div class="config-kv-row">
-                    <span class="config-kv-label">Source</span>
-                    <span class="config-kv-value" id="cfg-langfuse-source">docker/.env.langfuse</span>
+                    <span class="config-kv-label">Public Key</span>
+                    <span class="config-kv-value" id="cfg-langfuse-pk-display">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Secret Key</span>
+                    <span class="config-kv-value" id="cfg-langfuse-sk-display">—</span>
                   </div>
                   <div class="config-kv-row">
                     <span class="config-kv-label">Purpose</span>
                     <span class="config-kv-value muted">LLM tracing, cost tracking, prompt analytics</span>
                   </div>
                 </div>
+                <!-- Edit mode -->
+                <div class="config-detail-body config-edit-mode" id="cfg-langfuse-edit" style="display:none;">
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">Base URL</label>
+                    <input type="text" class="config-input" id="cfg-input-LANGFUSE_BASE_URL" placeholder="http://localhost:3000">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">Public Key</label>
+                    <input type="password" class="config-input" id="cfg-input-LANGFUSE_PUBLIC_KEY" placeholder="pk-lf-...">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">Secret Key</label>
+                    <input type="password" class="config-input" id="cfg-input-LANGFUSE_SECRET_KEY" placeholder="sk-lf-...">
+                  </div>
+                  <div class="config-edit-actions">
+                    <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('langfuse')">Save</button>
+                    <button class="modal-btn modal-btn-cancel" onclick="toggleConfigEdit('langfuse')">Cancel</button>
+                  </div>
+                </div>
               </div>
 
               <!-- Kali Card -->
-              <div class="config-detail-card">
+              <div class="config-detail-card" id="cfg-card-kali">
                 <div class="config-detail-header">
                   <span class="config-detail-title">Kali Backend</span>
-                  <span class="config-status-badge disabled" id="cfg-kali-detail-badge"><span class="config-status-dot"></span> —</span>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <span class="config-status-badge disabled" id="cfg-kali-detail-badge"><span class="config-status-dot"></span> —</span>
+                    <button class="widget-action" onclick="toggleConfigEdit('kali')">Edit</button>
+                  </div>
                 </div>
-                <div class="config-detail-body" id="cfg-kali-backends">
-                  <div class="config-kv-row">
+                <!-- Read mode -->
+                <div class="config-detail-body config-read-mode" id="cfg-kali-read">
+                  <div class="config-kv-row" id="cfg-kali-backends">
                     <span class="config-kv-label">Tools</span>
                     <span class="config-kv-value" id="cfg-kali-tools">—</span>
                   </div>
+                  <div id="cfg-kali-backend-rows"></div>
                   <div class="config-kv-row">
                     <span class="config-kv-label">Purpose</span>
                     <span class="config-kv-value muted">Penetration testing tool execution</span>
+                  </div>
+                </div>
+                <!-- Edit mode -->
+                <div class="config-detail-body config-edit-mode" id="cfg-kali-edit" style="display:none;">
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">External URL</label>
+                    <input type="text" class="config-input" id="cfg-input-KALI_EXTERNAL_URL" placeholder="http://kali.example.com:5000">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">Internal URL <span style="color:var(--zerok-text-dim);font-weight:400;">(LAN/VPN, optional)</span></label>
+                    <input type="text" class="config-input" id="cfg-input-KALI_INTERNAL_URL" placeholder="http://172.x.x.x:5000">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label">API Key <span style="color:var(--zerok-text-dim);font-weight:400;">(optional)</span></label>
+                    <input type="password" class="config-input" id="cfg-input-KALI_API_KEY" placeholder="Enter API key">
+                  </div>
+                  <div class="config-edit-actions">
+                    <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('kali')">Save</button>
+                    <button class="modal-btn modal-btn-cancel" onclick="toggleConfigEdit('kali')">Cancel</button>
                   </div>
                 </div>
               </div>
@@ -14078,10 +14253,22 @@
       }
     }
 
+    // Config section → env key mapping
+    const CONFIG_SECTIONS = {
+      neo4j: ['NEO4J_URI', 'NEO4J_USER', 'NEO4J_PASS'],
+      graphiti: ['GRAPHITI_LLM_MODEL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
+      langfuse: ['LANGFUSE_BASE_URL', 'LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY'],
+      kali: ['KALI_EXTERNAL_URL', 'KALI_INTERNAL_URL', 'KALI_API_KEY'],
+    };
+
+    let _lastEditable = {}; // Cached editable config from last load
+
     async function loadSettingsView() {
       try {
         const res = await fetch('/api/config/features');
         const cfg = await res.json();
+        const ed = cfg.editable || {};
+        _lastEditable = ed;
 
         // --- Neo4j ---
         const neo4jBadge = cfg.neo4j.enabled ? 'enabled' : 'disabled';
@@ -14089,48 +14276,75 @@
         setBadge('cfg-neo4j-badge', neo4jBadge, neo4jLabel);
         setBadge('cfg-neo4j-detail-badge', neo4jBadge, neo4jLabel);
         document.getElementById('cfg-neo4j-detail').textContent = cfg.neo4j.uri || '—';
-        document.getElementById('cfg-neo4j-uri').textContent = cfg.neo4j.uri || '—';
+        document.getElementById('cfg-neo4j-uri').textContent = ed.NEO4J_URI || '—';
+        setDisplay('cfg-neo4j-user', ed.NEO4J_USER);
+        setSecretDisplay('cfg-neo4j-pass-display', ed.NEO4J_PASS);
 
         // --- Graphiti ---
         const graphitiBadge = cfg.graphiti.enabled ? 'enabled' : 'disabled';
-        const graphitiLabel = cfg.graphiti.enabled ? 'Active' : 'Disabled';
+        const graphitiLabel = cfg.graphiti.enabled ? 'Active' : 'Not configured';
         setBadge('cfg-graphiti-badge', graphitiBadge, graphitiLabel);
         setBadge('cfg-graphiti-detail-badge', graphitiBadge, graphitiLabel);
         document.getElementById('cfg-graphiti-detail').textContent = cfg.graphiti.enabled ? cfg.graphiti.model : 'Not configured';
-        document.getElementById('cfg-graphiti-model').textContent = cfg.graphiti.model || '—';
+        document.getElementById('cfg-graphiti-model').textContent = ed.GRAPHITI_LLM_MODEL || '—';
+        setSecretDisplay('cfg-graphiti-anthropic-display', ed.ANTHROPIC_API_KEY);
+        setSecretDisplay('cfg-graphiti-openai-display', ed.OPENAI_API_KEY);
 
         // --- Langfuse ---
         const langfuseBadge = cfg.langfuse.enabled ? 'enabled' : 'disabled';
         const langfuseLabel = cfg.langfuse.enabled ? 'Active' : 'Not Running';
         setBadge('cfg-langfuse-badge', langfuseBadge, langfuseLabel);
         setBadge('cfg-langfuse-detail-badge', langfuseBadge, langfuseLabel);
-        document.getElementById('cfg-langfuse-detail').textContent = cfg.langfuse.enabled ? cfg.langfuse.url : 'Docker stack offline';
-        document.getElementById('cfg-langfuse-url').textContent = cfg.langfuse.url || '—';
+        document.getElementById('cfg-langfuse-detail').textContent = cfg.langfuse.enabled ? cfg.langfuse.url : 'Not configured';
+        document.getElementById('cfg-langfuse-url').textContent = ed.LANGFUSE_BASE_URL || '—';
+        setSecretDisplay('cfg-langfuse-pk-display', ed.LANGFUSE_PUBLIC_KEY);
+        setSecretDisplay('cfg-langfuse-sk-display', ed.LANGFUSE_SECRET_KEY);
 
         // --- Kali ---
         const backends = cfg.kali.backends || {};
-        const anyUp = Object.values(backends).some(b => b.available);
+        const anyUp = Object.values(backends).some(function(b) { return b.available; });
         const kaliBadge = anyUp ? 'enabled' : 'disabled';
-        const kaliLabel = anyUp ? cfg.kali.tools + ' tools' : 'Offline';
+        const kaliLabel = anyUp ? cfg.kali.tools + ' tools' : 'No backends online';
         setBadge('cfg-kali-badge', kaliBadge, kaliLabel);
         setBadge('cfg-kali-detail-badge', kaliBadge, kaliLabel);
-        document.getElementById('cfg-kali-detail').textContent = anyUp ? Object.keys(backends).filter(k => backends[k].available).join(', ') : 'No backends';
+        document.getElementById('cfg-kali-detail').textContent = anyUp
+          ? Object.keys(backends).filter(function(k) { return backends[k].available; }).join(', ')
+          : 'No backends online';
         document.getElementById('cfg-kali-tools').textContent = cfg.kali.tools + ' registered';
 
         // Build backend rows dynamically
-        const kaliBody = document.getElementById('cfg-kali-backends');
-        // Remove old dynamic rows
-        kaliBody.querySelectorAll('.config-backend-row').forEach(r => r.remove());
-        // Insert backend rows before the purpose row
-        const purposeRow = kaliBody.querySelector('.config-kv-row:last-child');
+        const rowContainer = document.getElementById('cfg-kali-backend-rows');
+        rowContainer.innerHTML = '';
         for (const [name, info] of Object.entries(backends)) {
           const row = document.createElement('div');
           row.className = 'config-backend-row';
           row.innerHTML = '<span class="config-backend-led ' + (info.available ? 'up' : 'down') + '"></span>'
             + '<span class="config-backend-name">' + name + '</span>'
-            + '<span class="config-backend-url">' + info.url + '</span>';
-          kaliBody.insertBefore(row, purposeRow);
+            + '<span class="config-backend-url">' + info.url + '</span>'
+            + '<span style="margin-left:auto;font-size:11px;color:' + (info.available ? 'var(--zerok-low)' : 'var(--zerok-text-dim)') + ';">'
+            + (info.available ? 'online' : 'offline') + '</span>';
+          rowContainer.appendChild(row);
         }
+
+        // Populate edit form inputs with current values
+        for (const [section, keys] of Object.entries(CONFIG_SECTIONS)) {
+          for (const key of keys) {
+            const input = document.getElementById('cfg-input-' + key);
+            if (input) {
+              // For secrets, show masked value as placeholder, leave value empty
+              if (ed[key] && ed[key].startsWith('••••')) {
+                input.value = '';
+                input.placeholder = ed[key] + ' (unchanged)';
+              } else {
+                input.value = ed[key] || '';
+              }
+            }
+          }
+        }
+
+        // Collapse all edit modes on load
+        document.querySelectorAll('.config-edit-mode').forEach(function(el) { el.style.display = 'none'; });
+        document.querySelectorAll('.config-read-mode').forEach(function(el) { el.style.display = 'block'; });
 
       } catch (e) {
         console.error('Settings: failed to load config', e);
@@ -14142,6 +14356,73 @@
       if (!el) return;
       el.className = 'config-status-badge ' + status;
       el.innerHTML = '<span class="config-status-dot"></span> ' + label;
+    }
+
+    function setDisplay(id, value) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value || '—';
+    }
+
+    function setSecretDisplay(id, masked) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (masked && masked.startsWith('••••')) {
+        el.textContent = masked;
+        el.className = 'config-kv-value secret';
+      } else if (masked) {
+        el.textContent = masked;
+        el.className = 'config-kv-value';
+      } else {
+        el.textContent = 'Not set';
+        el.className = 'config-kv-value not-set';
+      }
+    }
+
+    function toggleConfigEdit(section) {
+      const readEl = document.getElementById('cfg-' + section + '-read');
+      const editEl = document.getElementById('cfg-' + section + '-edit');
+      if (!readEl || !editEl) return;
+      const isEditing = editEl.style.display !== 'none';
+      readEl.style.display = isEditing ? 'block' : 'none';
+      editEl.style.display = isEditing ? 'none' : 'block';
+    }
+
+    async function saveConfigSection(section) {
+      const keys = CONFIG_SECTIONS[section];
+      if (!keys) return;
+
+      const payload = {};
+      for (const key of keys) {
+        const input = document.getElementById('cfg-input-' + key);
+        if (!input) continue;
+        const val = input.value.trim();
+        // If empty and it's a secret field with existing masked value, send the mask (no change)
+        if (!val && _lastEditable[key] && _lastEditable[key].startsWith('••••')) {
+          payload[key] = _lastEditable[key]; // server will skip masked values
+        } else {
+          payload[key] = val;
+        }
+      }
+
+      try {
+        const res = await fetch('/api/config/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const result = await res.json();
+
+        if (result.restart_required) {
+          document.getElementById('configRestartBanner').style.display = 'flex';
+        }
+
+        // Collapse edit mode and reload data
+        toggleConfigEdit(section);
+        await loadSettingsView();
+
+      } catch (e) {
+        console.error('Config save failed:', e);
+      }
     }
 
     // ────────────────────────────────────────
