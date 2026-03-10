@@ -8968,20 +8968,36 @@
         keywords: ['lateral movement', 'pivoted to', 'smb lateral', 'credential reuse confirmed',
                    'moved to host', 'token reuse confirmed', 'pass the hash'] },
       { id: 'exfil', label: 'Exfiltration',
-        keywords: ['exfiltration', 'data exfiltrated', 'database dumped', 'data extracted',
-                   'sensitive data accessed', 'bulk download'] },
+        keywords: ['data exfiltrated', 'database dumped', 'data extracted',
+                   'sensitive data accessed', 'bulk download', 'exfiltration successful',
+                   'exfiltrated via', 'data stolen'] },
+    ];
+
+    // BUG-033: Negative indicators that disqualify a finding from kill chain matching.
+    // "SQL Injection Not Confirmed" should NOT light up the Execution stage.
+    const KC_NEGATIVE_PATTERNS = [
+      /\bnot\s+(confirmed|exploitable|vulnerable|detected|found)\b/,
+      /\bno\s+\w+\s+(detected|found|confirmed)\b/,
+      /\bnot\s+exploitable\b/,
+      /\bfalse\s+positive\b/,
+      /\bout\s+of\s+scope\b/,
+      /\bfyi\s+only\b/,
     ];
 
     function updateKillChain(allFindings) {
       const stages = new Set();
       (allFindings || []).forEach(f => {
         const text = ((f.title || '') + ' ' + (f.category || '') + ' ' + (f.description || '')).toLowerCase();
+        // BUG-033: Skip negative findings (not confirmed, not exploitable, etc.)
+        if (KC_NEGATIVE_PATTERNS.some(pat => pat.test(text))) return;
         KILL_CHAIN.forEach(stage => {
           if (stage.keywords.some(kw => text.includes(kw))) stages.add(stage.id);
         });
       });
 
-      // Find the deepest matched stage index
+      // BUG-033: Only light up stages that actually matched — no fill-forward.
+      // The old logic filled all stages up to deepest, which was wrong
+      // (reaching Exfil doesn't mean you achieved Persistence or Lateral).
       let deepest = -1;
       const stepper = document.getElementById('kill-chain-stepper');
       if (!stepper) return;
@@ -8990,20 +9006,24 @@
         if (stages.has(step.dataset.stage) && idx > deepest) deepest = idx;
       });
 
-      // Fill ALL stages up to deepest (you can't reach Execution without Init Access)
       steps.forEach((step, idx) => {
         const node = step.querySelector('.kill-chain-node');
         const label = step.querySelector('.kill-chain-label');
         const conn = step.querySelector('.kill-chain-connector');
-        // Always ensure label text is set (may have been cleared by reset)
         if (label && !label.textContent.trim()) {
           label.textContent = KILL_CHAIN[idx]?.label || step.dataset.stage?.replace(/_/g, ' ') || '';
         }
-        if (idx <= deepest) {
+        // Only light up if this specific stage was matched
+        if (stages.has(step.dataset.stage)) {
           node.classList.add('achieved');
           node.style.background = getComputedStyle(node).getPropertyValue('--kc-color');
           label.classList.add('achieved');
-          if (conn) conn.classList.add('achieved');
+          // Light connector if the NEXT stage is also achieved
+          if (conn && idx < steps.length - 1 && stages.has(steps[idx + 1]?.dataset?.stage)) {
+            conn.classList.add('achieved');
+          } else if (conn) {
+            conn.classList.remove('achieved');
+          }
         } else {
           node.classList.remove('achieved', 'current');
           node.style.background = '#2a2a2a';
@@ -9012,8 +9032,8 @@
         }
         node.classList.remove('current');
       });
-      // Mark deepest as current (pulsing)
-      if (deepest >= 0) {
+      // Mark deepest achieved as current (pulsing)
+      if (deepest >= 0 && stages.has(steps[deepest]?.dataset?.stage)) {
         steps[deepest].querySelector('.kill-chain-node').classList.add('current');
       }
       const stageLabel = document.getElementById('killchain-stage');
