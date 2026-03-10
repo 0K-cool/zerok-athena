@@ -1756,6 +1756,273 @@
       display: none;
     }
 
+    /* ========== SETTINGS VIEW ========== */
+    .config-status-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-bottom: 20px;
+    }
+
+    [data-theme="default"] .config-status-grid,
+    [data-theme="minimal"] .config-status-grid {
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .config-stat-card {
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 0;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    [data-theme="minimal"] .config-stat-card {
+      border-radius: 12px;
+    }
+
+    .config-stat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .config-stat-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--zerok-text);
+    }
+
+    .config-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .config-status-badge.enabled {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+    }
+
+    .config-status-badge.disabled {
+      background: rgba(102, 102, 102, 0.15);
+      color: #666666;
+    }
+
+    .config-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .config-status-badge.enabled .config-status-dot {
+      background: #22c55e;
+    }
+
+    .config-status-badge.disabled .config-status-dot {
+      background: #666666;
+    }
+
+    .config-stat-detail {
+      font-size: 11px;
+      color: var(--zerok-text-dim);
+    }
+
+    .config-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+    }
+
+    [data-theme="default"] .config-detail-grid,
+    [data-theme="minimal"] .config-detail-grid {
+      gap: 10px;
+    }
+
+    .config-detail-card {
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 0;
+      overflow: hidden;
+    }
+
+    [data-theme="minimal"] .config-detail-card {
+      border-radius: 12px;
+    }
+
+    .config-detail-header {
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--zerok-border);
+    }
+
+    .config-detail-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--zerok-text);
+    }
+
+    .config-detail-body {
+      padding: 12px 16px;
+    }
+
+    .config-kv-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+    }
+
+    .config-kv-row + .config-kv-row {
+      border-top: 1px solid var(--zerok-border);
+    }
+
+    .config-kv-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--zerok-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .config-kv-value {
+      font-size: 13px;
+      color: var(--zerok-text);
+      font-family: var(--zerok-font-mono);
+    }
+
+    .config-kv-value.muted {
+      color: var(--zerok-text-dim);
+      font-style: italic;
+      font-family: var(--zerok-font-sans);
+    }
+
+    .config-backend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+    }
+
+    .config-backend-row + .config-backend-row {
+      border-top: 1px solid var(--zerok-border);
+    }
+
+    .config-backend-led {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .config-backend-led.up { background: #22c55e; }
+    .config-backend-led.down { background: #666666; }
+
+    .config-backend-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--zerok-text);
+      min-width: 70px;
+    }
+
+    .config-backend-url {
+      font-size: 12px;
+      color: var(--zerok-text-dim);
+      font-family: var(--zerok-font-mono);
+    }
+
+    /* Settings view appearance section (moved from sidebar) */
+    .settings-appearance-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+    }
+
+    [data-theme="default"] .settings-appearance-grid,
+    [data-theme="minimal"] .settings-appearance-grid {
+      gap: 10px;
+    }
+
+    .settings-appearance-card {
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 0;
+      padding: 16px;
+    }
+
+    [data-theme="minimal"] .settings-appearance-card {
+      border-radius: 12px;
+    }
+
+    .settings-appearance-card .settings-label {
+      margin-bottom: 10px;
+    }
+
+    .settings-view-color-options {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .settings-view-color-options .color-option {
+      width: 28px;
+      height: 28px;
+      min-width: 28px;
+      min-height: 28px;
+    }
+
+    .settings-about {
+      background: var(--zerok-card);
+      border: var(--zerok-card-border);
+      border-radius: 0;
+      padding: 16px;
+      margin-top: 6px;
+    }
+
+    [data-theme="default"] .settings-about,
+    [data-theme="minimal"] .settings-about {
+      margin-top: 10px;
+    }
+
+    [data-theme="minimal"] .settings-about {
+      border-radius: 12px;
+    }
+
+    .settings-about-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--zerok-text);
+      margin-bottom: 8px;
+    }
+
+    .settings-about-text {
+      font-size: 12px;
+      color: var(--zerok-text-dim);
+      line-height: 1.5;
+    }
+
+    @media (max-width: 768px) {
+      .config-status-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .config-detail-grid {
+        grid-template-columns: 1fr;
+      }
+      .settings-appearance-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     /* User Profile - at bottom of sidebar */
     .sidebar-user {
       display: flex;
@@ -3473,6 +3740,8 @@
     /* ========== INTELLIGENCE VIEW (CEI) ========== */
     .cei-tab-content { display: none; }
     .cei-tab-content.active { display: block; }
+    .settings-tab-content { display: none; }
+    .settings-tab-content.active { display: block; }
 
     .cei-rate-bar {
       width: 60px; height: 6px;
@@ -5514,38 +5783,13 @@
           <span class="nav-label">Intelligence</span>
           <span class="nav-badge" id="nav-badge-intelligence" style="display:none">0</span>
         </button>
-        <div class="nav-section">
-          <button class="nav-item" title="Settings" onclick="toggleSettings()">
+        <button class="nav-item" title="Settings" data-view="settings">
             <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="9" cy="9" r="2.5"/>
               <path d="M9 2v2M9 14v2M2 9h2M14 9h2M4 4l1.5 1.5M12.5 12.5L14 14M4 14l1.5-1.5M12.5 5.5L14 4"/>
             </svg>
             <span class="nav-label">Settings</span>
-            <svg class="nav-chevron" id="settingsChevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M4 6l4 4 4-4"/>
-            </svg>
-          </button>
-          <div class="settings-panel" id="settingsPanel">
-            <div class="settings-group">
-              <span class="settings-label">Theme</span>
-              <div class="theme-options">
-                <button class="theme-option active" data-theme="default" onclick="setTheme('default')">Default</button>
-                <button class="theme-option" data-theme="minimal" onclick="setTheme('minimal')">Minimal</button>
-              </div>
-            </div>
-            <div class="settings-group">
-              <span class="settings-label">Accent</span>
-              <div class="color-options">
-                <button class="color-option" data-color="orange" onclick="setAccent('orange')" style="--swatch: #c2703c;" title="0K Orange"></button>
-                <button class="color-option active" data-color="red" onclick="setAccent('red')" style="--swatch: #dc2626;" title="ATHENA Red"></button>
-                <button class="color-option" data-color="blue" onclick="setAccent('blue')" style="--swatch: #3b82f6;" title="Blue"></button>
-                <button class="color-option" data-color="green" onclick="setAccent('green')" style="--swatch: #22c55e;" title="Green"></button>
-                <button class="color-option" data-color="purple" onclick="setAccent('purple')" style="--swatch: #8b5cf6;" title="Purple"></button>
-                <button class="color-option" data-color="yellow" onclick="setAccent('yellow')" style="--swatch: #d4ed6e;" title="Yellow"></button>
-              </div>
-            </div>
-          </div>
-        </div>
+        </button>
       </nav>
 
       <!-- Engagements Section -->
@@ -7014,6 +7258,192 @@
 
         </div><!-- /#intelligenceView -->
 
+        <!-- Settings View -->
+        <div id="settingsView" class="findings-view">
+          <div class="findings-header">
+            <h2 class="findings-title">Settings & Configuration</h2>
+            <button class="modal-btn" onclick="loadSettingsView()" style="font-size: 12px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+              Refresh
+            </button>
+          </div>
+
+          <!-- KPI status cards -->
+          <div class="config-status-grid" id="configStatusGrid">
+            <div class="config-stat-card">
+              <div class="config-stat-header">
+                <span class="config-stat-name">Neo4j</span>
+                <span class="config-status-badge disabled" id="cfg-neo4j-badge"><span class="config-status-dot"></span> Checking</span>
+              </div>
+              <div class="config-stat-detail" id="cfg-neo4j-detail">—</div>
+            </div>
+            <div class="config-stat-card">
+              <div class="config-stat-header">
+                <span class="config-stat-name">Graphiti</span>
+                <span class="config-status-badge disabled" id="cfg-graphiti-badge"><span class="config-status-dot"></span> Checking</span>
+              </div>
+              <div class="config-stat-detail" id="cfg-graphiti-detail">—</div>
+            </div>
+            <div class="config-stat-card">
+              <div class="config-stat-header">
+                <span class="config-stat-name">Langfuse</span>
+                <span class="config-status-badge disabled" id="cfg-langfuse-badge"><span class="config-status-dot"></span> Checking</span>
+              </div>
+              <div class="config-stat-detail" id="cfg-langfuse-detail">—</div>
+            </div>
+            <div class="config-stat-card">
+              <div class="config-stat-header">
+                <span class="config-stat-name">Kali</span>
+                <span class="config-status-badge disabled" id="cfg-kali-badge"><span class="config-status-dot"></span> Checking</span>
+              </div>
+              <div class="config-stat-detail" id="cfg-kali-detail">—</div>
+            </div>
+          </div>
+
+          <!-- Tabs -->
+          <div class="findings-filters">
+            <button class="severity-filter-chip active" data-settings-tab="integrations" onclick="switchSettingsTab('integrations')">INTEGRATIONS</button>
+            <button class="severity-filter-chip" data-settings-tab="appearance" onclick="switchSettingsTab('appearance')">APPEARANCE</button>
+            <button class="severity-filter-chip" data-settings-tab="about" onclick="switchSettingsTab('about')">ABOUT</button>
+          </div>
+
+          <!-- Integrations Tab -->
+          <div class="settings-tab-content active" id="settings-tab-integrations">
+            <div class="config-detail-grid" id="configDetailGrid">
+
+              <!-- Neo4j Card -->
+              <div class="config-detail-card">
+                <div class="config-detail-header">
+                  <span class="config-detail-title">Neo4j Database</span>
+                  <span class="config-status-badge disabled" id="cfg-neo4j-detail-badge"><span class="config-status-dot"></span> —</span>
+                </div>
+                <div class="config-detail-body">
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">URI</span>
+                    <span class="config-kv-value" id="cfg-neo4j-uri">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Source</span>
+                    <span class="config-kv-value" id="cfg-neo4j-source">.env file</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Purpose</span>
+                    <span class="config-kv-value muted">Attack graph, findings, engagement data</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Graphiti Card -->
+              <div class="config-detail-card">
+                <div class="config-detail-header">
+                  <span class="config-detail-title">Graphiti Memory</span>
+                  <span class="config-status-badge disabled" id="cfg-graphiti-detail-badge"><span class="config-status-dot"></span> —</span>
+                </div>
+                <div class="config-detail-body">
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">LLM</span>
+                    <span class="config-kv-value" id="cfg-graphiti-model">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Embedder</span>
+                    <span class="config-kv-value">OpenAI text-embedding-3-small</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Source</span>
+                    <span class="config-kv-value" id="cfg-graphiti-source">1Password</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Purpose</span>
+                    <span class="config-kv-value muted">Cross-session temporal knowledge graph</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Langfuse Card -->
+              <div class="config-detail-card">
+                <div class="config-detail-header">
+                  <span class="config-detail-title">Langfuse Observability</span>
+                  <span class="config-status-badge disabled" id="cfg-langfuse-detail-badge"><span class="config-status-dot"></span> —</span>
+                </div>
+                <div class="config-detail-body">
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">URL</span>
+                    <span class="config-kv-value" id="cfg-langfuse-url">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Source</span>
+                    <span class="config-kv-value" id="cfg-langfuse-source">docker/.env.langfuse</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Purpose</span>
+                    <span class="config-kv-value muted">LLM tracing, cost tracking, prompt analytics</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Kali Card -->
+              <div class="config-detail-card">
+                <div class="config-detail-header">
+                  <span class="config-detail-title">Kali Backend</span>
+                  <span class="config-status-badge disabled" id="cfg-kali-detail-badge"><span class="config-status-dot"></span> —</span>
+                </div>
+                <div class="config-detail-body" id="cfg-kali-backends">
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Tools</span>
+                    <span class="config-kv-value" id="cfg-kali-tools">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Purpose</span>
+                    <span class="config-kv-value muted">Penetration testing tool execution</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Appearance Tab -->
+          <div class="settings-tab-content" id="settings-tab-appearance">
+            <div class="settings-appearance-grid">
+              <div class="settings-appearance-card">
+                <span class="settings-label">Theme</span>
+                <div class="theme-options">
+                  <button class="theme-option" data-theme="default" onclick="setTheme('default')">Default</button>
+                  <button class="theme-option" data-theme="minimal" onclick="setTheme('minimal')">Minimal</button>
+                </div>
+              </div>
+              <div class="settings-appearance-card">
+                <span class="settings-label">Accent Color</span>
+                <div class="settings-view-color-options">
+                  <button class="color-option" data-color="orange" onclick="setAccent('orange')" style="--swatch: #c2703c;" title="0K Orange"></button>
+                  <button class="color-option" data-color="red" onclick="setAccent('red')" style="--swatch: #dc2626;" title="ATHENA Red"></button>
+                  <button class="color-option" data-color="blue" onclick="setAccent('blue')" style="--swatch: #3b82f6;" title="Blue"></button>
+                  <button class="color-option" data-color="green" onclick="setAccent('green')" style="--swatch: #22c55e;" title="Green"></button>
+                  <button class="color-option" data-color="purple" onclick="setAccent('purple')" style="--swatch: #8b5cf6;" title="Purple"></button>
+                  <button class="color-option" data-color="yellow" onclick="setAccent('yellow')" style="--swatch: #d4ed6e;" title="Yellow"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- About Tab -->
+          <div class="settings-tab-content" id="settings-tab-about">
+            <div class="settings-about">
+              <div class="settings-about-title">0K ATHENA</div>
+              <div class="settings-about-text">
+                Autonomous penetration testing platform by ZerØK Labs.<br>
+                AI-driven reconnaissance, exploitation, and reporting with cross-engagement intelligence.
+              </div>
+              <div style="margin-top: 12px; display: flex; gap: 16px; font-size: 12px; color: var(--zerok-text-dim);">
+                <span>License: AGPL-3.0 + Commercial</span>
+                <span>|</span>
+                <a href="https://github.com/0K-cool/zerok-athena" target="_blank" style="color: var(--zerok-primary); text-decoration: none;">GitHub</a>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /#settingsView -->
+
       </main>
     </div>
 
@@ -7178,11 +7608,6 @@
     function toggleSection(section) {
       document.getElementById(section + 'Items').classList.toggle('collapsed');
       document.getElementById(section + 'CollapseBtn').classList.toggle('collapsed');
-    }
-
-    function toggleSettings() {
-      document.getElementById('settingsPanel').classList.toggle('expanded');
-      document.getElementById('settingsChevron').classList.toggle('expanded');
     }
 
     // Theme Switcher (layout + accent reset for Default)
@@ -11854,19 +12279,14 @@
       'evidence': 'evidence',
       'attack graph': 'attackGraph',
       'reports': 'reports',
-      'intelligence': 'intelligence'
+      'intelligence': 'intelligence',
+      'settings': 'settings'
     };
 
     function switchView(viewName) {
       // BUG-010 fix: Dismiss any open modals when navigating between views
       document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
       if (_confirmResolve) { _confirmResolve(false); _confirmResolve = null; }
-      // N-1 fix: Collapse settings panel when navigating to other sections
-      const sp = document.getElementById('settingsPanel');
-      const sc = document.getElementById('settingsChevron');
-      if (sp) sp.classList.remove('expanded');
-      if (sc) sc.classList.remove('expanded');
-
       // Hide all views
       document.querySelectorAll('.view-container, .findings-view').forEach(v => v.classList.remove('active'));
 
@@ -11913,6 +12333,8 @@
         loadEvidenceGallery();
       } else if (viewName === 'intelligence') {
         loadIntelligence();
+      } else if (viewName === 'settings') {
+        loadSettingsView();
       }
     }
 
@@ -13629,6 +14051,97 @@
           }
         }
       });
+    }
+
+    // ────────────────────────────────────────
+    // SETTINGS VIEW
+    // ────────────────────────────────────────
+
+    function switchSettingsTab(tab) {
+      document.querySelectorAll('.settings-tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('[data-settings-tab]').forEach(c => c.classList.remove('active'));
+      const el = document.getElementById('settings-tab-' + tab);
+      if (el) el.classList.add('active');
+      const chip = document.querySelector('[data-settings-tab="' + tab + '"]');
+      if (chip) chip.classList.add('active');
+
+      // Sync appearance tab theme/accent buttons with current state
+      if (tab === 'appearance') {
+        const curTheme = document.documentElement.getAttribute('data-theme') || 'default';
+        const curAccent = document.documentElement.getAttribute('data-accent') || 'red';
+        document.querySelectorAll('#settings-tab-appearance .theme-option').forEach(btn => {
+          btn.classList.toggle('active', btn.getAttribute('data-theme') === curTheme);
+        });
+        document.querySelectorAll('#settings-tab-appearance .color-option').forEach(btn => {
+          btn.classList.toggle('active', btn.getAttribute('data-color') === curAccent);
+        });
+      }
+    }
+
+    async function loadSettingsView() {
+      try {
+        const res = await fetch('/api/config/features');
+        const cfg = await res.json();
+
+        // --- Neo4j ---
+        const neo4jBadge = cfg.neo4j.enabled ? 'enabled' : 'disabled';
+        const neo4jLabel = cfg.neo4j.enabled ? 'Connected' : 'Offline';
+        setBadge('cfg-neo4j-badge', neo4jBadge, neo4jLabel);
+        setBadge('cfg-neo4j-detail-badge', neo4jBadge, neo4jLabel);
+        document.getElementById('cfg-neo4j-detail').textContent = cfg.neo4j.uri || '—';
+        document.getElementById('cfg-neo4j-uri').textContent = cfg.neo4j.uri || '—';
+
+        // --- Graphiti ---
+        const graphitiBadge = cfg.graphiti.enabled ? 'enabled' : 'disabled';
+        const graphitiLabel = cfg.graphiti.enabled ? 'Active' : 'Disabled';
+        setBadge('cfg-graphiti-badge', graphitiBadge, graphitiLabel);
+        setBadge('cfg-graphiti-detail-badge', graphitiBadge, graphitiLabel);
+        document.getElementById('cfg-graphiti-detail').textContent = cfg.graphiti.enabled ? cfg.graphiti.model : 'Not configured';
+        document.getElementById('cfg-graphiti-model').textContent = cfg.graphiti.model || '—';
+
+        // --- Langfuse ---
+        const langfuseBadge = cfg.langfuse.enabled ? 'enabled' : 'disabled';
+        const langfuseLabel = cfg.langfuse.enabled ? 'Active' : 'Not Running';
+        setBadge('cfg-langfuse-badge', langfuseBadge, langfuseLabel);
+        setBadge('cfg-langfuse-detail-badge', langfuseBadge, langfuseLabel);
+        document.getElementById('cfg-langfuse-detail').textContent = cfg.langfuse.enabled ? cfg.langfuse.url : 'Docker stack offline';
+        document.getElementById('cfg-langfuse-url').textContent = cfg.langfuse.url || '—';
+
+        // --- Kali ---
+        const backends = cfg.kali.backends || {};
+        const anyUp = Object.values(backends).some(b => b.available);
+        const kaliBadge = anyUp ? 'enabled' : 'disabled';
+        const kaliLabel = anyUp ? cfg.kali.tools + ' tools' : 'Offline';
+        setBadge('cfg-kali-badge', kaliBadge, kaliLabel);
+        setBadge('cfg-kali-detail-badge', kaliBadge, kaliLabel);
+        document.getElementById('cfg-kali-detail').textContent = anyUp ? Object.keys(backends).filter(k => backends[k].available).join(', ') : 'No backends';
+        document.getElementById('cfg-kali-tools').textContent = cfg.kali.tools + ' registered';
+
+        // Build backend rows dynamically
+        const kaliBody = document.getElementById('cfg-kali-backends');
+        // Remove old dynamic rows
+        kaliBody.querySelectorAll('.config-backend-row').forEach(r => r.remove());
+        // Insert backend rows before the purpose row
+        const purposeRow = kaliBody.querySelector('.config-kv-row:last-child');
+        for (const [name, info] of Object.entries(backends)) {
+          const row = document.createElement('div');
+          row.className = 'config-backend-row';
+          row.innerHTML = '<span class="config-backend-led ' + (info.available ? 'up' : 'down') + '"></span>'
+            + '<span class="config-backend-name">' + name + '</span>'
+            + '<span class="config-backend-url">' + info.url + '</span>';
+          kaliBody.insertBefore(row, purposeRow);
+        }
+
+      } catch (e) {
+        console.error('Settings: failed to load config', e);
+      }
+    }
+
+    function setBadge(id, status, label) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.className = 'config-status-badge ' + status;
+      el.innerHTML = '<span class="config-status-dot"></span> ' + label;
     }
 
     // ────────────────────────────────────────
