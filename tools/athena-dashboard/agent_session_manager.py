@@ -303,6 +303,7 @@ class AgentSessionManager:
         self._event_callback: Optional[Callable] = None
         # Lifecycle
         self.is_running = False
+        self._paused = False  # BUG-029: Manager-level pause flag (survives agent re-spawns)
         self._manager_task: asyncio.Task | None = None
         # Cost tracking across all agents
         self.total_cost_usd: float = 0.0
@@ -466,6 +467,7 @@ class AgentSessionManager:
 
     async def pause(self):
         """Pause all running agents."""
+        self._paused = True  # BUG-029: Block re-spawns while paused
         for code, session in self.agents.items():
             if session.is_running and not session.is_paused:
                 await session.pause()
@@ -474,6 +476,7 @@ class AgentSessionManager:
 
     async def resume(self):
         """Resume all paused agents."""
+        self._paused = False  # BUG-029: Allow re-spawns again
         for code, session in self.agents.items():
             if session.is_paused:
                 await session.resume()
@@ -762,6 +765,14 @@ class AgentSessionManager:
             task_prompt: Optional task-specific instructions from ST.
                 If empty, the agent uses its default role prompt.
         """
+        # BUG-029: Don't spawn agents while engagement is paused
+        if self._paused:
+            logger.info("Engagement paused — deferring spawn of %s", code)
+            await self._emit("system", "OR",
+                f"Spawn of {code} deferred — engagement is paused.",
+                {"warning": True, "deferred_spawn": code})
+            return
+
         if code in self.agents and self.agents[code].is_running:
             logger.warning("Agent %s already running, skipping spawn", code)
             await self._emit("system", "OR",
