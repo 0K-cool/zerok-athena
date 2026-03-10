@@ -490,7 +490,9 @@ class AgentSessionManager:
     async def send_command(self, command: str) -> str:
         """Forward operator command to ST (the coordinator)."""
         st = self.agents.get("ST")
-        if st and st.is_running:
+        st_task = self._agent_tasks.get("ST")
+        # BUG-H4: Also check task.done() — is_running goes False in finally before task completes
+        if st and (st.is_running or (st_task and not st_task.done())):
             return await st.send_command(command)
         # BUG-028: ST is not running — queue the command for delivery on re-spawn
         self._pending_commands.append(command)
@@ -650,7 +652,9 @@ class AgentSessionManager:
                     f"assign a different agent, or mark this path as exhausted."
                 )
                 st = self.agents.get("ST")
-                if st and st.is_running:
+                st_task = self._agent_tasks.get("ST")
+                # BUG-H4: Also check task.done() to avoid false "dead ST" detection
+                if st and (st.is_running or (st_task and not st_task.done())):
                     await st.send_command(early_stop_msg)
                 elif code != "ST" and not self._st_spawning:
                     # BUG-021 fix: Re-spawn ST to handle early-stop decision
@@ -661,14 +665,15 @@ class AgentSessionManager:
                             "ST not running when %s early-stopped — re-spawning ST",
                             code)
                         # BUG-027 fix: Preserve old ST session cost before overwrite.
+                        # BUG-H7/M3: Don't add to _cost_aggregated — accumulate into
+                        # a running total so subsequent re-spawns can also be captured.
                         old_st = self.agents.get("ST")
-                        if old_st and "ST" not in self._cost_aggregated:
+                        if old_st:
                             old_st_cost = old_st._total_cost_usd
                             if old_st_cost > 0:
                                 self.total_cost_usd += old_st_cost
-                                self._cost_aggregated.add("ST")
                                 logger.info(
-                                    "BUG-027: Preserved old ST cost $%.4f before re-spawn",
+                                    "Preserved old ST cost $%.4f before re-spawn",
                                     old_st_cost)
                         await self._spawn_agent(
                             "ST",
@@ -728,7 +733,9 @@ class AgentSessionManager:
                     msg += "Decide next steps: spawn new agents, pivot strategy, or wrap up."
 
                     st = self.agents.get("ST")
-                    if st and st.is_running:
+                    st_task = self._agent_tasks.get("ST")
+                    # BUG-H4: Also check task.done() to avoid false "dead ST" detection
+                    if st and (st.is_running or (st_task and not st_task.done())):
                         await st.send_command(msg)
                     elif not self._st_spawning:
                         # BUG-021 fix: ST died (60s idle timeout) while workers
@@ -1104,7 +1111,9 @@ class AgentSessionManager:
                                          + "\n".join(lines))
 
                         # Inter-finding chain relationships (ENABLES, PIVOTS_TO, etc.)
-                        for rel_type in ("ENABLES", "PIVOTS_TO", "ESCALATES_TO", "EXPOSES"):
+                        # BUG-M5: Whitelist — rel_type is f-string interpolated into Cypher
+                        _ALLOWED_REL_TYPES = frozenset(("ENABLES", "PIVOTS_TO", "ESCALATES_TO", "EXPOSES"))
+                        for rel_type in _ALLOWED_REL_TYPES:
                             result = session.run(f"""
                                 MATCH (a)-[r:{rel_type}]->(b)
                                 WHERE (a:Finding AND a.engagement_id = $eid)

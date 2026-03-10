@@ -352,6 +352,8 @@ class DashboardState:
         self.engagement_stopped = False
         self.engagement_pause_event = asyncio.Event()
         self.engagement_pause_event.set()  # Not paused initially
+        # BUG-M1: Per-phase rate limiting needs this attribute
+        self.engagement_phase: int = 0
 
     # Seed methods removed in Phase C — dashboard starts clean.
     # Demo mode (/api/demo/start) generates its own events independently.
@@ -6282,7 +6284,11 @@ async def list_artifacts(
                         "file_url": f"/api/artifacts/{record['id']}/file",
                         "thumbnail_url": f"/api/artifacts/{record['id']}/thumbnail" if record.get("thumbnail_path") else None,
                     })
-                return {"artifacts": artifacts, "total": len(artifacts), "source": "neo4j"}
+                # BUG-M2: Get true total count (not just page size)
+                count_query = f"MATCH (a:Artifact) {where_clause} RETURN count(a) AS total"
+                count_result = session.run(count_query, **params)
+                total_count = count_result.single()["total"]
+                return {"artifacts": artifacts, "total": total_count, "source": "neo4j"}
         except Exception as e:
             print(f"Neo4j artifact list error: {e}")
 
