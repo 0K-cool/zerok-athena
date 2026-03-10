@@ -1163,7 +1163,7 @@
     /* Layer Grid */
     .layer-grid {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 4px;
     }
 
@@ -6189,17 +6189,11 @@
                 <div class="layer-cell" data-agent="ST" title="Strategy — Red Team Lead (cross-phase)" onclick="toggleStrategyPanel()"><span class="layer-id">ST</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="AR" title="Active Recon — Port Scanning &amp; Service Enum"><span class="layer-id">AR</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="WV" title="Web Vuln Scanner — OWASP Top 10 Testing"><span class="layer-id">WV</span><span class="layer-blocks">Idle</span></div>
-                <div class="layer-cell" data-agent="SC" title="Source Code Analyst — Static Analysis &amp; Code Review"><span class="layer-id">SC</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="DA" title="Deep Analysis — 0-Day Hunting &amp; Deep Dive"><span class="layer-id">DA</span><span class="layer-blocks">Idle</span></div>
+                <!-- Row 2: Exploitation & Reporting -->
                 <div class="layer-cell" data-agent="PX" title="Probe Executor — Targeted Probe Execution"><span class="layer-id">PX</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="EX" title="Exploitation — Validated Exploit Execution"><span class="layer-id">EX</span><span class="layer-blocks">Idle</span></div>
-                <!-- Row 2: Exploitation & Post -->
                 <div class="layer-cell" data-agent="VF" title="Verification — Finding Validation &amp; PoC"><span class="layer-id">VF</span><span class="layer-blocks">Idle</span></div>
-                <div class="layer-cell" data-agent="PE" title="Post-Exploitation — Privilege Escalation &amp; Pivoting"><span class="layer-id">PE</span><span class="layer-blocks">Idle</span></div>
-                <div class="layer-cell" data-agent="JS" title="JS Analyzer — JavaScript &amp; Client-side Analysis"><span class="layer-id">JS</span><span class="layer-blocks">Idle</span></div>
-                <div class="layer-cell" data-agent="AT" title="Auth Tester — Authentication &amp; Session Testing"><span class="layer-id">AT</span><span class="layer-blocks">Idle</span></div>
-                <div class="layer-cell" data-agent="AA" title="API Attacker — REST/GraphQL API Testing"><span class="layer-id">AA</span><span class="layer-blocks">Idle</span></div>
-                <div class="layer-cell" data-agent="LM" title="Lateral Mover — Network Pivoting &amp; Propagation"><span class="layer-id">LM</span><span class="layer-blocks">Idle</span></div>
                 <div class="layer-cell" data-agent="RP" title="Reporting — Final Report Generation"><span class="layer-id">RP</span><span class="layer-blocks">Idle</span></div>
               </div>
             </div>
@@ -7696,16 +7690,10 @@
       <span class="agent-chip" data-agent="ST" onclick="toggleChipFilter('ST')">ST<span class="chip-event-count" data-agent-count="ST">0</span></span>
       <span class="agent-chip" data-agent="AR" onclick="toggleChipFilter('AR')">AR<span class="chip-event-count" data-agent-count="AR">0</span></span>
       <span class="agent-chip" data-agent="WV" onclick="toggleChipFilter('WV')">WV<span class="chip-event-count" data-agent-count="WV">0</span></span>
-      <span class="agent-chip" data-agent="SC" onclick="toggleChipFilter('SC')">SC<span class="chip-event-count" data-agent-count="SC">0</span></span>
       <span class="agent-chip" data-agent="DA" onclick="toggleChipFilter('DA')">DA<span class="chip-event-count" data-agent-count="DA">0</span></span>
       <span class="agent-chip" data-agent="PX" onclick="toggleChipFilter('PX')">PX<span class="chip-event-count" data-agent-count="PX">0</span></span>
       <span class="agent-chip" data-agent="EX" onclick="toggleChipFilter('EX')">EX<span class="chip-event-count" data-agent-count="EX">0</span></span>
       <span class="agent-chip" data-agent="VF" onclick="toggleChipFilter('VF')">VF<span class="chip-event-count" data-agent-count="VF">0</span></span>
-      <span class="agent-chip" data-agent="PE" onclick="toggleChipFilter('PE')">PE<span class="chip-event-count" data-agent-count="PE">0</span></span>
-      <span class="agent-chip" data-agent="JS" onclick="toggleChipFilter('JS')">JS<span class="chip-event-count" data-agent-count="JS">0</span></span>
-      <span class="agent-chip" data-agent="AT" onclick="toggleChipFilter('AT')">AT<span class="chip-event-count" data-agent-count="AT">0</span></span>
-      <span class="agent-chip" data-agent="AA" onclick="toggleChipFilter('AA')">AA<span class="chip-event-count" data-agent-count="AA">0</span></span>
-      <span class="agent-chip" data-agent="LM" onclick="toggleChipFilter('LM')">LM<span class="chip-event-count" data-agent-count="LM">0</span></span>
       <span class="agent-chip" data-agent="RP" onclick="toggleChipFilter('RP')">RP<span class="chip-event-count" data-agent-count="RP">0</span></span>
     </div>
     <div class="phase-badge-row" id="phaseBadgeRow" style="display:none">
@@ -8237,10 +8225,8 @@
     const AGENT_NAMES = {
       ST: 'Strategy', AR: 'Active Recon', WV: 'Web Vuln Scanner',
       DA: 'Deep Analysis', PX: 'Probe Executor',
-      EX: 'Exploitation', VF: 'Verification', PE: 'Post-Exploitation',
-      RP: 'Reporting', SC: 'Source Code Analyst',
-      JS: 'JS Analyzer', AT: 'Auth Tester', AA: 'API Attacker',
-      LM: 'Lateral Mover'
+      EX: 'Exploitation', VF: 'Verification',
+      RP: 'Reporting', OR: 'System'
     };
 
     const EVENT_ICONS = {
@@ -14093,7 +14079,9 @@
 
     const _agentColors = {
       ST: '#3B82F6', AR: '#10B981', WV: '#F59E0B',
-      EX: '#EF4444', VF: '#8B5CF6', RP: '#6366F1'
+      DA: '#06B6D4', PX: '#F97316',
+      EX: '#EF4444', VF: '#8B5CF6', RP: '#6366F1',
+      OR: '#64748B'
     };
 
     function renderCeiTechniques() {

@@ -259,21 +259,19 @@ _RE_AGENT_SHOWS_IDLE = re.compile(
 # ──────────────────────────────────────────────
 
 TOOL_TO_AGENT: dict[str, str] = {
-    # Recon / OSINT
-    "nmap": "PO", "httpx": "PO", "amass": "PO", "gau": "PO",
-    "subfinder": "PO", "whois": "PO", "dig": "PO", "theharvester": "PO",
+    # Active Recon (AR) — port scanning, service enum, OSINT
+    "nmap": "AR", "httpx": "AR", "amass": "AR", "gau": "AR",
+    "subfinder": "AR", "whois": "AR", "dig": "AR", "theharvester": "AR",
     "naabu": "AR",
-    # Vulnerability scanning
+    # Web Vulnerability scanning (WV)
     "nuclei": "WV", "nikto": "WV", "gobuster": "WV", "ffuf": "WV",
     "wpscan": "WV", "dirsearch": "WV",
-    # Exploitation
+    # Exploitation (EX) — includes lateral movement & post-exploit
     "sqlmap": "EX", "hydra": "EX", "msfconsole": "EX", "metasploit": "EX",
     "searchsploit": "EX",
-    # Lateral movement
-    "crackmapexec": "LM", "impacket": "LM", "bloodhound": "LM",
-    "responder": "LM", "evil-winrm": "LM",
-    # Post-exploitation / privesc
-    "linpeas": "PE", "winpeas": "PE", "linux-exploit-suggester": "PE",
+    "crackmapexec": "EX", "impacket": "EX", "bloodhound": "EX",
+    "responder": "EX", "evil-winrm": "EX",
+    "linpeas": "EX", "winpeas": "EX", "linux-exploit-suggester": "EX",
 }
 
 
@@ -288,18 +286,18 @@ def detect_agent(tool_name: str, command: str = "") -> str:
     ]
     if any(kw in text for kw in strategy_keywords):
         return "ST"
-    # Source Code Analyst detection: static analysis and code review
-    sc_keywords = [
+    # Deep Analysis detection: static analysis, code review, 0-day hunting
+    da_keywords = [
         "semgrep", "bandit", "codeql", "gosec", "njsscan", "source code",
         "static analysis", "code review", "code audit", "sast",
         "code path", "taint analysis", "dataflow",
     ]
-    if any(kw in text for kw in sc_keywords):
-        return "SC"
+    if any(kw in text for kw in da_keywords):
+        return "DA"
     for keyword, agent_code in TOOL_TO_AGENT.items():
         if keyword in text:
             return agent_code
-    return "OR"
+    return "ST"
 
 
 # ──────────────────────────────────────────────
@@ -961,15 +959,18 @@ class AthenaAgentSession:
                     logger.info("SDK stderr [%s]: %s",
                                 role.code if role else "SINGLE", stripped)
 
-        # MCP servers loaded via project settings (setting_sources=["project"])
-        # which reads .mcp.json from cwd. Do NOT also pass mcp_servers to
-        # avoid duplicate server processes (causes silent tool unavailability).
+        # MCP servers: explicitly pass .mcp.json via --mcp-config, and use
+        # --strict-mcp-config to prevent the CLI from ALSO loading .mcp.json
+        # via project root detection (which caused duplicate server processes
+        # and silent tool unavailability).
+        mcp_json = Path(self.athena_root) / ".mcp.json"
         opts = ClaudeAgentOptions(
             model=model,
             cwd=str(self.athena_root),
             allowed_tools=allowed,
             permission_mode="bypassPermissions",
             max_budget_usd=budget,
+            mcp_servers=str(mcp_json),
             setting_sources=["project"],
             system_prompt={
                 "type": "preset",
@@ -980,6 +981,7 @@ class AthenaAgentSession:
                 "CLAUDECODE": "",
             },
             stderr=_sdk_stderr,
+            extra_args={"strict-mcp-config": None},
         )
         if disallowed:
             opts.disallowed_tools = disallowed
@@ -1013,7 +1015,13 @@ class AthenaAgentSession:
 
                 if isinstance(msg, SystemMessage):
                     logger.info("SDK SystemMessage [%s]: %s",
-                                msg.subtype, json.dumps(msg.data, default=str)[:500])
+                                msg.subtype, json.dumps(msg.data, default=str)[:3000])
+                    # Log tool list separately for debugging
+                    if msg.subtype == "init" and "tools" in msg.data:
+                        tools = msg.data["tools"]
+                        kali_tools = [t for t in tools if "kali" in t.lower()]
+                        logger.info("SDK init tools: %d total, %d kali: %s",
+                                    len(tools), len(kali_tools), kali_tools)
                     if msg.subtype == "init" and "session_id" in msg.data:
                         self.session_id = msg.data["session_id"]
                         logger.info("SDK session_id: %s", self.session_id)

@@ -118,56 +118,36 @@ async def neo4j_exec(fn):
 # ──────────────────────────────────────────────
 
 class AgentCode(str, Enum):
+    STRATEGY = "ST"
     ACTIVE_RECON = "AR"
     WEB_VULN_SCANNER = "WV"
-    EXPLOITATION = "EX"
-    VERIFICATION = "VF"
-    POST_EXPLOITATION = "PE"
-    REPORTING = "RP"
-    # Phase E: Web App Testing & Attack Path Chaining
-    JS_ANALYZER = "JS"
-    AUTH_TESTER = "AT"
-    API_ATTACKER = "AA"
-    LATERAL_MOVER = "LM"
-    # Phase F: Strategy Agent (Red Team Lead) + Source Code Analyst
-    STRATEGY = "ST"
-    SOURCE_CODE = "SC"
-    # Phase 4.5: Deep Analysis (0-day hunting)
     DEEP_ANALYSIS = "DA"
     PROBE_EXECUTOR = "PX"
+    EXPLOITATION = "EX"
+    VERIFICATION = "VF"
+    REPORTING = "RP"
 
 
 AGENT_NAMES = {
+    "ST": "Strategy",
     "AR": "Active Recon",
     "WV": "Web Vuln Scanner",
-    "EX": "Exploitation",
-    "VF": "Verification",
-    "PE": "Post-Exploitation",
-    "RP": "Reporting",
-    # Phase E
-    "JS": "JS Analyzer",
-    "AT": "Auth Tester",
-    "AA": "API Attacker",
-    "LM": "Lateral Mover",
-    # Phase F
-    "ST": "Strategy",
-    "SC": "Source Code Analyst",
-    # Phase 4.5
     "DA": "Deep Analysis",
     "PX": "Probe Executor",
+    "EX": "Exploitation",
+    "VF": "Verification",
+    "RP": "Reporting",
 }
 
 AGENT_PTES_PHASE = {
-    "AR": 2, "WV": 4,
-    "EX": 5, "VF": 5, "PE": 6, "RP": 7,
-    # Phase E
-    "JS": 2, "AT": 4, "AA": 5, "LM": 6,
-    # Phase F: Cross-phase (runs at phase gates)
-    "ST": 0,
-    # Phase F: Source Code Analyst (vuln analysis phase)
-    "SC": 3,
-    # Phase 4.5: Deep Analysis (between vuln scan and exploitation)
-    "DA": 4, "PX": 4,
+    "ST": 0,   # Cross-phase (runs at phase gates)
+    "AR": 2,   # Information Gathering
+    "WV": 4,   # Vulnerability Analysis
+    "DA": 4,   # Deep Analysis (between vuln scan and exploitation)
+    "PX": 4,   # Probe Executor (targeted probing)
+    "EX": 5,   # Exploitation
+    "VF": 5,   # Verification
+    "RP": 7,   # Reporting
 }
 
 
@@ -905,13 +885,13 @@ class AgentMessagePayload(BaseModel):
 # Communication rules: who can message whom and for what
 AGENT_COMM_RULES: dict[str, list[str]] = {
     # Event → allowed recipients
-    "discovery":      ["WV", "DA", "SC", "ST"],        # Recon agents → vuln + deep analysis + code + strategy
-    "vulnerability":  ["EX", "VF", "ST"],              # Vuln agents → exploit + verify + strategy
-    "credential":     ["PE", "LM", "ST"],              # Exploit → post-exploit + strategy
+    "discovery":      ["WV", "DA", "ST"],              # Recon → vuln + deep analysis + strategy
+    "vulnerability":  ["EX", "VF", "ST"],              # Vuln → exploit + verify + strategy
+    "credential":     ["EX", "ST"],                    # Exploit → exploitation + strategy
     "verification":   ["ST", "RP"],                    # Verify → strategy + report
     "strategy":       list(AGENT_NAMES.keys()),        # Strategy → anyone
-    "pivot":          ["AR", "WV", "SC", "ST"],        # PostExploit → recon + code + strategy
-    "code_finding":   ["VF", "EX", "ST"],              # SC → verify + exploit + strategy
+    "pivot":          ["AR", "WV", "DA", "ST"],        # PostExploit → recon + deep analysis + strategy
+    "code_finding":   ["VF", "EX", "ST"],              # DA → verify + exploit + strategy
 }
 
 # Rate limit: max messages per agent per engagement phase
@@ -2027,7 +2007,7 @@ class VerificationMethod(str, Enum):
     INDEPENDENT_RETEST = "independent_retest"  # Different tool than discovery
     CANARY_CALLBACK = "canary_callback"        # OOB via interactsh
     POC_EXECUTION = "poc_execution"            # Run generated PoC script
-    CODE_REVIEW = "code_review"                # SC agent confirms in source
+    CODE_REVIEW = "code_review"                # DA agent confirms in source
     MANUAL = "manual"                          # Operator manual verification
 
 
@@ -2603,12 +2583,12 @@ CTF_EARLY_STOP_THRESHOLD = 40
 
 # Category-specific agent assignments
 CTF_CATEGORY_AGENTS: dict[str, list[str]] = {
-    "web":       ["WV", "JS", "AT", "AA", "EX"],
-    "crypto":    ["SC", "DA", "EX"],
-    "forensics": ["AR", "SC", "DA"],
-    "reverse":   ["SC", "DA"],
-    "pwnable":   ["EX", "DA", "SC"],
-    "misc":      ["AR", "SC", "DA"],
+    "web":       ["WV", "DA", "EX"],
+    "crypto":    ["DA", "EX"],
+    "forensics": ["AR", "DA"],
+    "reverse":   ["DA", "EX"],
+    "pwnable":   ["EX", "DA"],
+    "misc":      ["AR", "DA"],
     "osint":     ["AR"],
 }
 
@@ -3244,7 +3224,6 @@ AGENT_BUDGETS: dict[str, dict] = {
     "AR": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Active Recon"},
     # Vuln analysis — moderate scanning + Neo4j queries
     "WV": {"max_tool_calls": 200, "max_cost": 3.00, "label": "Web Vuln Scanner"},
-    "SC": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Source Code Analyst"},
     # Deep analysis — 0-day hunting
     "DA": {"max_tool_calls": 150, "max_cost": 4.00, "label": "Deep Analysis"},
     "PX": {"max_tool_calls": 150, "max_cost": 3.00, "label": "Probe Executor"},
@@ -3252,15 +3231,8 @@ AGENT_BUDGETS: dict[str, dict] = {
     "EX": {"max_tool_calls": 150, "max_cost": 4.00, "label": "Exploitation"},
     # Verification — focused re-testing
     "VF": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Verification"},
-    # Post-exploitation — depends on access
-    "PE": {"max_tool_calls": 150, "max_cost": 3.00, "label": "Post-Exploitation"},
-    "LM": {"max_tool_calls": 150, "max_cost": 3.00, "label": "Lateral Mover"},
     # Reporting — writing-heavy (Opus)
     "RP": {"max_tool_calls": 100, "max_cost": 4.00, "label": "Reporting"},
-    # Web app testing agents
-    "JS": {"max_tool_calls": 150, "max_cost": 2.50, "label": "JS Analyzer"},
-    "AT": {"max_tool_calls": 150, "max_cost": 2.50, "label": "Auth Tester"},
-    "AA": {"max_tool_calls": 150, "max_cost": 2.50, "label": "API Attacker"},
 }
 
 # Default budget for unlisted agents
@@ -5075,7 +5047,7 @@ async def get_engagement_summary(eid: str):
         agent = getattr(f, 'agent', '') or ''
         if (f.evidence or
             any(kw in cat for kw in _exploit_kw_fb) or
-            agent.upper() in ('EX', 'EC')):
+            agent.upper() == 'EX'):
             exploits += 1
 
     return {
@@ -8279,16 +8251,10 @@ _AGENT_TO_PHASE = {
     "ST": "PLANNING",
     "AR": "INTELLIGENCE GATHERING",
     "WV": "WEB APP TESTING",
-    "JS": "WEB APP TESTING",
-    "AT": "WEB APP TESTING",
-    "AA": "WEB APP TESTING",
-    "SC": "VULNERABILITY ANALYSIS",
     "DA": "VULNERABILITY ANALYSIS",
     "PX": "VULNERABILITY ANALYSIS",
     "EX": "EXPLOITATION",
     "VF": "EXPLOITATION",
-    "PE": "POST-EXPLOITATION",
-    "LM": "LATERAL MOVEMENT",
     "RP": "REPORTING",
 }
 
@@ -10005,23 +9971,23 @@ async def _run_demo_scenario():
     # ── Phase 6: POST-EXPLOITATION ──
     if not await _demo_checkpoint(): return
     await _emit_phase("POST-EXPLOITATION")
-    await state.update_agent_status("PE", AgentStatus.RUNNING, "Simulating attack paths")
-    await _emit_thinking("PE",
+    await state.update_agent_status("EX", AgentStatus.RUNNING, "Simulating attack paths")
+    await _emit_thinking("EX",
         thought="SIMULATION MODE: Mapping potential lateral movement from SQL injection compromise.",
         reasoning="Simulated post-exploitation maps the blast radius without actually pivoting. Shows client the real-world impact of the SQLi finding.")
     await asyncio.sleep(3)
 
     pe_tool = str(uuid.uuid4())[:8]
-    await _emit_tool_start("PE", "Simulating lateral movement paths...", "attack_path_sim", pe_tool)
+    await _emit_tool_start("EX", "Simulating lateral movement paths...", "attack_path_sim", pe_tool)
     await asyncio.sleep(0.4)
-    await _emit_chunk("PE", pe_tool, "[SIM] Path 1: DB pivot → internal network via MySQL outfile\n")
+    await _emit_chunk("EX", pe_tool, "[SIM] Path 1: DB pivot → internal network via MySQL outfile\n")
     await asyncio.sleep(0.5)
-    await _emit_chunk("PE", pe_tool, "[SIM] Path 2: Credential reuse across 12 hosts (password hash extraction)\n")
+    await _emit_chunk("EX", pe_tool, "[SIM] Path 2: Credential reuse across 12 hosts (password hash extraction)\n")
     await asyncio.sleep(0.5)
-    await _emit_chunk("PE", pe_tool, "[SIM] Path 3: Privilege escalation via MySQL UDF injection\n")
-    await _emit_tool_complete("PE", "3 attack paths simulated: DB pivot, credential reuse (12 hosts), MySQL UDF escalation.", pe_tool)
+    await _emit_chunk("EX", pe_tool, "[SIM] Path 3: Privilege escalation via MySQL UDF injection\n")
+    await _emit_tool_complete("EX", "3 attack paths simulated: DB pivot, credential reuse (12 hosts), MySQL UDF escalation.", pe_tool)
     await _emit_stats(hosts=156, services=89, vulns=8, findings=7)
-    await state.update_agent_status("PE", AgentStatus.COMPLETED)
+    await state.update_agent_status("EX", AgentStatus.COMPLETED)
     await asyncio.sleep(0.5)
 
     # Verification — purple team detection coverage

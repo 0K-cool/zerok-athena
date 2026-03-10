@@ -598,7 +598,7 @@ class AgentSessionManager:
 
                 # Gate RP: block until all worker agents are done
                 if agent_code == "RP":
-                    worker_codes = {"AR", "WV", "EX", "VF", "PO", "EC"}
+                    worker_codes = {"AR", "WV", "EX", "VF", "DA", "PX"}
                     still_running = [
                         c for c in worker_codes
                         if c in self.agents and self.agents[c].is_running
@@ -778,7 +778,7 @@ class AgentSessionManager:
 
         # Auto-spawn RP if it was blocked and all workers are now done
         if self._pending_rp_request:
-            worker_codes = {"AR", "WV", "EX", "VF", "PO", "EC"}
+            worker_codes = {"AR", "WV", "EX", "VF", "DA", "PX"}
             still_running = [
                 c for c in worker_codes
                 if c in self.agents and self.agents[c].is_running
@@ -888,6 +888,18 @@ class AgentSessionManager:
                 {"status": "running"})
             logger.info("Spawned agent %s (%s) — model=%s, budget=$%.2f",
                         code, role.name, role.model, role.max_cost_usd)
+            # BUG-040: Notify ST that the worker agent is now RUNNING.
+            # Without this, ST continues its turn, queries Neo4j (empty),
+            # and incorrectly concludes the agent didn't spawn.
+            if code != "ST":
+                st = self.agents.get("ST")
+                st_task = self._agent_tasks.get("ST")
+                if st and (st.is_running or (st_task and not st_task.done())):
+                    await st.send_command(
+                        f"Agent {code} ({role.name}) has been SPAWNED and is now RUNNING. "
+                        f"It will take time to produce results. Do NOT attempt to do "
+                        f"{code}'s work yourself. Wait for its completion notification."
+                    )
             # BUG-028: Drain any commands that arrived while ST was dead
             if code == "ST" and self._pending_commands:
                 pending_count = len(self._pending_commands)
@@ -1093,7 +1105,7 @@ class AgentSessionManager:
                                          + "\n".join(lines))
 
                     # Credentials (for exploitation, post-exploitation, reporting)
-                    if code in ("EX", "PE", "RP", "ST"):
+                    if code in ("EX", "RP", "ST"):
                         result = session.run(
                             "MATCH (c:Credential {engagement_id: $eid}) "
                             "RETURN c.username AS username, c.service AS service, "
