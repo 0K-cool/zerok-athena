@@ -203,12 +203,49 @@ def extract_findings(
     if not tool_result or len(tool_result) < 20:
         return []
 
+    # Skip non-actionable tool output — file reads, Neo4j queries, and
+    # internal API calls produce false positives (playbook content, empty
+    # summaries, bus endpoint URLs detected as "ports").
+    _SKIP_TOOLS = {
+        "Read", "Glob", "Grep", "LS", "Edit", "Write",
+        "TodoRead", "TodoWrite", "NotebookRead",
+        "mcp__neo4j", "mcp__memory",
+    }
+    # Exact match or prefix match (for mcp__neo4j__query etc.)
+    tool_base = tool_name.split("__")[-1] if "__" not in tool_name else tool_name
+    if tool_name in _SKIP_TOOLS or any(tool_name.startswith(p) for p in _SKIP_TOOLS):
+        return []
+
     output = tool_result[:8000]  # Cap to prevent regex on huge outputs
     output_lower = output.lower()
     findings: list[BusMessage] = []
 
+    # BUG-031b: Skip output that looks like Read tool output (line-numbered format)
+    # Catches cases where tool_name doesn't match "Read" but content is file reads
+    # Format: "     1→content" or "1→content" (cat -n style from Read tool)
+    if re.match(r'\s*\d+→', output):
+        return []
+
+    # Skip output that looks like playbook/documentation content (not actual findings)
+    # Playbooks describe attacks as educational content, not confirmed vulns
+    _PLAYBOOK_INDICATORS = ("# ", "## ", "playbook", "testing guide", "methodology",
+                            "**tactic**", "**technique**", "owasp reference",
+                            "structured approach")
+    if sum(1 for kw in _PLAYBOOK_INDICATORS if kw in output_lower) >= 3:
+        return []
+
     # Check for noise-only output
     if all(kw in output_lower for kw in ("starting", "done")) and len(output) < 100:
+        return []
+
+    # Skip JSON API/stats responses — keys like "credentials": 0 trigger
+    # false positives. Detect by checking for JSON structure with zero values.
+    if (output.strip().startswith("{") and
+        '"hosts"' in output_lower and '"findings"' in output_lower):
+        return []
+
+    # Skip output that's just curl to localhost (bus API calls, not findings)
+    if "localhost:8080/api/" in output or "127.0.0.1:8080/api/" in output:
         return []
 
     # 1. Shell/exploitation (highest priority)
@@ -252,6 +289,9 @@ def extract_findings(
     # 4. Open ports (high)
     ports = _PORT_RE.findall(output)
     naabu_ports = _NAABU_PORT_RE.findall(output)
+    # Filter out localhost — agents' own REST calls to bus endpoints are not findings
+    _LOCALHOST = {"127.0.0.1", "0.0.0.0", "localhost"}
+    naabu_ports = [(ip, p) for ip, p in naabu_ports if ip not in _LOCALHOST]
     if ports:
         port_list = [(p, s) for p, s in ports][:10]
         port_str = ", ".join(f"{p}/{s}" for p, s in port_list)

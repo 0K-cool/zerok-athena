@@ -32,7 +32,8 @@ import httpx
 
 from langfuse_integration import trace_agent_run, is_enabled as langfuse_enabled
 from graphiti_integration import ingest_episode, is_enabled as graphiti_enabled
-from message_bus import extract_findings, format_intel_update
+from message_bus import format_intel_update
+from finding_pipeline import extract_findings_v2, BROADCAST_CONFIDENCES
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -1493,6 +1494,11 @@ class AthenaAgentSession:
 
                 # Track tool_use_id → name for tool_complete correlation
                 self._pending_tools[block.id] = block.name
+                # Track Bash command for finding pipeline whitelist check
+                if block.name == "Bash" and command:
+                    if not hasattr(self, '_pending_commands'):
+                        self._pending_commands = {}
+                    self._pending_commands[block.id] = command
 
                 await self._emit("tool_start", self._current_agent,
                     f"Calling {tool_desc}", {
@@ -1540,19 +1546,38 @@ class AthenaAgentSession:
                         ))
                     # Real-time bus: extract findings from tool output and broadcast
                     if self._bus and output and len(output) > 20:
-                        findings = extract_findings(
-                            self._current_agent, tool_name, output)
+                        cmd = ""
+                        if hasattr(self, '_pending_commands'):
+                            cmd = self._pending_commands.pop(block.tool_use_id, "")
+                        findings = extract_findings_v2(
+                            self._current_agent, tool_name, output, command=cmd)
                         for finding in findings:
-                            await self._bus.broadcast(finding)
-                            # Bridge high/critical to bilateral for dashboard arrows
-                            if finding.priority in ("high", "critical"):
-                                await self.send_bilateral_message(
-                                    from_agent=finding.from_agent,
-                                    to_agent="ST",
-                                    msg_type="discovery",
-                                    content=finding.summary[:500],
-                                    priority=finding.priority,
-                                )
+                            from message_bus import BusMessage
+                            msg_bus = BusMessage(
+                                from_agent=self._current_agent,
+                                to="ALL",
+                                bus_type="finding",
+                                priority=finding.severity,
+                                summary=finding.summary,
+                                target=finding.target,
+                                data=finding.to_dict(),
+                                action_needed=finding.action_needed,
+                            )
+                            if finding.confidence in BROADCAST_CONFIDENCES:
+                                await self._bus.broadcast(msg_bus)
+                                if finding.severity in ("high", "critical"):
+                                    await self.send_bilateral_message(
+                                        from_agent=self._current_agent,
+                                        to_agent="ST",
+                                        msg_type="discovery",
+                                        content=finding.summary[:500],
+                                        priority=finding.severity,
+                                    )
+                            else:
+                                # LOW confidence: dashboard only (no agent broadcast)
+                                self._bus._history.append(msg_bus)
+                                for cb in self._bus._callbacks:
+                                    asyncio.create_task(cb(msg_bus))
         elif msg.tool_use_result:
             raw = msg.tool_use_result.get("content", "")
             output = _extract_tool_output(raw)
@@ -1584,15 +1609,35 @@ class AthenaAgentSession:
                 ))
             # Real-time bus: extract findings from tool output and broadcast
             if self._bus and output and len(output) > 20:
-                findings = extract_findings(
-                    self._current_agent, tool_name, output)
+                cmd = ""
+                if hasattr(self, '_pending_commands'):
+                    cmd = self._pending_commands.pop(tool_use_id, "")
+                findings = extract_findings_v2(
+                    self._current_agent, tool_name, output, command=cmd)
                 for finding in findings:
-                    await self._bus.broadcast(finding)
-                    if finding.priority in ("high", "critical"):
-                        await self.send_bilateral_message(
-                            from_agent=finding.from_agent,
-                            to_agent="ST",
-                            msg_type="discovery",
-                            content=finding.summary[:500],
-                            priority=finding.priority,
-                        )
+                    from message_bus import BusMessage
+                    msg_bus = BusMessage(
+                        from_agent=self._current_agent,
+                        to="ALL",
+                        bus_type="finding",
+                        priority=finding.severity,
+                        summary=finding.summary,
+                        target=finding.target,
+                        data=finding.to_dict(),
+                        action_needed=finding.action_needed,
+                    )
+                    if finding.confidence in BROADCAST_CONFIDENCES:
+                        await self._bus.broadcast(msg_bus)
+                        if finding.severity in ("high", "critical"):
+                            await self.send_bilateral_message(
+                                from_agent=self._current_agent,
+                                to_agent="ST",
+                                msg_type="discovery",
+                                content=finding.summary[:500],
+                                priority=finding.severity,
+                            )
+                    else:
+                        # LOW confidence: dashboard only (no agent broadcast)
+                        self._bus._history.append(msg_bus)
+                        for cb in self._bus._callbacks:
+                            asyncio.create_task(cb(msg_bus))

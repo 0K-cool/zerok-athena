@@ -233,27 +233,46 @@ class WorkspaceManager:
             **kwargs,
         })
 
+    def touch_lockfile(self):
+        """BUG-031: Heartbeat the lockfile so cleanup_stale_workspaces knows we're alive."""
+        if self._workspace_root:
+            lockfile = self._workspace_root / ".athena-active"
+            try:
+                lockfile.touch()
+            except OSError:
+                pass
+
     @staticmethod
-    def cleanup_stale_workspaces(max_age_hours: float = 2.0):
+    def cleanup_stale_workspaces(max_age_hours: float = 2.0, active_engagement_ids: set[str] | None = None):
         """Remove stale workspace directories from /tmp.
 
         Called on server startup to prevent /tmp accumulation from crashes.
         M-6: Skips directories with an active lockfile (.athena-active) whose
         mtime is within the max_age window — prevents deleting live engagements.
+        BUG-031: Also skips workspaces whose engagement ID matches an active session.
         """
         tmp = Path(tempfile.gettempdir())
         max_age_seconds = max_age_hours * 3600
         now = time.time()
+        active_ids = active_engagement_ids or set()
         cleaned = 0
         for d in tmp.iterdir():
             if d.is_dir() and d.name.startswith("athena-"):
                 try:
-                    # M-6: Skip directories with an active lockfile
+                    # BUG-031: Extract engagement ID prefix from dir name
+                    # Format: athena-{eid[:12]}-{random} e.g. athena-eng-c4e4cc-k5ot5hz9
+                    # Strip "athena-" prefix, then match remaining against active eids
+                    dir_suffix = d.name[len("athena-"):]  # e.g. "eng-c4e4cc-k5ot5hz9"
+                    if active_ids and any(dir_suffix.startswith(eid[:12]) for eid in active_ids):
+                        logger.debug("Skipping workspace for active engagement: %s", d.name)
+                        continue
+
+                    # M-6: Skip directories with a recently-touched lockfile
                     lockfile = d / ".athena-active"
                     if lockfile.exists():
                         lock_age = now - lockfile.stat().st_mtime
                         if lock_age < max_age_seconds:
-                            logger.debug("Skipping active workspace: %s", d.name)
+                            logger.debug("Skipping active workspace: %s (lockfile age: %.0fs)", d.name, lock_age)
                             continue
 
                     age = now - d.stat().st_mtime
@@ -410,8 +429,15 @@ class AgentSessionManager:
                 """
                 if msg.bus_type not in ("finding", "escalation"):
                     return  # Only persist actionable intel
-                if msg.priority not in ("high", "critical"):
-                    return  # Skip low/medium noise
+
+                # Structured pipeline: use confidence from Finding data
+                data = msg.data or {}
+                confidence = data.get("confidence", "")
+                if confidence == "low":
+                    # LOW confidence: persist but flag as unvalidated
+                    pass  # Continue to persist, but mark below
+                elif msg.priority not in ("high", "critical") and not confidence:
+                    return  # Legacy: skip low/medium noise
 
                 try:
                     import hashlib
@@ -427,11 +453,20 @@ class AgentSessionManager:
                     def _persist():
                         with driver.session() as sess:
                             # 1. Create/update Finding node
+                            # Use structured Finding fields if available
+                            finding_type = data.get("finding_type", msg.bus_type)
+                            finding_confidence = data.get("confidence", "high")
+                            finding_state = data.get("state", "discovered")
+                            finding_severity = data.get("severity", msg.priority)
+
                             sess.run(
                                 "MERGE (f:Finding {id: $id}) "
                                 "SET f.title = $title, "
                                 "    f.severity = $severity, "
                                 "    f.category = $category, "
+                                "    f.finding_type = $finding_type, "
+                                "    f.confidence = $confidence, "
+                                "    f.state = $state, "
                                 "    f.target = $target, "
                                 "    f.agent = $agent, "
                                 "    f.description = $description, "
@@ -439,42 +474,63 @@ class AgentSessionManager:
                                 "    f.fingerprint = $fingerprint, "
                                 "    f.discovery_source = 'bus', "
                                 "    f.bus_type = $bus_type, "
+                                "    f.unvalidated = $unvalidated, "
                                 "    f.timestamp = datetime()",
                                 id=finding_id,
                                 title=msg.summary[:200],
-                                severity=("critical" if msg.priority == "critical" else "high"),
-                                category=msg.bus_type,
+                                severity=finding_severity,
+                                category=finding_type,
+                                finding_type=finding_type,
+                                confidence=finding_confidence,
+                                state=finding_state,
                                 target=target,
                                 agent=msg.from_agent,
                                 description=msg.summary,
                                 eid=eid,
                                 fingerprint=fingerprint,
                                 bus_type=msg.bus_type,
+                                unvalidated=(finding_confidence == "low"),
                             )
 
                             # 2. Auto-create Host node if we have an IP
+                            # BUG-030: Also extract IPs from port data when target is empty
+                            import re
+                            host_ip = None
                             if target:
-                                import re
                                 ip_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3})', target)
                                 if ip_match:
                                     host_ip = ip_match.group(1)
-                                    sess.run(
-                                        "MERGE (h:Host {ip: $ip}) "
-                                        "ON CREATE SET h.engagement_id = $eid, "
-                                        "    h.state = 'open', h.first_seen = datetime() "
-                                        "ON MATCH SET h.last_seen = datetime() "
-                                        "WITH h "
-                                        "MATCH (f:Finding {id: $fid}) "
-                                        "MERGE (f)-[:FOUND_ON]->(h)",
-                                        ip=host_ip, eid=eid, fid=finding_id,
-                                    )
+                            if not host_ip:
+                                # Try to extract from port data (naabu format has "host" key)
+                                ports = data.get("ports", [])
+                                for p in ports:
+                                    if p.get("host"):
+                                        host_ip = p["host"]
+                                        break
+                            if not host_ip:
+                                # Last resort: extract from summary
+                                ip_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3})', msg.summary)
+                                if ip_match and ip_match.group(1) != "127.0.0.1":
+                                    host_ip = ip_match.group(1)
 
-                                    # 3. Auto-create Service if port data available
-                                    ports = data.get("ports", [])
-                                    for p in ports[:5]:
-                                        port = p.get("port", "")
-                                        svc_name = p.get("service", "unknown")
-                                        if port:
+                            if host_ip:
+                                sess.run(
+                                    "MERGE (h:Host {ip: $ip}) "
+                                    "ON CREATE SET h.engagement_id = $eid, "
+                                    "    h.state = 'open', h.first_seen = datetime() "
+                                    "ON MATCH SET h.last_seen = datetime() "
+                                    "WITH h "
+                                    "MATCH (f:Finding {id: $fid}) "
+                                    "MERGE (f)-[:FOUND_ON]->(h)",
+                                    ip=host_ip, eid=eid, fid=finding_id,
+                                )
+
+                                # 3. Auto-create Service if port data available
+                                ports = data.get("ports", [])
+                                for p in ports[:5]:
+                                    port = p.get("port", "")
+                                    svc_name = p.get("service", p.get("name", "unknown"))
+                                    if port:
                                             svc_id = f"{host_ip}:{port}"
                                             sess.run(
                                                 "MERGE (h:Host {ip: $ip}) "
@@ -811,6 +867,10 @@ class AgentSessionManager:
                         f"Engagement reached time limit "
                         f"({self.time_limit_minutes} min). Stopping.")
                     break
+
+                # BUG-031: Heartbeat lockfile every loop iteration (~5s)
+                # so cleanup_stale_workspaces knows this workspace is alive
+                self._workspace_manager.touch_lockfile()
 
                 # Wait for agent requests with timeout
                 try:
