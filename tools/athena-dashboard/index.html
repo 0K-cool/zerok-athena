@@ -2112,7 +2112,16 @@
       }
     }
 
-    /* User Profile - at bottom of sidebar */
+    /* Sidebar sections wrapper — takes remaining space, scrolls when needed */
+    .sidebar-sections {
+      flex: 1 1 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+    }
+    .sidebar-sections::-webkit-scrollbar { width: 0; }
+
+    /* User Profile - pinned at bottom of sidebar */
     .sidebar-user {
       display: flex;
       align-items: center;
@@ -2120,6 +2129,8 @@
       padding: 12px 16px;
       cursor: pointer;
       transition: background 0.15s ease;
+      flex-shrink: 0;
+      border-top: 1px solid var(--zerok-border);
     }
 
     .sidebar-user:hover {
@@ -2895,6 +2906,7 @@
 
     .findings-table {
       width: 100%;
+      min-width: 600px; /* BUG-010: Prevent column collapse when AI drawer is open */
       border-collapse: collapse;
     }
 
@@ -3187,6 +3199,11 @@
     .scan-status-badge.failed {
       background: color-mix(in srgb, var(--zerok-critical) 20%, transparent);
       color: var(--zerok-critical);
+    }
+
+    .scan-status-badge.stalled {
+      background: color-mix(in srgb, var(--zerok-warning) 20%, transparent);
+      color: var(--zerok-warning);
     }
 
     @keyframes scan-pulse {
@@ -4565,7 +4582,6 @@
       user-select: none;
       transition: background 0.15s;
       min-width: 0;
-      overflow: hidden;
     }
 
     .timeline-card-header:hover {
@@ -4603,6 +4619,10 @@
       color: var(--zerok-text);
       font-family: var(--zerok-font-mono);
       flex-shrink: 0;
+      max-width: 140px; /* BUG-025: yield space before chevron on narrow viewports */
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .timeline-card-preview {
@@ -4629,6 +4649,7 @@
     }
 
     .timeline-card-chevron {
+      flex-shrink: 0; /* BUG-025: prevent chevron from being squeezed off-screen */
       font-size: 12px;
       color: var(--zerok-text-muted);
       transition: transform 0.2s;
@@ -4664,6 +4685,8 @@
 
     .timeline-card-body-inner {
       padding: 10px 12px 12px;
+      min-width: 0;
+      overflow: hidden;
     }
 
     /* ── Thinking Card Body ── */
@@ -4773,7 +4796,8 @@
       max-height: 400px;
       overflow-y: auto;
       overflow-x: auto;
-      white-space: pre;
+      white-space: pre-wrap;
+      word-break: break-all;
       margin-top: 6px;
       box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4);
     }
@@ -5352,7 +5376,11 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+      max-height: 40vh;
+      overflow: hidden;
+      pointer-events: none;
     }
+    .toast-container > .toast { pointer-events: auto; }
 
     .toast {
       display: flex;
@@ -5918,6 +5946,8 @@
         </button>
       </nav>
 
+      <!-- BUG-001/021 fix: Scrollable wrapper prevents overlap with user profile -->
+      <div class="sidebar-sections">
       <!-- Engagements Section -->
       <div class="sidebar-section">
         <div class="sidebar-section-header" onclick="toggleSection('engagements')">
@@ -6005,6 +6035,8 @@
           </button>
         </div>
       </div>
+
+      </div><!-- /.sidebar-sections -->
 
       <!-- User Profile (at bottom of sidebar) -->
       <div class="sidebar-user">
@@ -6144,9 +6176,9 @@
             </div>
           </div>
           <!-- F5: Engagement Cost KPI Card -->
-          <div class="stat-card">
+          <div class="stat-card" title="Total AI API cost (LLM tokens + tool calls)">
             <div class="stat-header">
-              <span class="stat-label">Engagement Cost</span>
+              <span class="stat-label">AI Cost</span>
             </div>
             <div class="stat-value-row">
               <span class="stat-value" id="kpi-cost" style="color: var(--zerok-purple, #a855f7);">$0.00</span>
@@ -6194,7 +6226,7 @@
               <span class="widget-title">AI Agent Status</span>
               <div style="display:flex;gap:4px;align-items:center;">
                 <button class="strategy-toggle" id="strategyToggle" onclick="toggleStrategyPanel()" title="Strategy Agent Intel">ST</button>
-                <button class="widget-action" onclick="document.getElementById('agent-status-grid').scrollIntoView({behavior:'smooth'})">See All</button>
+                <button class="widget-action" onclick="var g=document.getElementById('agent-status-grid');g.style.outline='1px solid var(--zerok-primary)';setTimeout(function(){g.style.outline=''},1500)">See All</button>
               </div>
             </div>
             <div class="widget-body" style="display:flex;align-items:stretch;">
@@ -6221,7 +6253,8 @@
               <span class="widget-title">Findings by Severity</span>
             </div>
             <div class="widget-body" id="severity-chart-body">
-              <div class="bar-chart-wrapper">
+              <div id="severity-empty-state" style="text-align:center;padding:20px;color:var(--zerok-text-dim);font-size:12px;">No findings yet</div>
+              <div class="bar-chart-wrapper" id="severity-chart-wrapper" style="display:none">
                 <div class="bar-chart-yaxis" id="severity-yaxis">
                   <span></span>
                   <span></span>
@@ -6315,7 +6348,7 @@
                   <span style="font-size: 24px; font-weight: 700; color: white;" id="gauge-center-pct">0%</span>
                 </div>
               </div>
-              <span style="font-size: 10px; color: var(--zerok-text-muted); margin-top: 2px; font-family: var(--zerok-font-mono);" id="gauge-center-sub">0 of 0 confirmed</span>
+              <span style="font-size: 10px; color: var(--zerok-text-muted); margin-top: 2px; font-family: var(--zerok-font-mono);" id="gauge-center-sub">0/0 findings exploited</span>
             </div>
           </div>
         </div>
@@ -6845,7 +6878,7 @@
         <div id="findingsView" class="findings-view">
           <div class="findings-header">
             <h2 class="findings-title">Findings</h2>
-            <button class="btn-danger-sm" id="clearFindingsBtn" onclick="clearFindings()" title="Delete all findings for this engagement">
+            <button class="btn-danger-sm" id="clearFindingsBtn" onclick="clearFindings()" title="Delete all findings for this engagement" disabled>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
               Delete Findings
             </button>
@@ -6910,7 +6943,7 @@
           <div class="findings-header">
             <div>
               <h2 class="findings-title">Vulnerabilities</h2>
-              <div style="font-size:12px;color:var(--zerok-text-dim);margin-top:2px;">Grouped by OWASP Top 10 2021 categories</div>
+              <div style="font-size:12px;color:var(--zerok-text-dim);margin-top:2px;">Grouped by OWASP Top 10 2025 categories</div>
             </div>
           </div>
 
@@ -6996,7 +7029,7 @@
         <div id="scansView" class="findings-view">
           <div class="findings-header">
             <h2 class="findings-title">Scans</h2>
-            <button class="btn-danger-sm" onclick="clearAllScans()" title="Delete all scan records for this engagement">
+            <button class="btn-danger-sm" id="clearScansBtn" onclick="clearAllScans()" title="Delete all scan records for this engagement" disabled>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
               Delete Scans
             </button>
@@ -7074,7 +7107,7 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6"/></svg>
                 Clear View
               </button>
-              <button class="btn-danger-sm" id="deleteGraphBtn" onclick="deleteAttackGraph()" title="Delete graph data from Neo4j">
+              <button class="btn-danger-sm" id="deleteGraphBtn" onclick="deleteAttackGraph()" title="Delete graph data from Neo4j" disabled>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                 Delete Graph
               </button>
@@ -7475,7 +7508,7 @@
                   </div>
                   <div class="config-edit-field">
                     <label class="config-kv-label" for="cfg-input-NEO4J_PASS">Password</label>
-                    <input type="password" class="config-input" id="cfg-input-NEO4J_PASS" placeholder="Enter password">
+                    <input type="password" class="config-input" autocomplete="off" id="cfg-input-NEO4J_PASS" placeholder="Enter password" autocomplete="off">
                   </div>
                   <div class="config-edit-actions">
                     <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('neo4j')">Save</button>
@@ -7523,11 +7556,11 @@
                   </div>
                   <div class="config-edit-field">
                     <label class="config-kv-label" for="cfg-input-ANTHROPIC_API_KEY">Anthropic API Key</label>
-                    <input type="password" class="config-input" id="cfg-input-ANTHROPIC_API_KEY" placeholder="sk-ant-api03-...">
+                    <input type="password" class="config-input" autocomplete="off" id="cfg-input-ANTHROPIC_API_KEY" placeholder="sk-ant-api03-...">
                   </div>
                   <div class="config-edit-field">
                     <label class="config-kv-label" for="cfg-input-OPENAI_API_KEY">OpenAI API Key <span style="color:var(--zerok-text-dim);font-weight:400;">(for embeddings)</span></label>
-                    <input type="password" class="config-input" id="cfg-input-OPENAI_API_KEY" placeholder="sk-...">
+                    <input type="password" class="config-input" autocomplete="off" id="cfg-input-OPENAI_API_KEY" placeholder="sk-...">
                   </div>
                   <div class="config-edit-actions">
                     <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('graphiti')">Save</button>
@@ -7563,6 +7596,9 @@
                     <span class="config-kv-label">Purpose</span>
                     <span class="config-kv-value muted">LLM tracing, cost tracking, prompt analytics</span>
                   </div>
+                  <div class="config-kv-row" id="langfuse-setup-hint" style="margin-top:8px;">
+                    <span class="config-kv-value muted" style="font-size:11px;">Optional. Run <code style="background:var(--zerok-bg-alt);padding:1px 4px;border-radius:3px;">docker compose -f docker/docker-compose.langfuse.yml up -d</code> to enable.</span>
+                  </div>
                 </div>
                 <!-- Edit mode -->
                 <div class="config-detail-body config-edit-mode" id="cfg-langfuse-edit" style="display:none;">
@@ -7572,11 +7608,11 @@
                   </div>
                   <div class="config-edit-field">
                     <label class="config-kv-label" for="cfg-input-LANGFUSE_PUBLIC_KEY">Public Key</label>
-                    <input type="password" class="config-input" id="cfg-input-LANGFUSE_PUBLIC_KEY" placeholder="pk-lf-...">
+                    <input type="password" class="config-input" autocomplete="off" id="cfg-input-LANGFUSE_PUBLIC_KEY" placeholder="pk-lf-...">
                   </div>
                   <div class="config-edit-field">
                     <label class="config-kv-label" for="cfg-input-LANGFUSE_SECRET_KEY">Secret Key</label>
-                    <input type="password" class="config-input" id="cfg-input-LANGFUSE_SECRET_KEY" placeholder="sk-lf-...">
+                    <input type="password" class="config-input" autocomplete="off" id="cfg-input-LANGFUSE_SECRET_KEY" placeholder="sk-lf-...">
                   </div>
                   <div class="config-edit-actions">
                     <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('langfuse')">Save</button>
@@ -7618,7 +7654,7 @@
                   </div>
                   <div class="config-edit-field">
                     <label class="config-kv-label" for="cfg-input-KALI_API_KEY">API Key <span style="color:var(--zerok-text-dim);font-weight:400;">(optional)</span></label>
-                    <input type="password" class="config-input" id="cfg-input-KALI_API_KEY" placeholder="Enter API key">
+                    <input type="password" class="config-input" autocomplete="off" id="cfg-input-KALI_API_KEY" placeholder="Enter API key">
                   </div>
                   <div class="config-edit-actions">
                     <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('kali')">Save</button>
@@ -7939,7 +7975,7 @@
         data: {
           labels: [],
           datasets: [{
-            label: 'Detected',
+            label: 'Critical/High',
             data: [],
             borderColor: primaryColor,
             backgroundColor: areaGradient,
@@ -7951,7 +7987,7 @@
             pointBorderColor: '#1e1e1e',
             pointBorderWidth: 2,
           }, {
-            label: 'Blocked',
+            label: 'Medium',
             data: [],
             borderColor: '#22c55e',
             backgroundColor: greenGradient,
@@ -7963,7 +7999,7 @@
             pointBorderColor: '#1e1e1e',
             pointBorderWidth: 1,
           }, {
-            label: 'Alerts',
+            label: 'Low/Info',
             data: [],
             borderColor: '#f59e0b',
             backgroundColor: 'transparent',
@@ -8541,6 +8577,15 @@
         return;
       }
 
+      if (type === 'engagement_preparing') {
+        // Early feedback: show preparing state immediately on click
+        if (msg.engagement_id) {
+          selectEngagement(msg.engagement_id);
+        }
+        setCtrlState('preparing');
+        return;
+      }
+
       if (type === 'engagement_started') {
         // AI mode or automation started — auto-select engagement and show running badge
         if (msg.engagement_id) {
@@ -8555,6 +8600,13 @@
 
       if (type === 'system') {
         renderSystemMessage(msg);
+        // Show planning indicator when ST is building attack plan
+        const meta = msg.metadata || {};
+        if (meta.phase === 'planning') {
+          updateAgentStatusTile('ST', 'running');
+          updateAgentChip('ST', 'running');
+          showToast('info', 'Strategy Agent Planning', 'Building attack plan — this takes 30-60s');
+        }
         // Detect AI Mode activation from system event
         if (msg.content && msg.content.includes('AI Mode activated')) {
           const subtitle = document.getElementById('subtitle-mode');
@@ -8639,10 +8691,9 @@
       if (type === 'verification_result') {
         const meta = msg.metadata || {};
         const vrfStatus = meta.status || 'unknown';
-        if (vrfStatus === 'confirmed') {
-          updateAgentStatusTile('VF', 'completed');
-          updateAgentChip('VF', 'completed');
-        }
+        // BUG-018: Always update VF status on result, not just for 'confirmed'
+        updateAgentStatusTile('VF', 'completed');
+        updateAgentChip('VF', 'completed');
         bumpAgentCount('VF');
         addVerificationEvent(msg);
         // Refresh KPI — confirmed exploits count may have changed
@@ -9006,7 +9057,7 @@
       }
     }
 
-    function updateExploitGauge(rate, confirmed, total) {
+    function updateExploitGauge(rate, confirmed, total, exploitedUnverified) {
       const arcEl = document.getElementById('exploit-gauge-arc');
       const ballEl = document.getElementById('exploit-gauge-ball');
       const pctEl = document.getElementById('gauge-center-pct');
@@ -9033,7 +9084,17 @@
         }
       }
       if (pctEl) pctEl.textContent = Math.round(pct) + '%';
-      if (subEl) subEl.textContent = (confirmed || 0) + ' of ' + (total || 0) + ' confirmed';
+      // BUG-029: Show exploited vs verified distinction
+      if (subEl) {
+        var eu = exploitedUnverified || 0;
+        var c = confirmed || 0;
+        var t = total || 0;
+        if (eu > 0) {
+          subEl.textContent = c + ' verified + ' + eu + ' exploited / ' + t;
+        } else {
+          subEl.textContent = c + '/' + t + ' findings exploited';
+        }
+      }
     }
 
     async function refreshFindingsFromApi() {
@@ -9371,9 +9432,14 @@
     function updateAgentChip(code, status) {
       const chip = document.querySelector('.agent-chip[data-agent="' + code + '"]');
       if (!chip) return;
+      // If going idle but was previously active, show as completed
+      let effectiveStatus = status;
+      if (status === 'idle' && _agentsCompleted.has(code)) {
+        effectiveStatus = 'completed';
+      }
       chip.className = 'agent-chip';
-      if (status && status !== 'idle') {
-        chip.classList.add(status);
+      if (effectiveStatus && effectiveStatus !== 'idle') {
+        chip.classList.add(effectiveStatus);
       }
     }
 
@@ -9961,6 +10027,9 @@
     function handleNewFinding(msg) {
       const sev = (msg.severity || 'info').toLowerCase();
       if (_severityCounts[sev] !== undefined) _severityCounts[sev]++;
+      // BUG-016: Enable delete button when findings exist
+      const delBtn = document.getElementById('clearFindingsBtn');
+      if (delBtn) delBtn.disabled = false;
       // Push notification for new findings
       const sevMap = { critical: 'critical', high: 'high', medium: 'info', low: 'success', info: 'info' };
       addNotification((msg.title || 'New finding') + ' [' + sev.toUpperCase() + ']', sevMap[sev] || 'info');
@@ -10080,20 +10149,19 @@
         if (bar) bar.style.height = (count > 0 ? Math.max(4, (count / maxVal) * 90) : 0) + 'px';
       });
 
-      // Show/hide empty state
-      const emptyMsg = document.getElementById('severity-empty');
+      // BUG-012: Show/hide empty state and chart wrapper
+      const emptyEl = document.getElementById('severity-empty-state');
+      const wrapperEl = document.getElementById('severity-chart-wrapper');
       if (total === 0) {
-        if (!emptyMsg) {
-          const el = document.createElement('div');
-          el.id = 'severity-empty';
-          el.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--zerok-text-dim);font-size:11px;font-style:italic;';
-          el.textContent = 'No findings yet';
-          const body = document.getElementById('severity-chart-body');
-          if (body) { body.style.position = 'relative'; body.appendChild(el); }
-        }
-      } else if (emptyMsg) {
-        emptyMsg.remove();
+        if (emptyEl) emptyEl.style.display = '';
+        if (wrapperEl) wrapperEl.style.display = 'none';
+      } else {
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (wrapperEl) wrapperEl.style.display = '';
       }
+      // Legacy cleanup
+      const oldEmpty = document.getElementById('severity-empty');
+      if (oldEmpty) oldEmpty.remove();
     }
 
     function updateVulnStatusDonut(vulnData) {
@@ -10337,6 +10405,9 @@
       if (card) card.classList.toggle('expanded');
     }
 
+    // Track agents that have been explicitly completed by the backend
+    const _agentsCompleted = new Set();
+
     function updateAgentStatusTile(agent, status) {
       const grid = document.getElementById('agent-status-grid');
       if (!grid) return;
@@ -10344,6 +10415,18 @@
       if (!cell) return;
       const statusSpan = cell.querySelector('.layer-blocks');
       if (!statusSpan) return;
+
+      // Only mark as completed when backend explicitly says so
+      if (status === 'completed' || status === 'complete') {
+        _agentsCompleted.add(agent);
+      }
+
+      // If agent goes "idle" but was explicitly completed, show "Done"
+      // If just idle between tool calls (not completed), keep showing idle
+      let effectiveStatus = status;
+      if (status === 'idle' && _agentsCompleted.has(agent)) {
+        effectiveStatus = 'completed';
+      }
 
       // Map status to display text and color
       const statusMap = {
@@ -10354,7 +10437,7 @@
         waiting: { text: 'HITL', color: 'color:var(--zerok-medium)' },
         error: { text: 'Error', color: 'color:var(--zerok-critical)' },
       };
-      const s = statusMap[status] || statusMap.idle;
+      const s = statusMap[effectiveStatus] || statusMap.idle;
       statusSpan.textContent = s.text;
       statusSpan.style.cssText = s.color;
 
@@ -10506,13 +10589,13 @@
         if (headerRow) {
           var hCells = headerRow.split('|').filter(function(c,i,a) { return i > 0 && i < a.length - 1; });
           out += '<tr>';
-          hCells.forEach(function(c) { out += '<th style="text-align:left;padding:3px 8px;border-bottom:1px solid var(--zerok-border);color:var(--zerok-primary);font-weight:600;">' + c.trim() + '</th>'; });
+          hCells.forEach(function(c) { out += '<th style="text-align:left;padding:3px 8px;border-bottom:1px solid var(--zerok-border);color:var(--zerok-primary);font-weight:600;">' + escHtml(c.trim()) + '</th>'; });
           out += '</tr>';
         }
         for (var r = startRow; r < rows.length; r++) {
           var cells = rows[r].split('|').filter(function(c,i,a) { return i > 0 && i < a.length - 1; });
           out += '<tr>';
-          cells.forEach(function(c) { out += '<td style="padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.05);">' + c.trim() + '</td>'; });
+          cells.forEach(function(c) { out += '<td style="padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.05);">' + escHtml(c.trim()) + '</td>'; });
           out += '</tr>';
         }
         out += '</table>';
@@ -10578,8 +10661,11 @@
     // ── Toast Notifications ──
     function showToast(type, title, message, severity) {
       const container = document.getElementById('toastContainer');
+      // BUG-005: Limit toast stack to 5 to prevent overlap with UI elements
+      while (container.children.length >= 5) container.firstElementChild.remove();
       const toast = document.createElement('div');
       toast.className = 'toast' + (severity ? ' sev-' + severity.toLowerCase() : ' type-' + type);
+      // Note: escHtml sanitizes all user content before insertion
       toast.innerHTML =
         '<div class="toast-icon ' + type + '">' + (type === 'finding' ? '!' : type === 'success' ? '+' : '?') + '</div>' +
         '<div class="toast-text"><strong>' + escHtml(title) + '</strong><span>' + escHtml(message) + '</span></div>';
@@ -10996,22 +11082,25 @@
     }
 
     function setCtrlState(state) {
-      // state: 'idle' | 'running' | 'paused'
+      // state: 'idle' | 'preparing' | 'running' | 'paused'
       _currentCtrlState = state;
       // Start/stop KPI polling based on engagement state
       if (state === 'running') startKpiPolling();
-      else stopKpiPolling();
+      else if (state !== 'preparing') stopKpiPolling();
       const ctrlIdle = document.getElementById('ctrlIdle');
       const ctrlRunning = document.getElementById('ctrlRunning');
       const ctrlPaused = document.getElementById('ctrlPaused');
       if (ctrlIdle) ctrlIdle.style.display = state === 'idle' ? 'flex' : 'none';
-      if (ctrlRunning) ctrlRunning.style.display = state === 'running' ? 'flex' : 'none';
+      if (ctrlRunning) ctrlRunning.style.display = (state === 'running' || state === 'preparing') ? 'flex' : 'none';
       if (ctrlPaused) ctrlPaused.style.display = state === 'paused' ? 'flex' : 'none';
-      // Toggle "Pentest Running/Paused" badge in header
+      // Toggle "Pentest Running/Paused/Preparing" badge in header
       const engBadge = document.getElementById('engagement-running-badge');
       if (engBadge) {
         engBadge.classList.remove('active', 'paused');
-        if (state === 'running') {
+        if (state === 'preparing') {
+          engBadge.classList.add('active');
+          engBadge.querySelector('span:last-child').textContent = 'Preparing...';
+        } else if (state === 'running') {
           engBadge.classList.add('active');
           engBadge.querySelector('span:last-child').textContent = 'Pentest Running';
         } else if (state === 'paused') {
@@ -11028,7 +11117,7 @@
       const activeItem = document.querySelector('.engagement-list-item.active .engagement-status-dot');
       if (activeItem) {
         activeItem.classList.remove('active', 'paused', 'completed');
-        if (state === 'running') activeItem.classList.add('active');
+        if (state === 'running' || state === 'preparing') activeItem.classList.add('active');
         else if (state === 'paused') activeItem.classList.add('paused');
         else activeItem.classList.add('completed'); // idle = grey dot (not running)
       }
@@ -11040,7 +11129,7 @@
       const eid = currentEngagementId;
       const backendOverride = 'external';  // Force external for Antsle bridge targets
       window._summaryGenerated = false;  // BUG-020: Reset summary guard for new engagement
-      setCtrlState('running');
+      setCtrlState('preparing');  // Show "Preparing..." immediately, WebSocket upgrades to "running"
 
       fetch(`/api/engagement/${eid}/start-ai?backend=${backendOverride}`, { method: 'POST' })
         .then(r => r.json())
@@ -11084,6 +11173,7 @@
 
     function resetAgentChips() {
       activeChipFilter = null;
+      _agentsCompleted.clear(); // Reset activity tracking for new engagement
       document.querySelectorAll('.agent-chip').forEach(chip => {
         chip.className = 'agent-chip';
         const badge = chip.querySelector('.chip-event-count');
@@ -11361,8 +11451,14 @@
         const findings = Array.isArray(findingsRaw) ? findingsRaw : (findingsRaw.findings || []);
         _loadedFindingsCount = findings.length;
 
-        // BUG-012 fix: Always sync KPI with API findings count (including 0)
+        // NEW-BUG-019 fix: Don't let API poll overwrite SSE-populated data with empty results.
+        // If SSE has already shown findings but API returns 0, skip the overwrite.
         const kpiFindingsEl = document.getElementById('kpi-findings');
+        const currentKpiCount = parseInt(kpiFindingsEl?.textContent || '0', 10);
+        if (findings.length === 0 && currentKpiCount > 0) {
+          // API returned empty but SSE already populated — preserve SSE data
+          return;
+        }
         if (kpiFindingsEl) kpiFindingsEl.textContent = findings.length;
         const donutTotalEl = document.getElementById('donut-total');
         if (donutTotalEl && findings.length > 0) donutTotalEl.textContent = findings.length;
@@ -11604,8 +11700,8 @@
         if (!window._exploitGaugeTotals) window._exploitGaugeTotals = { discovered: 0, confirmed: 0 };
         window._exploitGaugeTotals.discovered = Math.max(window._exploitGaugeTotals.discovered, es.discovered_vulns || 0);
         window._exploitGaugeTotals.confirmed = Math.max(window._exploitGaugeTotals.confirmed, es.confirmed_exploits || 0);
-        // Update Exploit Gauge SVG arc
-        updateExploitGauge(es.success_rate, es.confirmed_exploits, es.discovered_vulns);
+        // Update Exploit Gauge SVG arc (BUG-029: pass exploited_unverified)
+        updateExploitGauge(es.success_rate, es.confirmed_exploits, es.discovered_vulns, es.exploited_unverified || 0);
         // Set Confirmed Exploits KPI from authoritative server count
         const kpiExploitsEl = document.getElementById('kpi-criticals');
         // Don't decrease Confirmed Exploits during active engagement (prevent flicker)
@@ -12931,7 +13027,7 @@
                 </div>
                 <div class="finding-detail-section">
                   <div class="finding-detail-label">Affected Hosts</div>
-                  <div class="finding-detail-value">${(f.affected_hosts || []).join(', ') || 'N/A'}</div>
+                  <div class="finding-detail-value">${escHtml((f.affected_hosts || []).join(', ')) || 'N/A'}</div>
                 </div>
               </div>
               <div class="evidence-gallery" id="evidence-${f.id}">
@@ -13577,6 +13673,9 @@
 
     function renderScans(scans) {
       const tbody = document.getElementById('scansTableBody');
+      // BUG-016: Toggle delete button based on scan count
+      const scanDelBtn = document.getElementById('clearScansBtn');
+      if (scanDelBtn) scanDelBtn.disabled = scans.length === 0;
 
       if (scans.length === 0) {
         tbody.innerHTML =
@@ -13590,7 +13689,7 @@
           <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${escHtml(s.target)}</td>
           <td><span class="scan-agent-chip">${escHtml(s.agent)}</span></td>
           <td><span class="scan-status-badge ${s.status}">${s.status.toUpperCase()}</span></td>
-          <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${s.status === 'running' ? '<span style="color: var(--zerok-info);">In progress...</span>' : formatDuration(s.duration_s)}</td>
+          <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${s.status === 'running' ? '<span style="color: var(--zerok-info);" title="Scan running on Kali backend">' + (s.started_at ? formatDuration(Math.round((Date.now() - new Date(s.started_at).getTime()) / 1000)) + '...' : 'In progress...') + '</span>' : formatDuration(s.duration_s)}</td>
           <td>${s.findings_count || 0}</td>
         </tr>
         <tr class="scan-detail-row" data-scan-id="${s.id}" style="display: none;">
@@ -14882,6 +14981,9 @@
       document.getElementById('graph-vulns-count').textContent = counts.vulnerability;
       document.getElementById('graph-findings-count').textContent = counts.finding;
       document.getElementById('graph-paths-count').textContent = paths;
+      // BUG-016: Enable delete button when graph has data
+      const graphDelBtn = document.getElementById('deleteGraphBtn');
+      if (graphDelBtn) graphDelBtn.disabled = data.nodes.length === 0;
 
       // Update Attack Graph nav badge with total node count
       const graphBadge = document.getElementById('nav-badge-attack-graph');
@@ -15197,7 +15299,8 @@
               ? `${info.url} — ${info.tools} tools`
               : `${info.url} — unreachable`;
             if (badge) {
-              badge.textContent = info.tools;
+              // BUG-014: Show "offline" instead of stale tool count when unreachable
+              badge.textContent = online ? info.tools : 'offline';
               badge.style.background = online ? 'var(--zerok-low)' : 'rgba(239, 68, 68, 0.3)';
             }
           }
@@ -15410,7 +15513,7 @@
       } else if (pct >= 80) {
         badge.classList.add('warning');
       }
-      badge.title = agent + ': ' + toolCalls + '/' + maxCalls + ' calls ($' + (cost || 0).toFixed(3) + ')';
+      badge.title = agent + ': ' + toolCalls + '/' + maxCalls + ' tool calls used | $' + (cost || 0).toFixed(3) + ' spent (budget varies per agent role)';
     }
 
     // ── F4: CTF Mode Functions ──────────────────

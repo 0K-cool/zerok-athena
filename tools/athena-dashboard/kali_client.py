@@ -126,14 +126,19 @@ class KaliClient:
         return {k: v for k, v in data.items() if not k.startswith("_")}
 
     def reload_registry(self):
-        """Reload tool registry from disk (hot reload without restart)."""
-        self.registry = self._load_registry()
-        for backend in self.backends.values():
-            backend.tools.clear()
-        for tool_name, tool_def in self.registry.items():
+        """Reload tool registry from disk (hot reload without restart).
+        HIGH-4 fix: Copy-on-write — build new state fully, then swap atomically.
+        """
+        new_registry = self._load_registry()
+        new_tools: dict[str, set] = {name: set() for name in self.backends}
+        for tool_name, tool_def in new_registry.items():
             for backend_name in tool_def.get("backends", []):
-                if backend_name in self.backends:
-                    self.backends[backend_name].tools.add(tool_name)
+                if backend_name in new_tools:
+                    new_tools[backend_name].add(tool_name)
+        # Atomic swap
+        self.registry = new_registry
+        for name, backend in self.backends.items():
+            backend.tools = new_tools.get(name, set())
         logger.info("Tool registry reloaded: %d tools", len(self.registry))
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -384,7 +389,8 @@ class KaliClient:
                     safe_parts.append(part)
                 elif re.match(r'^[a-zA-Z0-9._:/-]+$', part):
                     safe_parts.append(part)
-                # else: skip dangerous tokens silently
+                else:
+                    logger.debug("Dropping unsafe additional_args token: %r", part)  # LOW-4
             if safe_parts:
                 command = f"{command} {' '.join(safe_parts)}"
 

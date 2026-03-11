@@ -391,6 +391,15 @@ PRIOR CONTEXT:
 
 YOUR TOOLS: nikto (web server scanner), nuclei (template-based vuln detection),
   gobuster/ffuf (directory/file brute-forcing)
+
+NUCLEI USAGE (v3.7.0):
+  - Default scan (all templates): nuclei -u <target> -jsonl -severity critical,high,medium
+  - Filter by TAGS (not directories): nuclei -u <target> -tags cve,exposure,tech -jsonl
+  - Filter by protocol dir: nuclei -u <target> -t http/ -jsonl
+  - Available tag examples: cve, exposure, tech, misconfig, default-login, xss, sqli, lfi, rce
+  - Available dirs: http/, dns/, ssl/, dast/, network/, file/, javascript/, headless/
+  - WRONG: -t exposures -t cves -t technologies (these are NOT valid paths)
+
 YOUR OUTPUT: Write ALL findings to Neo4j AND the dashboard findings API.
 
 WORKFLOW:
@@ -995,8 +1004,8 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         name="Passive Recon",
         model=AgentModel.SONNET,
         ptes_phase=1,  # PTES Phase 1: Intelligence Gathering (passive)
-        max_tool_calls=60,
-        max_cost_usd=0.75,
+        max_tool_calls=100,
+        max_cost_usd=1.50,
         max_turns_per_chunk=15,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
@@ -1011,8 +1020,8 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         name="Active Recon",
         model=AgentModel.SONNET,
         ptes_phase=2,
-        max_tool_calls=60,
-        max_cost_usd=0.75,
+        max_tool_calls=200,
+        max_cost_usd=3.00,
         max_turns_per_chunk=15,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
@@ -1027,8 +1036,8 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         name="Web Vuln Scanner",
         model=AgentModel.SONNET,
         ptes_phase=4,
-        max_tool_calls=40,
-        max_cost_usd=0.50,
+        max_tool_calls=200,
+        max_cost_usd=3.00,
         max_turns_per_chunk=15,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
@@ -1044,8 +1053,8 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         name="Exploitation",
         model=AgentModel.OPUS,
         ptes_phase=5,
-        max_tool_calls=30,
-        max_cost_usd=1.50,
+        max_tool_calls=150,
+        max_cost_usd=4.00,
         max_turns_per_chunk=10,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
@@ -1062,8 +1071,8 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         name="Post-Exploitation",
         model=AgentModel.OPUS,
         ptes_phase=6,  # PTES Phase 6: Post-Exploitation
-        max_tool_calls=60,
-        max_cost_usd=2.00,
+        max_tool_calls=100,
+        max_cost_usd=3.00,
         max_turns_per_chunk=10,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
@@ -1079,8 +1088,8 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         name="Verification",
         model=AgentModel.SONNET,
         ptes_phase=4,
-        max_tool_calls=30,
-        max_cost_usd=0.50,
+        max_tool_calls=100,
+        max_cost_usd=2.00,
         max_turns_per_chunk=15,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),
@@ -1094,8 +1103,8 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         name="Reporting",
         model=AgentModel.OPUS,
         ptes_phase=7,
-        max_tool_calls=20,
-        max_cost_usd=1.00,
+        max_tool_calls=100,
+        max_cost_usd=4.00,
         max_turns_per_chunk=15,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS,
         disallowed_tools=_kali_tools(),  # RP doesn't run Kali tools
@@ -1109,7 +1118,7 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         name="Deep Analysis",
         model=AgentModel.OPUS,
         ptes_phase=4,
-        max_tool_calls=100,
+        max_tool_calls=150,
         max_cost_usd=4.00,
         max_turns_per_chunk=10,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
@@ -1127,7 +1136,7 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         model=AgentModel.SONNET,
         ptes_phase=4,
         max_tool_calls=150,
-        max_cost_usd=1.50,
+        max_cost_usd=3.00,
         max_turns_per_chunk=20,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS + _kali_tools(),
         disallowed_tools=(),

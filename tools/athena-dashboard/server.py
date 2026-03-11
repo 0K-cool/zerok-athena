@@ -270,9 +270,8 @@ neo4j_available = False
 if NEO4J_AVAILABLE:
     try:
         neo4j_driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
-        neo4j_driver.verify_connectivity()
-        neo4j_available = True
-        print(f"  Neo4j:      {NEO4J_URI} ✓")
+        # CRIT-1 fix: verify_connectivity() moved to lifespan to avoid blocking at import
+        print(f"  Neo4j:      driver created (connectivity check deferred to startup)")
     except Exception as e:
         print(f"  Neo4j:      Unavailable ({e}) - using mock data")
         neo4j_driver = None
@@ -339,6 +338,8 @@ class DashboardState:
         for ws in list(self.connected_clients):  # BUG-C1: snapshot to avoid RuntimeError during async iteration
             try:
                 await ws.send_text(message)
+            except asyncio.CancelledError:
+                raise  # HIGH-7: propagate cancellation, don't swallow it
             except (WebSocketDisconnect, RuntimeError):
                 disconnected.add(ws)
         self.connected_clients -= disconnected
@@ -526,8 +527,7 @@ def restore_state_from_neo4j():
         print(f"State restore from Neo4j error: {e}")
 
 
-# Run on module load to recover state across restarts
-restore_state_from_neo4j()
+# CRIT-1/MED-1 fix: State restore moved to lifespan to avoid blocking at import
 
 # Initialize Kali client
 kali_client = KaliClient.from_env()
@@ -546,6 +546,19 @@ async def lifespan(app: FastAPI):
     if MULTI_AGENT_AVAILABLE:
         from agent_session_manager import WorkspaceManager
         WorkspaceManager.cleanup_stale_workspaces(max_age_hours=2.0)
+    # CRIT-1: Verify Neo4j connectivity (moved from module load to async lifespan)
+    global neo4j_available
+    if neo4j_driver:
+        try:
+            neo4j_driver.verify_connectivity()
+            neo4j_available = True
+            print(f"  Neo4j:      {NEO4J_URI} ✓")
+        except Exception as e:
+            logger.warning(f"Neo4j connectivity check failed: {e}")
+            print(f"  Neo4j:      Unavailable ({e}) - using mock data")
+            neo4j_available = False
+    # MED-1: Restore state from Neo4j (moved from module load to async lifespan)
+    restore_state_from_neo4j()
     # Phase C: Check Kali backend connectivity
     health = await kali_client.health_check_all()
     for name, info in health.items():
@@ -605,18 +618,21 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Graphiti disabled — running without cross-session memory")
     # Start internet connectivity monitor
-    global _network_monitor_task
+    global _network_monitor_task, _stale_scan_monitor_task
     _network_monitor_task = asyncio.create_task(_network_connectivity_monitor())
+    _stale_scan_monitor_task = asyncio.create_task(_stale_scan_watchdog())
     print("  Network Monitor: active (checking every 10s)")
+    print("  Stale Scan Watchdog: active (threshold: 10min)")
     print()
     yield
-    # Stop network monitor
-    if _network_monitor_task and not _network_monitor_task.done():
-        _network_monitor_task.cancel()
-        try:
-            await _network_monitor_task
-        except asyncio.CancelledError:
-            pass
+    # Stop background monitors
+    for task in (_network_monitor_task, _stale_scan_monitor_task):
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     # H1: Close Graphiti before Neo4j
     await shutdown_graphiti()
     # H3: Flush Langfuse before shutdown
@@ -681,7 +697,7 @@ async def websocket_endpoint(ws: WebSocket):
                 "timestamp": e.timestamp,
                 "metadata": e.metadata,
             }
-            for e in state.events[-50:]
+            for e in list(state.events)[-50:]  # MED-7: snapshot to avoid race with add_event
         ],
         "engagement_active": (state.engagement_task is not None and not state.engagement_task.done()) or (_active_session_manager is not None and _active_session_manager.is_running),
         "engagement_paused": not state.engagement_pause_event.is_set() if (state.engagement_task and not state.engagement_task.done()) else False,
@@ -1121,6 +1137,8 @@ class ScopeExpansionPayload(BaseModel):
 
 # Track pending scope expansion to prevent duplicate HITL requests
 _pending_scope_expansion: Optional[str] = None  # Approval ID if pending
+# BUG-026: Track autonomous mode globally for scope expansion auto-approve
+_is_autonomous: bool = False
 
 
 @app.get("/api/scope")
@@ -1172,6 +1190,30 @@ async def request_scope_expansion(payload: ScopeExpansionPayload):
                 "engagement_types": _engagement_types}
 
     new_types = [t for t in payload.new_types if t not in _engagement_types]
+
+    # BUG-026: Auto-approve scope expansion in Lab/CTF mode — no HITL gate
+    if _is_autonomous and new_types:
+        _engagement_types.extend(new_types)
+        new_agents = set()
+        for t in new_types:
+            new_agents |= _AGENTS_BY_TYPE.get(t, set())
+        current_allowed = set()
+        for t in _engagement_types:
+            current_allowed |= _AGENTS_BY_TYPE.get(t, set())
+        newly_unlocked = sorted(new_agents - current_allowed)
+        types_str = ", ".join(new_types)
+        agents_str = ", ".join(
+            f"{a} ({AGENT_NAMES.get(a, a)})" for a in newly_unlocked
+        ) if newly_unlocked else "no additional agents"
+        await _emit("scope_expansion", payload.agent,
+            f"AUTO-APPROVED: Scope expanded to include {types_str} "
+            f"(autonomous mode). New agents: {agents_str}",
+            {"new_types": new_types, "auto_approved": True,
+             "newly_unlocked_agents": newly_unlocked})
+        return {"ok": True, "auto_approved": True, "new_types": new_types,
+                "newly_unlocked_agents": newly_unlocked,
+                "engagement_types": _engagement_types,
+                "message": "Auto-approved in autonomous mode."}
 
     # Check for pending expansion request
     if _pending_scope_expansion:
@@ -1648,6 +1690,13 @@ async def create_finding(payload: FindingPayload):
 
     # No duplicate — create new finding
     finding_id = str(uuid.uuid4())[:8]
+
+    # BUG-003: Auto-estimate CVSS from severity when agent doesn't provide one
+    if not payload.cvss:
+        _cvss_from_severity = {
+            "critical": 9.5, "high": 7.5, "medium": 5.0, "low": 2.5, "info": 0.0,
+        }
+        payload.cvss = _cvss_from_severity.get(sev, 5.0)
 
     if neo4j_available and neo4j_driver:
         def _write_finding():
@@ -3237,6 +3286,8 @@ AGENT_BUDGETS: dict[str, dict] = {
     "PX": {"max_tool_calls": 150, "max_cost": 3.00, "label": "Probe Executor"},
     # Exploitation — higher per-call cost (Opus reasoning)
     "EX": {"max_tool_calls": 150, "max_cost": 4.00, "label": "Exploitation"},
+    # Post-exploitation — lateral movement, privesc (Opus)
+    "PE": {"max_tool_calls": 100, "max_cost": 3.00, "label": "Post-Exploitation"},
     # Verification — focused re-testing
     "VF": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Verification"},
     # Reporting — writing-heavy (Opus)
@@ -4963,9 +5014,11 @@ async def get_engagement_summary(eid: str):
                                     mem_hosts.add(h)
                         # Count ports from scans first, then fallback to finding targets
                         import re as _re_mp
-                        nmap_tools = ("nmap_scan", "naabu_scan", "nmap", "naabu")
+                        # BUG-027: Use keyword matching — MCP tools have prefix (mcp__kali_external__naabu_scan)
+                        _port_kw = ("nmap", "naabu")
                         mem_ports = sum(s.get("findings_count", 0) for s in state.scans
-                                        if s.get("engagement_id") == eid and s.get("tool") in nmap_tools)
+                                        if s.get("engagement_id") == eid
+                                        and any(kw in (s.get("tool") or "").lower() for kw in _port_kw))
                         if mem_ports == 0:
                             # Extract unique ports from finding targets
                             port_set = set()
@@ -5026,13 +5079,17 @@ async def get_engagement_summary(eid: str):
                 hosts.add(host)
     # Count open ports from scan data
     eng_scans = [s for s in state.scans if s.get("engagement_id") == eid]
-    nmap_tools = ("nmap_scan", "naabu_scan", "nmap", "naabu")
-    total_ports = sum(s.get("findings_count", 0) for s in eng_scans if s.get("tool") in nmap_tools)
+    # BUG-027: Use keyword matching — MCP tools have prefix (mcp__kali_external__naabu_scan)
+    _port_scan_kw = ("nmap", "naabu")
+    total_ports = sum(
+        s.get("findings_count", 0) for s in eng_scans
+        if any(kw in (s.get("tool") or "").lower() for kw in _port_scan_kw)
+    )
     # Fallback 1: parse port counts from nmap/naabu output if findings_count was 0
     if total_ports == 0:
         import re
         for s in eng_scans:
-            if s.get("tool") in nmap_tools and s.get("output_preview"):
+            if any(kw in (s.get("tool") or "").lower() for kw in _port_scan_kw) and s.get("output_preview"):
                 # Match nmap output format: "22/tcp open ssh" or "PORT  STATE"
                 port_matches = re.findall(r'(\d+)/(?:tcp|udp)\s+open', s["output_preview"])
                 if not port_matches:
@@ -5347,7 +5404,35 @@ async def get_exploit_stats(eid: str):
                 if sev in by_severity:
                     by_severity[sev] += 1
 
-    success_rate = round((confirmed / max(discovered, 1)) * 100, 1)
+    # BUG-029: Count exploited-but-unverified findings (EX succeeded, VF didn't confirm)
+    exploited_unverified = 0
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (f:Finding {engagement_id: $eid})
+                    WHERE f.evidence IS NOT NULL AND f.evidence <> ''
+                      AND (f.verified IS NULL OR f.verified = false)
+                      AND (f.verification_status IS NULL OR f.verification_status <> 'confirmed')
+                    RETURN count(f) AS cnt
+                """, eid=eid)
+                rec = result.single()
+                if rec:
+                    exploited_unverified = rec["cnt"]
+        except Exception:
+            pass
+    # In-memory fallback
+    if exploited_unverified == 0 and mem_findings:
+        for f in mem_findings:
+            has_evidence = bool(f.evidence)
+            has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
+            verification = getattr(f, 'verification_status', '') or ''
+            is_confirmed = has_confirmed_ts or verification == 'confirmed'
+            if has_evidence and not is_confirmed:
+                exploited_unverified += 1
+
+    total_exploited = confirmed + exploited_unverified
+    success_rate = round((total_exploited / max(discovered, 1)) * 100, 1)
 
     # MTTE: estimate from timestamp spread of findings (simplified)
     mem_findings = [f for f in state.findings if f.engagement == eid]
@@ -5413,6 +5498,8 @@ async def get_exploit_stats(eid: str):
     return {
         "discovered_vulns": discovered,
         "confirmed_exploits": confirmed,
+        "exploited_unverified": exploited_unverified,  # BUG-029: EX exploited but VF didn't confirm
+        "total_exploited": total_exploited,
         "success_rate": success_rate,
         "by_severity": by_severity,
         "mtte_seconds": mtte_seconds,
@@ -8100,6 +8187,48 @@ NETWORK_CHECK_INTERVAL = 10  # seconds
 NETWORK_FAILURE_THRESHOLD = 2  # consecutive failures to declare outage
 NETWORK_CHECK_TIMEOUT = 5  # seconds
 
+# ── Stale Scan Watchdog ──
+STALE_SCAN_THRESHOLD = 600  # 10 minutes — mark scan as stalled
+STALE_SCAN_CHECK_INTERVAL = 30  # check every 30 seconds
+_stale_scan_monitor_task: asyncio.Task | None = None
+
+
+async def _stale_scan_watchdog():
+    """Background task: detect scans stuck in 'running' state and mark as stalled."""
+    while True:
+        await asyncio.sleep(STALE_SCAN_CHECK_INTERVAL)
+        try:
+            now = datetime.now(timezone.utc)
+            stalled = []
+            for scan in list(state.scans):  # snapshot to avoid mutation during iteration
+                if scan.get("status") != "running":
+                    continue
+                started = scan.get("started_at")
+                if not started:
+                    continue
+                if isinstance(started, str):
+                    started_dt = datetime.fromisoformat(started)
+                    if started_dt.tzinfo is None:
+                        started_dt = started_dt.replace(tzinfo=timezone.utc)
+                else:
+                    started_dt = started
+                elapsed = (now - started_dt).total_seconds()
+                if elapsed >= STALE_SCAN_THRESHOLD:
+                    scan["status"] = "stalled"
+                    scan["completed_at"] = now.isoformat()
+                    scan["duration_s"] = int(elapsed)
+                    logger.warning(
+                        f"Stale scan watchdog: {scan.get('tool', '?')} "
+                        f"(id={scan.get('id', '?')}) stalled after {int(elapsed)}s"
+                    )
+                    await state.broadcast({
+                        "type": "scan_complete",
+                        "scan": scan,
+                        "timestamp": time.time(),
+                    })
+        except Exception as e:
+            logger.error(f"Stale scan watchdog error: {e}")
+
 
 async def _network_connectivity_monitor():
     """Background task: detect internet outages and auto-pause/resume agents."""
@@ -8964,69 +9093,60 @@ async def start_engagement_ai(
     engagement_types = ["external"]  # default
     evidence_mode = "observable"  # default to supervised (HITL gates)
     skip_agents: list[str] = []  # Agents to exclude from this engagement
+
+    # Send early UI feedback before any DB work (perceived speed boost)
+    await state.broadcast({
+        "type": "engagement_preparing",
+        "engagement_id": eid,
+        "timestamp": time.time(),
+    })
+
     if not target:
         eng = next((e for e in state.engagements if e.id == eid), None)
         if eng:
             target = eng.target
-        if neo4j_available and neo4j_driver:
-            try:
-                with neo4j_driver.session() as session:
-                    result = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.target AS target, e.scope AS scope, e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types, e.budget AS budget, e.evidence_mode AS evidence_mode, e.skip_agents AS skip_agents",
-                        eid=eid,
-                    )
-                    record = result.single()
-                    if record:
-                        if not target and record.get("target"):
-                            target = record["target"]
-                        elif not target and record.get("scope"):
-                            target = record["scope"]
-                        if record.get("scope_doc"):
-                            scope_doc = record["scope_doc"]
-                        if record.get("client_industry"):
-                            client_industry = record["client_industry"]
-                        if record.get("types"):
-                            engagement_types = record["types"] if isinstance(record["types"], list) else [record["types"]]
-                        # P2-FIX: Load per-engagement budget cap from Neo4j
-                        if record.get("budget") and float(record["budget"]) > 0:
-                            ENGAGEMENT_COST_CAP = float(record["budget"])
-                        if record.get("evidence_mode"):
-                            evidence_mode = record["evidence_mode"]
-                        if record.get("skip_agents"):
-                            skip_agents_str = record["skip_agents"]
-                            skip_agents = [s.strip() for s in skip_agents_str.split(",") if s.strip()]
-            except Exception as e:
-                logger.warning("Failed to load engagement config from Neo4j: %s", e)
-        if not target:
-            return JSONResponse(status_code=400, content={
-                "error": "Target scope required. Pass ?target=<ip/cidr/url>"
-            })
-    elif neo4j_available and neo4j_driver:
-        # Target was provided, but still fetch scope_doc, client_industry, types, budget, and evidence_mode from Neo4j
-        try:
+
+    # Single Neo4j query for all engagement config (deduplicated from two queries)
+    if neo4j_available and neo4j_driver:
+        def _load_engagement_config():
             with neo4j_driver.session() as session:
                 result = session.run(
-                    "MATCH (e:Engagement {id: $eid}) RETURN e.scope_doc AS scope_doc, e.client_industry AS client_industry, e.types AS types, e.budget AS budget, e.evidence_mode AS evidence_mode, e.skip_agents AS skip_agents",
+                    "MATCH (e:Engagement {id: $eid}) "
+                    "RETURN e.target AS target, e.scope AS scope, "
+                    "e.scope_doc AS scope_doc, e.client_industry AS client_industry, "
+                    "e.types AS types, e.budget AS budget, "
+                    "e.evidence_mode AS evidence_mode, e.skip_agents AS skip_agents",
                     eid=eid,
                 )
-                record = result.single()
-                if record:
-                    if record.get("scope_doc"):
-                        scope_doc = record["scope_doc"]
-                    if record.get("client_industry"):
-                        client_industry = record["client_industry"]
-                    if record.get("types"):
-                        engagement_types = record["types"] if isinstance(record["types"], list) else [record["types"]]
-                    # P2-FIX: Load per-engagement budget cap from Neo4j
-                    if record.get("budget") and float(record["budget"]) > 0:
-                        ENGAGEMENT_COST_CAP = float(record["budget"])
-                    if record.get("evidence_mode"):
-                        evidence_mode = record["evidence_mode"]
-                    if record.get("skip_agents"):
-                        skip_agents_str = record["skip_agents"]
-                        skip_agents = [s.strip() for s in skip_agents_str.split(",") if s.strip()]
+                return result.single()
+        try:
+            record = await asyncio.to_thread(_load_engagement_config)
+            if record:
+                if not target and record.get("target"):
+                    target = record["target"]
+                elif not target and record.get("scope"):
+                    target = record["scope"]
+                if record.get("scope_doc"):
+                    scope_doc = record["scope_doc"]
+                if record.get("client_industry"):
+                    client_industry = record["client_industry"]
+                if record.get("types"):
+                    engagement_types = record["types"] if isinstance(record["types"], list) else [record["types"]]
+                # P2-FIX: Load per-engagement budget cap from Neo4j
+                if record.get("budget") and float(record["budget"]) > 0:
+                    ENGAGEMENT_COST_CAP = float(record["budget"])
+                if record.get("evidence_mode"):
+                    evidence_mode = record["evidence_mode"]
+                if record.get("skip_agents"):
+                    skip_agents_str = record["skip_agents"]
+                    skip_agents = [s.strip() for s in skip_agents_str.split(",") if s.strip()]
         except Exception as e:
             logger.warning("Failed to load engagement config from Neo4j: %s", e)
+
+    if not target:
+        return JSONResponse(status_code=400, content={
+            "error": "Target scope required. Pass ?target=<ip/cidr/url>"
+        })
 
     # Stop any existing session
     if _active_session_manager and _active_session_manager.is_running:
@@ -9067,16 +9187,18 @@ async def start_engagement_ai(
     state.active_engagement_id = eid
     state.engagement_stopped = False
 
-    # Update Neo4j engagement status to active
+    # Update Neo4j engagement status to active (non-blocking)
     if neo4j_available and neo4j_driver:
-        try:
-            with neo4j_driver.session() as session:
-                session.run(
-                    "MATCH (e:Engagement {id: $eid}) SET e.status = 'active'",
-                    eid=eid,
-                )
-        except Exception:
-            pass
+        def _set_active():
+            try:
+                with neo4j_driver.session() as session:
+                    session.run(
+                        "MATCH (e:Engagement {id: $eid}) SET e.status = 'active'",
+                        eid=eid,
+                    )
+            except Exception:
+                pass
+        asyncio.get_event_loop().run_in_executor(None, _set_active)
 
     if not MULTI_AGENT_AVAILABLE or not SDK_AVAILABLE:
         return JSONResponse(status_code=500, content={
@@ -9101,6 +9223,8 @@ async def start_engagement_ai(
 
     mode_label = "CTF" if is_ctf else ("Autonomous" if mode == "autonomous" else "Supervised")
     is_autonomous = is_ctf or mode == "autonomous"
+    global _is_autonomous
+    _is_autonomous = is_autonomous  # BUG-026: expose to scope expansion endpoint
 
     scope_info = f" Scope document loaded ({len(scope_doc)} chars)." if scope_doc else " No scope document — using target URL constraints only."
     if is_ctf:
@@ -9220,6 +9344,10 @@ Start by querying Neo4j for existing engagement state, then begin with
 Body: {{"agent":"{_start_agent}","task":"{_start_task}","priority":"high"}}
 """
 
+    # HIGH-2/MED-2: Clear per-engagement state from previous runs
+    _pending_bilateral_messages.clear()
+    _agent_msg_counts.clear()
+
     _active_session_manager = AgentSessionManager(
         engagement_id=eid,
         target=target,
@@ -9227,6 +9355,7 @@ Body: {{"agent":"{_start_agent}","task":"{_start_task}","priority":"high"}}
         dashboard_state=state,
         athena_root=athena_dir,
         mode=mode if is_ctf else ("autonomous" if is_autonomous else "multi-agent"),
+        neo4j_driver=neo4j_driver,  # MED-3: inject driver, avoid circular import
     )
     _active_session_manager.set_event_callback(
         lambda evt: _sdk_event_to_dashboard(evt, eid)
@@ -9364,7 +9493,8 @@ async def _generate_engagement_learnings(eid: str) -> str:
 @app.post("/api/engagement/{eid}/stop")
 async def stop_engagement(eid: str):
     """Stop a running engagement and kill all active processes."""
-    global _active_session_manager
+    global _active_session_manager, _is_autonomous
+    _is_autonomous = False  # BUG-026: reset autonomous mode on stop
     state.engagement_stopped = True
     state.engagement_pause_event.set()  # Unblock if paused so task can exit
 

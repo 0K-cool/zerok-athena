@@ -850,7 +850,7 @@ class AthenaAgentSession:
                 "type": "exploitation_output",
                 "title": f"Exploitation evidence — {tool_name}",
                 "content": output[:8000],  # cap to avoid oversized payloads
-                "agent": self._current_agent,
+                "agent": self._role_config.code if self._role_config else self._current_agent,
                 "auto_link_latest_finding": True,
                 "relationship": "HAS_ARTIFACT",
             }
@@ -1066,8 +1066,10 @@ class AthenaAgentSession:
                     if msg.total_cost_usd:
                         self._total_cost_usd = msg.total_cost_usd  # Cumulative from SDK, not additive
                         # BUG-008b: Report actual cost to server budget tracker
+                        # BUG-032 fix: Use _role_config.code for correct cost attribution
+                        cost_agent = self._role_config.code if self._role_config else self._current_agent
                         await self._report_actual_cost(
-                            self._current_agent, self._total_cost_usd)
+                            cost_agent, self._total_cost_usd)
                     result_text = msg.result or "Turn complete"
                     await self._emit("system", "OR",
                         f"AI turn complete: {result_text}", {
@@ -1129,7 +1131,10 @@ class AthenaAgentSession:
                     # BUG-012 FIX: ST waiting for workers needs a longer timeout.
                     # Workers report back to ST via send_command(), so ST legitimately
                     # sits idle while waiting. Use 300s for ST, 60s for workers.
-                    idle_timeout = 300.0 if self._current_agent == 'ST' else 60.0
+                    # BUG-024 FIX: Use _role_config.code (spawned agent), not _current_agent
+                    # (which tracks last tool's detected agent and may have shifted).
+                    spawned_code = self._role_config.code if self._role_config else self._current_agent
+                    idle_timeout = 300.0 if spawned_code == 'ST' else 60.0
                     await self._emit("system", "OR",
                         "AI turn complete. Waiting for operator commands...",
                         {"control": "awaiting_commands"})
@@ -1300,18 +1305,21 @@ class AthenaAgentSession:
                 resume_id = self.session_id
 
                 if tools_used == 0:
+                    # HIGH-6 + BUG-024 fix: Use spawned agent code for timeout
+                    spawned_code = self._role_config.code if self._role_config else self._current_agent
+                    idle_timeout = 300.0 if spawned_code == 'ST' else 60.0
                     await self._emit("system", "OR",
                         "AI turn complete. Waiting for operator commands...",
                         {"control": "awaiting_commands"})
                     try:
                         cmd = await asyncio.wait_for(
-                            self._command_queue.get(), timeout=60.0)
+                            self._command_queue.get(), timeout=idle_timeout)
                         await self._emit("system", "OR",
                             f"Processing operator command: {_clean_cmd_display(cmd)}")
                         prompt = cmd
                     except asyncio.TimeoutError:
                         await self._emit("system", "OR",
-                            "No operator commands for 60 seconds. Ending session.")
+                            f"No operator commands for {int(idle_timeout)} seconds. Ending session.")
                         break
                 else:
                     try:
@@ -1388,7 +1396,7 @@ class AthenaAgentSession:
 
         # Close the shared httpx client
         if self._http_client and not self._http_client.is_closed:
-            await self._http_client.close()
+            await self._http_client.aclose()  # LOW-6: use async close
 
         logger.info("SDK session stopped for engagement %s "
                      "(%d tool calls, $%.4f)",
@@ -1426,11 +1434,17 @@ class AthenaAgentSession:
                 command = str(block.input.get("command", ""))
                 new_agent = detect_agent(block.name, command)
 
-                # F5: Record tool call against agent budget
-                await self._record_budget_tool_call(new_agent)
+                # F5: Record tool call against AUTHORITATIVE agent budget
+                # BUG-031 fix: detect_agent() defaults to "ST" for unrecognized
+                # MCP tools, causing budget misattribution. Use _role_config.code
+                # (the actual spawned agent) for all operational decisions.
+                budget_agent = self._role_config.code if self._role_config else new_agent
+                await self._record_budget_tool_call(budget_agent)
 
-                # Emit agent transition if changed
-                if new_agent != self._current_agent:
+                # Emit agent transition if changed — only in single-session mode.
+                # In multi-agent mode (_role_config set), the session IS the agent;
+                # detect_agent heuristics must not flip the identity.
+                if self._role_config is None and new_agent != self._current_agent:
                     await self._emit("agent_status", self._current_agent,
                         "idle", {"status": "idle"})
                     self._current_agent = new_agent

@@ -23,7 +23,7 @@
   "naabu_scan": {
     "display_name": "Naabu Fast Port Scanner",
     "endpoint": "/api/command",
-    "command_template": "PATH=$PATH:/home/kelvin/go/bin naabu -host {target} -json -rate 3000 -c 50 -retries 2 -warm-up-time 1",
+    "command_template": "PATH=$PATH:$HOME/go/bin:/usr/local/go/binnaabu -host {target} -json -rate 3000 -c 50 -retries 2 -warm-up-time 1",
     "timeout": 120,
     "backends": ["external", "internal"],
     "category": "recon",
@@ -178,7 +178,7 @@
   "katana_crawl": {
     "display_name": "Katana Web Crawler",
     "endpoint": "/api/command",
-    "command_template": "PATH=$PATH:/home/kelvin/go/bin katana -u {target} -jsonl -depth 3",
+    "command_template": "PATH=$PATH:$HOME/go/bin:/usr/local/go/binkatana -u {target} -jsonl -depth 3",
     "timeout": 300,
     "backends": ["internal"],
     "category": "web",
@@ -234,7 +234,7 @@
   "kiterunner_scan": {
     "display_name": "Kiterunner API Discovery",
     "endpoint": "/api/command",
-    "command_template": "PATH=$PATH:/home/kelvin/go/bin kr scan {target} -w /opt/kiterunner/routes-large.kite",
+    "command_template": "PATH=$PATH:$HOME/go/bin:/usr/local/go/binkr scan {target} -w /opt/kiterunner/routes-large.kite",
     "timeout": 300,
     "backends": ["internal"],
     "category": "web",
@@ -351,7 +351,7 @@
   "attackerkb_lookup": {
     "display_name": "AttackerKB CVE Intelligence",
     "endpoint": "/api/command",
-    "command_template": "curl -sf -H \"Authorization: Bearer $(cat /home/*/.config/athena/attackerkb.key 2>/dev/null)\" 'https://api.attackerkb.com/v1/topics?name={cve_id}'",
+    "command_template": "curl -sf -H \"Authorization: Bearer ${ATTACKERKB_KEY:-}\" 'https://api.attackerkb.com/v1/topics?name={cve_id}'",
     "timeout": 15,
     "backends": ["external", "internal"],
     "category": "enrichment",
