@@ -14168,18 +14168,26 @@
         _ceiTechniques = techData.techniques || [];
         _ceiFalsePositives = fpData.false_positives || [];
         _ceiHistory = histData.engagements || [];
+      } catch (e) {
+        console.error('Failed to fetch intelligence data:', e);
+        _ceiTechniques = _ceiTechniques || [];
+        _ceiFalsePositives = _ceiFalsePositives || [];
+        _ceiHistory = _ceiHistory || [];
+      }
 
-        // Update KPIs
+      // BUG-038 fix: Update KPIs outside try/catch so partial data still renders.
+      // Previously, any error in KPI calculation silently swallowed all updates.
+      try {
         document.getElementById('cei-techniques-count').textContent = _ceiTechniques.length;
 
         if (_ceiTechniques.length > 0) {
-          const avgRate = _ceiTechniques.reduce((s, t) => s + (t.success_rate || 0), 0) / _ceiTechniques.length;
+          const avgRate = _ceiTechniques.reduce(function(s, t) { return s + (parseFloat(t.success_rate) || 0); }, 0) / _ceiTechniques.length;
           const el = document.getElementById('cei-avg-success');
-          el.textContent = Math.round(avgRate * 100) + '%';
+          el.textContent = (isNaN(avgRate) ? 0 : Math.round(avgRate * 100)) + '%';
           el.style.color = avgRate > 0.5 ? 'var(--zerok-low)' : avgRate > 0.3 ? 'var(--zerok-warning)' : 'var(--zerok-critical)';
 
-          const totalCost = _ceiTechniques.reduce((s, t) => s + ((t.avg_cost || 0) * (t.attempts || 0)), 0);
-          const totalSuccesses = _ceiTechniques.reduce((s, t) => s + (t.successes || 0), 0);
+          const totalCost = _ceiTechniques.reduce(function(s, t) { return s + ((parseFloat(t.avg_cost) || 0) * (parseInt(t.attempts) || 0)); }, 0);
+          const totalSuccesses = _ceiTechniques.reduce(function(s, t) { return s + (parseInt(t.successes) || 0); }, 0);
           const cpf = totalSuccesses > 0 ? totalCost / totalSuccesses : 0;
           const cpfEl = document.getElementById('cei-cost-per-finding');
           cpfEl.textContent = cpf > 0 ? '$' + cpf.toFixed(2) : '—';
@@ -14192,18 +14200,22 @@
         const fpCountEl = document.getElementById('cei-fp-count');
         fpCountEl.textContent = _ceiFalsePositives.length;
         fpCountEl.style.color = _ceiFalsePositives.length > 0 ? 'var(--zerok-warning)' : 'var(--zerok-text-dim)';
+      } catch (e) {
+        console.error('Failed to update intelligence KPIs:', e);
+      }
 
-        // Update badge
-        const badge = document.getElementById('nav-badge-intelligence');
-        if (badge) {
-          badge.textContent = _ceiTechniques.length;
-          badge.style.display = _ceiTechniques.length > 0 ? '' : 'none';
-        }
+      // Update badge
+      const badge = document.getElementById('nav-badge-intelligence');
+      if (badge) {
+        badge.textContent = _ceiTechniques.length;
+        badge.style.display = _ceiTechniques.length > 0 ? '' : 'none';
+      }
 
-        // Render active tab
+      // Render active tab
+      try {
         renderCeiTechniques();
       } catch (e) {
-        console.error('Failed to load intelligence:', e);
+        console.error('Failed to render intelligence table:', e);
         document.getElementById('cei-techniques-tbody').innerHTML = emptyMsg;
       }
     }

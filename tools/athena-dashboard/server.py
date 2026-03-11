@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -1971,7 +1971,7 @@ async def get_cei_techniques():
                        t.total_attempts AS attempts, t.successes AS successes,
                        t.failures AS failures, t.success_rate AS success_rate,
                        t.avg_duration_s AS avg_duration, t.avg_cost_usd AS avg_cost,
-                       t.last_used AS last_used, t.last_engagement_id AS last_eid,
+                       toString(t.last_used) AS last_used, t.last_engagement_id AS last_eid,
                        collect(DISTINCT e.id) AS engagement_ids
                 ORDER BY t.total_attempts DESC
             """)
@@ -5101,19 +5101,18 @@ async def get_engagement_summary(eid: str):
                     port_set.add(port_num)
         total_ports = len(port_set)
     sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    # BUG-037 fix: Align exploit counting with exploit-stats endpoint.
+    # Only count VF-confirmed findings as exploits (consistent with exploit-stats).
+    # Previously used keyword heuristic that inflated the count.
     exploits = 0
-    _exploit_kw_fb = {'exploit', 'injection', 'rce', 'backdoor', 'shell',
-                      'code execution', 'privilege escalation', 'lateral movement',
-                      'authentication bypass', 'remote code execution'}
     for f in eng_findings:
         s = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
         if s in sev_counts:
             sev_counts[s] += 1
-        cat = (f.category or '').lower()
-        agent = getattr(f, 'agent', '') or ''
-        if (f.evidence or
-            any(kw in cat for kw in _exploit_kw_fb) or
-            agent.upper() == 'EX'):
+        has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
+        verification = getattr(f, 'verification_status', '') or ''
+        is_confirmed = has_confirmed_ts or verification == 'confirmed'
+        if is_confirmed:
             exploits += 1
 
     return {
@@ -10298,7 +10297,11 @@ async def bus_publish(request: Request):
     if not _active_session_manager:
         return JSONResponse({"error": "No active engagement"}, 400)
 
-    body = await request.json()
+    # BUG-035 fix: Return 422 for malformed JSON instead of 500
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, 422)
     from finding_pipeline import validate_finding, BROADCAST_CONFIDENCES
     from message_bus import BusMessage
 
@@ -10334,7 +10337,11 @@ async def bus_directive(request: Request):
     if not _active_session_manager:
         return JSONResponse({"error": "No active engagement"}, 400)
 
-    body = await request.json()
+    # BUG-035 fix: Return 422 for malformed JSON instead of 500
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, 422)
     from message_bus import BusMessage
     msg = BusMessage(
         from_agent=body.get("agent", "ST"),
