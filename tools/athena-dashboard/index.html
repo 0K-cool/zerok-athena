@@ -313,7 +313,6 @@
     .sidebar-nav {
       flex: 1;
       padding: 10px 8px 12px;  /* Tighter top to reduce header-nav gap */
-      overflow-y: auto;
     }
 
     .nav-item {
@@ -2146,12 +2145,12 @@
       }
     }
 
-    /* Sidebar sections wrapper — takes remaining space, scrolls when needed */
+    /* Sidebar sections wrapper — pinned above user profile */
     .sidebar-sections {
-      flex: 1 1 0;
+      flex: 0 0 auto;
       overflow-y: auto;
       overflow-x: hidden;
-      min-height: 0;
+      max-height: 40vh;
     }
     .sidebar-sections::-webkit-scrollbar { width: 0; }
 
