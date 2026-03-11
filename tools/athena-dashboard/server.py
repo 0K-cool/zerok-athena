@@ -5280,19 +5280,34 @@ async def get_engagement_findings(eid: str):
                         "evidence_count": 0,
                     })
 
-                # If Neo4j returned data, use it; otherwise fall through to in-memory
+                # BUG-042 fix: Merge in-memory findings not yet persisted to Neo4j
+                neo4j_ids = {f["id"] for f in findings}
+                mem_findings = [f for f in state.findings if f.engagement == eid]
+                for f in mem_findings:
+                    if f.id not in neo4j_ids:
+                        findings.append({
+                            "id": f.id,
+                            "title": f.title,
+                            "severity": f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower(),
+                            "cvss": f.cvss,
+                            "status": "open",
+                            "category": f.category,
+                            "description": f.description,
+                            "affected_hosts": [f.target],
+                            "evidence_count": 1 if f.evidence else 0,
+                        })
                 if findings:
                     return findings
         except Exception as e:
             print(f"Neo4j findings query error: {e}")
-            # Fall through to mock
+            # Fall through to in-memory
 
     # Fallback: filter in-memory findings
     results = [f for f in state.findings if f.engagement == eid]
     return [{
         "id": f.id,
         "title": f.title,
-        "severity": f.severity.value,
+        "severity": f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower(),
         "cvss": f.cvss,
         "status": "open",
         "category": f.category,
@@ -5325,16 +5340,21 @@ async def get_vuln_severity(eid: str):
         except Exception as e:
             print(f"Neo4j vuln-severity error: {e}")
 
-    # Fallback: compute from in-memory findings when Neo4j returned nothing
-    if total == 0:
-        mem_findings = [f for f in state.findings if f.engagement == eid]
-        for f in mem_findings:
-            sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
-            if sev in counts:
-                counts[sev] += 1
-            else:
-                counts["info"] += 1
-            total += 1
+    # BUG-042 fix: Take max of Neo4j and in-memory severity counts (same race condition)
+    mem_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    mem_total = 0
+    mem_findings = [f for f in state.findings if f.engagement == eid]
+    for f in mem_findings:
+        sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
+        if sev in mem_counts:
+            mem_counts[sev] += 1
+        else:
+            mem_counts["info"] += 1
+        mem_total += 1
+    # Use whichever source has higher counts
+    for sev in counts:
+        counts[sev] = max(counts[sev], mem_counts.get(sev, 0))
+    total = max(total, mem_total)
 
     return {"severity": counts, "total": total}
 
@@ -5379,23 +5399,30 @@ async def get_exploit_stats(eid: str):
         except Exception as e:
             print(f"Neo4j exploit-stats error: {e}")
 
-    # Supplement from in-memory state (handles both: Neo4j returned 0 discovered, OR
-    # Neo4j categories didn't match OWASP codes but evidence exists)
+    # BUG-042 fix: Take MAX of Neo4j and in-memory counts to prevent race condition.
+    # In-memory state is updated immediately when agents report findings, but Neo4j
+    # persistence is async. Using either/or caused the Exploit Rate to spike then drop
+    # when Neo4j returned partial data (non-zero but lower than in-memory).
     mem_findings = [f for f in state.findings if f.engagement == eid]
-    if discovered == 0:
-        discovered = len(mem_findings)
-    if confirmed == 0 and mem_findings:
-        # BUG-031 fix: Only count VF-confirmed findings as confirmed exploits.
-        # Must have confirmed_at timestamp (VF verified) or verification_status == confirmed.
-        for f in mem_findings:
-            sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
-            has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
-            verification = getattr(f, 'verification_status', '') or ''
-            is_confirmed = has_confirmed_ts or verification == 'confirmed'
-            if is_confirmed:
-                confirmed += 1
-                if sev in by_severity:
-                    by_severity[sev] += 1
+    mem_discovered = len(mem_findings)
+    mem_confirmed = 0
+    mem_by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for f in mem_findings:
+        sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
+        has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
+        verification = getattr(f, 'verification_status', '') or ''
+        is_confirmed = has_confirmed_ts or verification == 'confirmed'
+        if is_confirmed:
+            mem_confirmed += 1
+            if sev in mem_by_severity:
+                mem_by_severity[sev] += 1
+    # Use whichever source has the higher count (both are authoritative, just async)
+    if mem_discovered > discovered:
+        discovered = mem_discovered
+    if mem_confirmed > confirmed:
+        confirmed = mem_confirmed
+        for sev in by_severity:
+            by_severity[sev] = max(by_severity[sev], mem_by_severity.get(sev, 0))
 
     # BUG-029: Count exploited-but-unverified findings (EX succeeded, VF didn't confirm)
     exploited_unverified = 0
@@ -5414,15 +5441,17 @@ async def get_exploit_stats(eid: str):
                     exploited_unverified = rec["cnt"]
         except Exception:
             pass
-    # In-memory fallback
-    if exploited_unverified == 0 and mem_findings:
-        for f in mem_findings:
-            has_evidence = bool(f.evidence)
-            has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
-            verification = getattr(f, 'verification_status', '') or ''
-            is_confirmed = has_confirmed_ts or verification == 'confirmed'
-            if has_evidence and not is_confirmed:
-                exploited_unverified += 1
+    # BUG-042 fix: Same max-of-both-sources pattern for exploited_unverified
+    mem_exploited_unverified = 0
+    for f in mem_findings:
+        has_evidence = bool(f.evidence)
+        has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
+        verification = getattr(f, 'verification_status', '') or ''
+        is_confirmed = has_confirmed_ts or verification == 'confirmed'
+        if has_evidence and not is_confirmed:
+            mem_exploited_unverified += 1
+    if mem_exploited_unverified > exploited_unverified:
+        exploited_unverified = mem_exploited_unverified
 
     total_exploited = confirmed + exploited_unverified
     success_rate = round((total_exploited / max(discovered, 1)) * 100, 1)
@@ -5526,27 +5555,31 @@ async def get_services_summary(eid: str):
         except Exception as e:
             print(f"Neo4j services-summary error: {e}")
 
-    # Fallback: derive from in-memory findings targets
-    if not services:
-        port_counts = {}
-        for f in state.findings:
-            if f.engagement != eid:
-                continue
-            target = f.target or ""
-            import re
-            port_match = re.search(r':(\d+)', target)
-            if port_match:
-                port = int(port_match.group(1))
-                name = {80: 'http', 443: 'https', 22: 'ssh', 3306: 'mysql',
-                        8080: 'http-proxy', 445: 'smb', 21: 'ftp', 8443: 'https-alt',
-                        3632: 'distccd', 8180: 'http-alt', 5432: 'postgresql',
-                        1099: 'rmiregistry', 5900: 'vnc'}.get(port, f'port-{port}')
-                if port not in port_counts:
-                    port_counts[port] = {"port": port, "name": name, "count": 0, "versions": []}
-                port_counts[port]["count"] += 1
-        services = sorted(port_counts.values(), key=lambda x: x["count"], reverse=True)[:8]
+    # BUG-042 fix: Merge in-memory ports with Neo4j (not either/or).
+    # In-memory findings may have ports that haven't been persisted to Neo4j yet.
+    import re as _re_svc
+    neo4j_ports = {s["port"] for s in services}
+    port_counts = {}
+    for f in state.findings:
+        if f.engagement != eid:
+            continue
+        target = f.target or ""
+        port_match = _re_svc.search(r':(\d+)', target)
+        if port_match:
+            port = int(port_match.group(1))
+            if port in neo4j_ports:
+                continue  # Already covered by Neo4j
+            name = {80: 'http', 443: 'https', 22: 'ssh', 3306: 'mysql',
+                    8080: 'http-proxy', 445: 'smb', 21: 'ftp', 8443: 'https-alt',
+                    3632: 'distccd', 8180: 'http-alt', 5432: 'postgresql',
+                    1099: 'rmiregistry', 5900: 'vnc'}.get(port, f'port-{port}')
+            if port not in port_counts:
+                port_counts[port] = {"port": port, "name": name, "count": 0, "versions": []}
+            port_counts[port]["count"] += 1
+    # Merge: Neo4j services + any extra ports from in-memory
+    merged = list(services) + sorted(port_counts.values(), key=lambda x: x["count"], reverse=True)
 
-    return services
+    return merged
 
 
 @app.post("/api/engagements/{eid}/credentials")
