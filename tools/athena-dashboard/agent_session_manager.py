@@ -281,11 +281,13 @@ class AgentSessionManager:
         athena_root: str | Path = "",
         mode: str = "multi-agent",
         time_limit_minutes: int = 0,
+        neo4j_driver: Any = None,  # MED-3: pass driver instead of circular import
     ):
         self.engagement_id = engagement_id
         self.target = target
         self.backend = backend
         self.dashboard_state = dashboard_state
+        self._neo4j_driver = neo4j_driver  # MED-3: stored for context building
         self.mode = mode  # "multi-agent" or "ctf"
         self.time_limit_minutes = time_limit_minutes  # M-3: 0 = unlimited
         self.athena_root = (
@@ -310,6 +312,7 @@ class AgentSessionManager:
         self.total_cost_usd: float = 0.0
         self.total_tool_calls: int = 0
         self._cost_aggregated: set[str] = set()
+        self._cost_lock = asyncio.Lock()  # HIGH-3: protect cost mutations from races
         self._pending_rp_request: dict | None = None
         # F5: Budget-exhausted agents pending early-stop
         self._early_stop_queue: set[str] = set()
@@ -322,6 +325,8 @@ class AgentSessionManager:
         # H3: Langfuse observability
         self._langfuse_trace_ctx = None
         self._langfuse_trace = None
+        # Cache: knowledge briefs don't change between agent spawns
+        self._knowledge_brief_cache: dict[str, str] = {}
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to dashboard."""
@@ -347,34 +352,46 @@ class AgentSessionManager:
             self._langfuse_trace = self._langfuse_trace_ctx.__enter__()
 
         await self._emit("system", "OR",
-            "Multi-agent mode activated. Starting Strategy Agent (ST)...",
+            "Multi-agent mode activated. Preparing Strategy Agent (ST)...",
             {"mode": "multi-agent", "engagement_id": self.engagement_id})
 
-        # H1: Query Graphiti for relevant past experience
-        graphiti_context = ""
-        from graphiti_integration import is_enabled as graphiti_enabled
-        if graphiti_enabled():
+        # H1: Query Graphiti for relevant past experience (runs in parallel
+        # with early spawn prep inside _spawn_agent via asyncio.gather)
+        async def _fetch_graphiti_context() -> str:
+            from graphiti_integration import is_enabled as graphiti_enabled
+            if not graphiti_enabled():
+                return ""
             from graphiti_integration import search_memory
             target = self.target or ""
-            if target:
-                try:
-                    past_facts = await search_memory(
-                        query=f"penetration test {target} vulnerabilities exploits",
-                        include_global=True, num_results=5,
-                    )
-                    if past_facts:
-                        graphiti_context = "\n\n## Past Engagement Intelligence (from Graphiti memory)\n"
-                        graphiti_context += "The following facts were learned from previous engagements:\n"
-                        for fact in past_facts:
-                            graphiti_context += f"- {fact['fact']} (source: {fact['source_name']} -> {fact['target_name']})\n"
-                        graphiti_context += "\nUse these insights to inform your strategy.\n"
-                except Exception as e:
-                    logger.warning(f"Graphiti context query failed: {e}")
+            if not target:
+                return ""
+            try:
+                past_facts = await search_memory(
+                    query=f"penetration test {target} vulnerabilities exploits",
+                    include_global=True, num_results=5,
+                )
+                if past_facts:
+                    ctx = "\n\n## Past Engagement Intelligence (from Graphiti memory)\n"
+                    ctx += "The following facts were learned from previous engagements:\n"
+                    for fact in past_facts:
+                        ctx += f"- {fact['fact']} (source: {fact['source_name']} -> {fact['target_name']})\n"
+                    ctx += "\nUse these insights to inform your strategy.\n"
+                    return ctx
+            except Exception as e:
+                logger.warning(f"Graphiti context query failed: {e}")
+            return ""
 
+        graphiti_context = await _fetch_graphiti_context()
         st_context = initial_st_context + graphiti_context
 
         # Start ST first — it's the coordinator
         await self._spawn_agent("ST", task_prompt=st_context)
+
+        # Notify user that ST is planning (takes ~30-60s)
+        await self._emit("system", "ST",
+            "Strategy Agent is analyzing the target and planning the engagement. "
+            "This typically takes 30-60 seconds — sit back while ST builds the attack plan.",
+            {"phase": "planning"})
 
         # Start the manager loop that processes agent requests
         self._manager_task = asyncio.create_task(self._manager_loop())
@@ -700,7 +717,8 @@ class AgentSessionManager:
                         if old_st:
                             old_st_cost = old_st._total_cost_usd
                             if old_st_cost > 0:
-                                self.total_cost_usd += old_st_cost
+                                async with self._cost_lock:  # HIGH-3: lock cost mutation
+                                    self.total_cost_usd += old_st_cost
                                 logger.info(
                                     "Preserved old ST cost $%.4f before re-spawn",
                                     old_st_cost)
@@ -719,14 +737,18 @@ class AgentSessionManager:
 
         completed = []
         for code, task in list(self._agent_tasks.items()):
+            if not isinstance(task, asyncio.Task):  # CRIT-2: guard against None tasks
+                completed.append(code)
+                continue
             if task.done():
                 completed.append(code)
-                # Aggregate cost from completed agent
+                # Aggregate cost from completed agent (HIGH-3: under lock)
                 session = self.agents.get(code)
                 if session and code not in self._cost_aggregated:
-                    self.total_cost_usd += session._total_cost_usd
-                    self.total_tool_calls += session._tool_count
-                    self._cost_aggregated.add(code)
+                    async with self._cost_lock:
+                        self.total_cost_usd += session._total_cost_usd
+                        self.total_tool_calls += session._tool_count
+                        self._cost_aggregated.add(code)
 
                 # Check for errors
                 exc = task.exception() if not task.cancelled() else None
@@ -879,30 +901,30 @@ class AgentSessionManager:
 
         role = get_role(code)
 
-        # Build context from Neo4j for this agent
-        prior_context = await self._build_context_from_neo4j(code)
+        # ── Parallel pre-spawn: run all independent setup concurrently ──
+        # Neo4j context, pending messages, experience brief, and workspace
+        # creation are all independent — run them with asyncio.gather()
+        # instead of sequentially (~3-4s savings).
+        neo4j_ctx_task = asyncio.ensure_future(self._build_context_from_neo4j(code))
+        pending_msgs_task = asyncio.ensure_future(self._get_pending_messages(code))
+        experience_task = asyncio.ensure_future(self._fetch_experience_brief(code))
+        workspace_task = asyncio.get_running_loop().run_in_executor(  # HIGH-1: fix deprecated get_event_loop()
+            None, self._workspace_manager.create_agent_workspace, code)
 
-        # F2: Inject pending bilateral messages addressed to this agent
-        pending_msgs = await self._get_pending_messages(code)
+        # Knowledge brief is sync disk I/O — use cached version or run in executor
+        knowledge_brief = self._build_knowledge_brief(role)
+
+        # Await all parallel tasks
+        prior_context, pending_msgs, experience_brief, agent_cwd = await asyncio.gather(
+            neo4j_ctx_task, pending_msgs_task, experience_task, workspace_task)
+
+        # Assemble context from parallel results
         if pending_msgs:
             prior_context = f"PENDING MESSAGES FOR YOU:\n{pending_msgs}\n\n{prior_context}"
 
         # If ST provided specific task instructions, prepend them
         if task_prompt:
             prior_context = f"TASK FROM STRATEGY AGENT:\n{task_prompt}\n\n{prior_context}"
-
-        # ── Knowledge Brief Injection (CEI Layer 2) ──
-        # Read playbook summaries from disk and inject directly into
-        # agent context. This GUARANTEES agents have the knowledge —
-        # they can't forget to read what's already in their prompt.
-        knowledge_brief = self._build_knowledge_brief(role)
-
-        # CEI-3: Fetch experience from past engagements
-        experience_brief = await self._fetch_experience_brief(code)
-
-        # Phase G: Create isolated workspace for worker agents
-        # ST and RP stay in main ATHENA root, workers get per-agent dirs
-        agent_cwd = self._workspace_manager.create_agent_workspace(code)
 
         # Create role-configured session with per-agent workspace
         session = AthenaAgentSession.create_for_role(
@@ -985,8 +1007,10 @@ class AgentSessionManager:
         session = self.agents.get(code)
         if session and session.is_running:
             await session.stop()
-            await self._emit("agent_status", code, "idle",
-                {"status": "idle"})
+        # BUG-018: Always emit idle status, even if session already finished.
+        # Previously skipped when is_running was False, leaving VF chip stuck.
+        await self._emit("agent_status", code, "idle",
+            {"status": "idle"})
 
         task = self._agent_tasks.pop(code, None)
         if task and not task.done():
@@ -1006,9 +1030,14 @@ class AgentSessionManager:
         This is injected directly into the agent's system prompt —
         the agent literally can't miss it.
 
+        Results are cached per role code since playbooks don't change
+        between agent spawns within the same engagement.
+
         Returns:
             Condensed knowledge brief string, or empty string if no playbooks.
         """
+        if role.code in self._knowledge_brief_cache:
+            return self._knowledge_brief_cache[role.code]
         if not role.playbooks:
             return ""
 
@@ -1034,9 +1063,12 @@ class AgentSessionManager:
                 logger.warning("Failed to read playbook %s: %s", pb_path, e)
 
         if not brief_parts:
+            self._knowledge_brief_cache[role.code] = ""
             return ""
 
-        return "\n".join(brief_parts)
+        result = "\n".join(brief_parts)
+        self._knowledge_brief_cache[role.code] = result
+        return result
 
     async def _fetch_experience_brief(self, agent_code: str) -> str:
         """CEI-3: Fetch experience brief from past engagements via API.
@@ -1079,14 +1111,10 @@ class AgentSessionManager:
         except ImportError:
             return "Neo4j not available. Check engagement state via dashboard API."
 
-        # Import neo4j_driver from server module (it's initialized there)
-        try:
-            import server
-            driver = getattr(server, "neo4j_driver", None)
-            if not driver:
-                return "Neo4j driver not initialized."
-        except Exception:
-            return "Could not access Neo4j driver."
+        # MED-3 fix: Use injected driver instead of circular import
+        driver = self._neo4j_driver
+        if not driver:
+            return "Neo4j driver not initialized."
 
         eid = self.engagement_id
         code = agent_code

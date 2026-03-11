@@ -17,6 +17,8 @@ services:
       SALT: ${LANGFUSE_SALT}
       # ClickHouse
       CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://default:${LANGFUSE_CH_PASSWORD}@langfuse-clickhouse:9000/default
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ${LANGFUSE_CH_PASSWORD}
       # Redis
@@ -65,6 +67,8 @@ services:
       DATABASE_URL: postgresql://langfuse:${LANGFUSE_PG_PASSWORD}@langfuse-postgres:5432/langfuse
       # ClickHouse
       CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://default:${LANGFUSE_CH_PASSWORD}@langfuse-clickhouse:9000/default
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ${LANGFUSE_CH_PASSWORD}
       # Redis
@@ -102,6 +106,10 @@ services:
     image: clickhouse/clickhouse-server:24-alpine
     container_name: athena-langfuse-clickhouse
     restart: unless-stopped
+    cap_add:
+      - SYS_NICE
+      - NET_ADMIN
+      - IPC_LOCK
     environment:
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ${LANGFUSE_CH_PASSWORD}
@@ -112,7 +120,7 @@ services:
         soft: 262144
         hard: 262144
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
       interval: 10s
       timeout: 5s
       retries: 5
