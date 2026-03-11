@@ -10288,6 +10288,70 @@ async def request_agent_spawn(payload: AgentRequestPayload):
     }
 
 
+
+
+# ── Real-Time Bus REST API ──────────────────────
+
+@app.post("/api/bus/publish")
+async def bus_publish(request: Request):
+    """Agent publishes a finding to the message bus."""
+    global _active_session_manager
+    if not _active_session_manager:
+        return JSONResponse({"error": "No active engagement"}, 400)
+
+    body = await request.json()
+    from message_bus import BusMessage
+    msg = BusMessage(
+        from_agent=body.get("agent", "unknown"),
+        to=body.get("to", "ALL"),
+        bus_type=body.get("type", "finding"),
+        priority=body.get("priority", "medium"),
+        summary=body.get("summary", ""),
+        target=body.get("target"),
+        data=body.get("data", {}),
+        action_needed=body.get("action_needed"),
+    )
+    if msg.to == "ALL":
+        await _active_session_manager.bus.broadcast(msg)
+    else:
+        await _active_session_manager.bus.send(msg)
+    return {"ok": True, "message_id": msg.id}
+
+
+@app.post("/api/bus/directive")
+async def bus_directive(request: Request):
+    """ST sends a strategic directive via the bus."""
+    global _active_session_manager
+    if not _active_session_manager:
+        return JSONResponse({"error": "No active engagement"}, 400)
+
+    body = await request.json()
+    from message_bus import BusMessage
+    msg = BusMessage(
+        from_agent=body.get("agent", "ST"),
+        to=body.get("to", "ALL"),
+        bus_type="directive",
+        priority=body.get("priority", "normal"),
+        summary=body.get("directive", ""),
+        action_needed=body.get("directive", ""),
+    )
+    if msg.to == "ALL":
+        await _active_session_manager.bus.broadcast(msg)
+    else:
+        await _active_session_manager.bus.send(msg)
+    return {"ok": True, "message_id": msg.id}
+
+
+@app.get("/api/bus/history")
+async def bus_history(limit: int = 50):
+    """Get recent bus message history."""
+    global _active_session_manager
+    if not _active_session_manager:
+        return {"messages": []}
+    msgs = _active_session_manager.bus.get_history(limit=limit)
+    return {"messages": [m.to_dict() for m in msgs]}
+
+
 @app.get("/api/agents/status")
 async def get_agent_statuses():
     """Get status of all active agents in the multi-agent session."""

@@ -32,6 +32,7 @@ import httpx
 
 from langfuse_integration import trace_agent_run, is_enabled as langfuse_enabled
 from graphiti_integration import ingest_episode, is_enabled as graphiti_enabled
+from message_bus import extract_findings, format_intel_update
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -391,6 +392,9 @@ class AthenaAgentSession:
         # BUG-013: In multi-agent mode, suppress per-agent engagement_ended
         # emission — the manager emits the authoritative engagement_ended event.
         self._suppress_engagement_ended = False
+        # Real-time bus: set via create_for_role() when MessageBus is available
+        self._bus = None
+        self._pending_injection: str = ""
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to the dashboard.
@@ -416,6 +420,7 @@ class AthenaAgentSession:
         backend: str = "external",
         athena_root: str | Path = "",
         prior_context: str = "",
+        bus=None,
     ) -> "AthenaAgentSession":
         """Create a session configured for a specific agent role.
 
@@ -429,6 +434,7 @@ class AthenaAgentSession:
             backend: Kali backend name ("external" or "internal")
             athena_root: Path to ATHENA project root
             prior_context: Findings/context from prior phases (injected into prompt)
+            bus: Optional MessageBus for real-time inter-agent communication
 
         Returns:
             Configured AthenaAgentSession ready for start()
@@ -436,6 +442,7 @@ class AthenaAgentSession:
         session = cls(engagement_id, target, backend, athena_root)
         session._role_config = role
         session._role_prior_context = prior_context
+        session._bus = bus
         # Set the current agent code so events are attributed correctly
         session._current_agent = role.code
         logger.info("Agent %s workspace: %s (model=%s, budget=$%.2f)",
@@ -1098,6 +1105,27 @@ class AthenaAgentSession:
                 except Exception:
                     pass
 
+    def _build_next_prompt(self, base_prompt: str) -> str:
+        """Prepend any pending bus intel injection to the base prompt.
+
+        Clears _pending_injection after consuming it so each injection
+        is only delivered once.
+        """
+        if not self._pending_injection:
+            return base_prompt
+        combined = f"{self._pending_injection}\n\n{base_prompt}"
+        self._pending_injection = ""
+        return combined
+
+    async def _drain_bus_inbox(self):
+        """Drain the message bus and format pending intel for injection."""
+        if not self._bus:
+            return
+        agent_code = self._role_config.code if self._role_config else self._current_agent
+        messages = await self._bus.drain(agent_code)
+        if messages:
+            self._pending_injection = format_intel_update(messages, agent_code)
+
     async def _engagement_loop(self, initial_prompt: str):
         """Main engagement loop: chunked query execution with operator command injection.
 
@@ -1119,6 +1147,9 @@ class AthenaAgentSession:
 
                 # Run a bounded query chunk (max_turns limits duration)
                 await self._run_query(prompt, resume_id)
+
+                # Real-time bus: drain inbox after each query chunk
+                await self._drain_bus_inbox()
 
                 if not self.is_running or self.is_paused or self._budget_exhausted:
                     break
@@ -1143,7 +1174,7 @@ class AthenaAgentSession:
                             self._command_queue.get(), timeout=idle_timeout)
                         await self._emit("system", "OR",
                             f"Processing operator command: {_clean_cmd_display(cmd)}")
-                        prompt = cmd
+                        prompt = self._build_next_prompt(cmd)
                     except asyncio.TimeoutError:
                         await self._emit("system", "OR",
                             f"No operator commands for {int(idle_timeout)} seconds. Ending session.")
@@ -1156,11 +1187,12 @@ class AthenaAgentSession:
                         # Operator command takes priority over auto-continue
                         await self._emit("system", "OR",
                             f"Processing operator command: {_clean_cmd_display(cmd)}")
-                        prompt = cmd
+                        prompt = self._build_next_prompt(cmd)
                     except asyncio.TimeoutError:
                         # No commands — auto-continue the engagement
                         if resume_id:
-                            prompt = "Continue with the next step of the penetration test."
+                            prompt = self._build_next_prompt(
+                                "Continue with the next step of the penetration test.")
                         else:
                             break
 
@@ -1298,6 +1330,9 @@ class AthenaAgentSession:
 
                 await self._run_query(prompt, resume_id)
 
+                # Real-time bus: drain inbox after each query chunk
+                await self._drain_bus_inbox()
+
                 if not self.is_running or self.is_paused or self._budget_exhausted:
                     break
 
@@ -1316,7 +1351,7 @@ class AthenaAgentSession:
                             self._command_queue.get(), timeout=idle_timeout)
                         await self._emit("system", "OR",
                             f"Processing operator command: {_clean_cmd_display(cmd)}")
-                        prompt = cmd
+                        prompt = self._build_next_prompt(cmd)
                     except asyncio.TimeoutError:
                         await self._emit("system", "OR",
                             f"No operator commands for {int(idle_timeout)} seconds. Ending session.")
@@ -1327,10 +1362,11 @@ class AthenaAgentSession:
                             self._command_queue.get(), timeout=0.2)
                         await self._emit("system", "OR",
                             f"Processing operator command: {_clean_cmd_display(cmd)}")
-                        prompt = cmd
+                        prompt = self._build_next_prompt(cmd)
                     except asyncio.TimeoutError:
                         if resume_id:
-                            prompt = "Continue with the next step of the penetration test."
+                            prompt = self._build_next_prompt(
+                                "Continue with the next step of the penetration test.")
                         else:
                             break
 
@@ -1502,6 +1538,21 @@ class AthenaAgentSession:
                             content=output[:4000],
                             source_description=f"Tool output from {self._current_agent}",
                         ))
+                    # Real-time bus: extract findings from tool output and broadcast
+                    if self._bus and output and len(output) > 20:
+                        findings = extract_findings(
+                            self._current_agent, tool_name, output)
+                        for finding in findings:
+                            await self._bus.broadcast(finding)
+                            # Bridge high/critical to bilateral for dashboard arrows
+                            if finding.priority in ("high", "critical"):
+                                await self.send_bilateral_message(
+                                    from_agent=finding.from_agent,
+                                    to_agent="ST",
+                                    msg_type="discovery",
+                                    content=finding.summary[:500],
+                                    priority=finding.priority,
+                                )
         elif msg.tool_use_result:
             raw = msg.tool_use_result.get("content", "")
             output = _extract_tool_output(raw)
@@ -1531,3 +1582,17 @@ class AthenaAgentSession:
                     content=output[:4000],
                     source_description=f"Tool output from {self._current_agent}",
                 ))
+            # Real-time bus: extract findings from tool output and broadcast
+            if self._bus and output and len(output) > 20:
+                findings = extract_findings(
+                    self._current_agent, tool_name, output)
+                for finding in findings:
+                    await self._bus.broadcast(finding)
+                    if finding.priority in ("high", "critical"):
+                        await self.send_bilateral_message(
+                            from_agent=finding.from_agent,
+                            to_agent="ST",
+                            msg_type="discovery",
+                            content=finding.summary[:500],
+                            priority=finding.priority,
+                        )

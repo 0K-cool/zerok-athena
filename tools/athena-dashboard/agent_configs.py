@@ -129,6 +129,76 @@ def _kali_tools(backend: str = "external") -> tuple[str, ...]:
 # ──────────────────────────────────────────────
 
 # ──────────────────────────────────────────────
+# Real-Time Intelligence Prompt Blocks
+# ──────────────────────────────────────────────
+
+_REALTIME_INTEL_WORKER = """
+## Real-Time Intelligence
+
+You are part of a coordinated multi-agent team. Share discoveries IMMEDIATELY:
+
+**To publish a finding to ALL agents:**
+```bash
+curl -s -X POST http://localhost:8080/api/bus/publish \\
+  -H "Content-Type: application/json" \\
+  -d '{"agent": "{AGENT_CODE}", "summary": "WHAT YOU FOUND", "priority": "high", "target": "IP:PORT", "type": "finding"}'
+```
+
+Priority levels: low, medium, high, critical
+Types: finding, request, escalation
+
+**Publish IMMEDIATELY when you find:**
+- Open ports, services, or version info
+- Vulnerabilities or CVE matches
+- Valid credentials
+- Successful exploits
+- New networks or hosts
+
+**Intel from other agents is injected between your work cycles. Read it. Act on it.**
+
+### How to use incoming intel:
+- Service version found by another agent → check for known CVEs before scanning
+- Credentials shared → try them on your target services
+- Directive from ST → reprioritize immediately
+- Exploit succeeded → note for reports, avoid redundant work
+
+### When to escalate to ST:
+- Scope boundary reached (new subnet, out-of-scope host)
+- Critical finding (shell, domain admin, data breach)
+- Stuck or blocked (need different approach)
+"""
+
+_REALTIME_INTEL_ST = """
+## Real-Time Command
+
+You command a team of agents who share intel in real-time.
+
+**To send a strategic directive to ALL agents:**
+```bash
+curl -s -X POST http://localhost:8080/api/bus/directive \\
+  -H "Content-Type: application/json" \\
+  -d '{"agent": "ST", "directive": "YOUR ORDER HERE", "priority": "urgent"}'
+```
+
+**To send to a specific agent:**
+```bash
+curl -s -X POST http://localhost:8080/api/bus/directive \\
+  -H "Content-Type: application/json" \\
+  -d '{"agent": "ST", "directive": "YOUR ORDER", "priority": "urgent", "to": "EX"}'
+```
+
+Priority: normal (when convenient), urgent (pivot now), critical (stop everything)
+
+### Your role:
+- Monitor incoming intel for strategic opportunities (pivots, credential reuse, lateral movement)
+- Issue directives when the situation changes
+- Don't micromanage — workers handle tactics autonomously
+- Escalations from workers require your decision
+
+**Intel from agents is injected between your work cycles. Act on it.**
+"""
+
+# ──────────────────────────────────────────────
 # Novel technique / tool protocol (shared across worker agents)
 # ──────────────────────────────────────────────
 
@@ -979,6 +1049,21 @@ WORKFLOW:
 
 
 # ──────────────────────────────────────────────
+# Append real-time intel prompts to each agent
+# ──────────────────────────────────────────────
+
+_ST_PROMPT = _ST_PROMPT + _REALTIME_INTEL_ST
+_AR_PROMPT = _AR_PROMPT + _REALTIME_INTEL_WORKER
+_WV_PROMPT = _WV_PROMPT + _REALTIME_INTEL_WORKER
+_EX_PROMPT = _EX_PROMPT + _REALTIME_INTEL_WORKER
+_PR_PROMPT = _PR_PROMPT + _REALTIME_INTEL_WORKER
+_PE_PROMPT = _PE_PROMPT + _REALTIME_INTEL_WORKER
+_VF_PROMPT = _VF_PROMPT + _REALTIME_INTEL_WORKER
+_DA_PROMPT = _DA_PROMPT + _REALTIME_INTEL_WORKER
+_PX_PROMPT = _PX_PROMPT + _REALTIME_INTEL_WORKER
+_RP_PROMPT = _RP_PROMPT + _REALTIME_INTEL_WORKER
+
+# ──────────────────────────────────────────────
 # F1a MVP: Agent role registry
 # ──────────────────────────────────────────────
 
@@ -1260,4 +1345,7 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
             autonomy_section += _EX_HITL_BYPASS_CTF
     # RP gets nothing (reporter, no tools)
 
-    return formatted + kb_section + autonomy_section
+    prompt = formatted + kb_section + autonomy_section
+    # Replace {AGENT_CODE} with actual agent code for bus curl commands
+    prompt = prompt.replace("{AGENT_CODE}", role.code)
+    return prompt

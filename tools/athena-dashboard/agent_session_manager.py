@@ -46,6 +46,7 @@ from typing import Any, Callable, Optional
 
 from agent_configs import AGENT_ROLES, AgentRoleConfig, format_prompt, get_role
 from langfuse_integration import trace_engagement, is_enabled as langfuse_enabled
+from message_bus import MessageBus
 from sdk_agent import AthenaAgentSession
 
 logger = logging.getLogger("athena.session_manager")
@@ -285,6 +286,8 @@ class AgentSessionManager:
         mode: str = "multi-agent",
         time_limit_minutes: int = 0,
         neo4j_driver: Any = None,  # MED-3: pass driver instead of circular import
+        graphiti_client: Any = None,
+        langfuse_client: Any = None,
     ):
         self.engagement_id = engagement_id
         self.target = target
@@ -325,6 +328,11 @@ class AgentSessionManager:
         self._st_spawning: bool = False
         # Phase G: Per-agent workspace isolation
         self._workspace_manager = WorkspaceManager(engagement_id, self.athena_root)
+        # Real-time message bus for inter-agent communication
+        self.bus = MessageBus(engagement_id=engagement_id)
+        # External integration clients (passed in for bus callbacks)
+        self._graphiti_client = graphiti_client
+        self._langfuse_client = langfuse_client
         # H3: Langfuse observability
         self._langfuse_trace_ctx = None
         self._langfuse_trace = None
@@ -335,8 +343,58 @@ class AgentSessionManager:
         self._heartbeat_interval: float = 60.0  # seconds between heartbeats
 
     def set_event_callback(self, callback: Callable):
-        """Set async callback for streaming events to dashboard."""
+        """Set async callback for streaming events to dashboard.
+
+        Also wires bus callbacks for WebSocket forwarding, Graphiti
+        ingestion, and Langfuse tracing.
+        """
         self._event_callback = callback
+
+        # Wire bus → WebSocket: emit agent_intel events to dashboard
+        async def _bus_to_ws(msg):
+            await self._emit("agent_intel", msg.from_agent, msg.summary, {
+                "type": "agent_intel",
+                "agent": msg.from_agent,
+                "content": msg.summary,
+                "metadata": msg.to_dict(),
+            })
+        self.bus.on_message(_bus_to_ws)
+
+        # Wire bus → Graphiti: persist findings as episodes
+        if self._graphiti_client:
+            gc = self._graphiti_client
+
+            async def _bus_to_graphiti(msg):
+                try:
+                    from graphiti_integration import ingest_episode, is_enabled as graphiti_enabled
+                    if graphiti_enabled():
+                        await ingest_episode(
+                            engagement_id=self.engagement_id,
+                            name=f"bus_{msg.from_agent}_{msg.id[:8]}",
+                            content=f"[{msg.priority.upper()}] {msg.summary}",
+                            source_description=f"Bus message from {msg.from_agent}",
+                        )
+                except Exception as e:
+                    logger.warning("Bus→Graphiti failed: %s", e)
+            self.bus.on_message(_bus_to_graphiti)
+
+        # Wire bus → Langfuse: trace bus messages as spans
+        if self._langfuse_client:
+            lc = self._langfuse_client
+
+            async def _bus_to_langfuse(msg):
+                try:
+                    if hasattr(lc, 'span'):
+                        lc.span(
+                            name=f"bus_{msg.bus_type}",
+                            input={"from": msg.from_agent, "to": msg.to,
+                                   "priority": msg.priority},
+                            output={"summary": msg.summary},
+                            metadata=msg.to_dict(),
+                        )
+                except Exception as e:
+                    logger.warning("Bus→Langfuse failed: %s", e)
+            self.bus.on_message(_bus_to_langfuse)
 
     # ── Public API ─────────────────────────────
 
@@ -416,6 +474,10 @@ class AgentSessionManager:
                 await self._manager_task
             except (asyncio.CancelledError, RuntimeError):
                 pass
+
+        # Unregister all agents from the bus before stopping sessions
+        for code in list(self.agents.keys()):
+            self.bus.unregister(code)
 
         # Stop all active agent sessions
         stop_tasks = []
@@ -739,6 +801,7 @@ class AgentSessionManager:
                         )
                     finally:
                         self._st_spawning = False
+            self.bus.unregister(code)
             self._early_stop_queue.discard(code)
 
         completed = []
@@ -828,8 +891,9 @@ class AgentSessionManager:
                         finally:
                             self._st_spawning = False
 
-        # Clean up completed tasks
+        # Clean up completed tasks and unregister from bus
         for code in completed:
+            self.bus.unregister(code)
             del self._agent_tasks[code]
 
         # Auto-spawn RP if it was blocked and all workers are now done
@@ -882,8 +946,21 @@ class AgentSessionManager:
             await self._maybe_send_heartbeat()
 
     async def _maybe_send_heartbeat(self):
-        """Send ST a status heartbeat if workers are active and interval elapsed."""
+        """Fallback keepalive: only fires when no bus traffic for 60s.
+
+        With the real-time MessageBus, agents receive intel updates at
+        chunk boundaries. This heartbeat is a safety net — it only sends
+        a status pulse to ST if no bus messages were delivered recently,
+        preventing ST from timing out (300s idle) during quiet periods.
+        """
         now = time.time()
+
+        # Check for recent bus traffic — skip heartbeat if bus is active
+        recent_bus = self.bus.get_history(limit=1)
+        if recent_bus and (now - recent_bus[-1].timestamp) < self._heartbeat_interval:
+            self._last_heartbeat = now  # Reset timer, bus is keeping things alive
+            return
+
         if now - self._last_heartbeat < self._heartbeat_interval:
             return
 
@@ -910,7 +987,7 @@ class AgentSessionManager:
         await st.send_command(msg)
         self._last_heartbeat = now
 
-        logger.info("Heartbeat sent to ST: %d active workers, %d scans",
+        logger.info("Heartbeat (fallback keepalive) sent to ST: %d active workers, %d scans",
                      len(active_workers),
                      len(self.dashboard_state.scans) if self.dashboard_state else 0)
 
@@ -1039,7 +1116,7 @@ class AgentSessionManager:
         if task_prompt:
             prior_context = f"TASK FROM STRATEGY AGENT:\n{task_prompt}\n\n{prior_context}"
 
-        # Create role-configured session with per-agent workspace
+        # Create role-configured session with per-agent workspace + bus
         session = AthenaAgentSession.create_for_role(
             role=role,
             engagement_id=self.engagement_id,
@@ -1047,7 +1124,9 @@ class AgentSessionManager:
             backend=self.backend,
             athena_root=str(agent_cwd),
             prior_context=prior_context,
+            bus=self.bus,
         )
+        self.bus.register(role.code)
 
         # Wire event callback (same pipeline as single-agent mode)
         if self._event_callback:
