@@ -1594,6 +1594,7 @@
       display: flex;
       height: 140px;
       gap: 0;
+      position: relative;
     }
 
     .bar-chart-yaxis {
@@ -4552,7 +4553,7 @@
       border-left: 3px solid color-mix(in srgb, var(--zerok-primary) 60%, transparent);
       border-radius: 0 8px 8px 0;
       margin: 4px 0;
-      overflow: hidden;
+      overflow: clip; /* clip instead of hidden — respects border-radius but doesn't create scroll container */
       flex-shrink: 0;
       min-width: 0;
       max-width: 100%;
@@ -4577,7 +4578,7 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 12px 10px 7px; /* 7px left + 3px card border = 10px, aligned with event icons */
+      padding: 10px 14px 10px 7px; /* 7px left + 3px card border = 10px; 14px right gives chevron breathing room */
       cursor: pointer;
       user-select: none;
       transition: background 0.15s;
@@ -6252,9 +6253,9 @@
             <div class="widget-header">
               <span class="widget-title">Findings by Severity</span>
             </div>
-            <div class="widget-body" id="severity-chart-body">
-              <div id="severity-empty-state" style="text-align:center;padding:20px;color:var(--zerok-text-dim);font-size:12px;">No findings yet</div>
-              <div class="bar-chart-wrapper" id="severity-chart-wrapper" style="display:none">
+            <div class="widget-body" id="severity-chart-body" style="display:grid">
+              <div id="severity-empty-state" style="grid-area:1/1;display:flex;align-items:center;justify-content:center;color:var(--zerok-text-dim);font-size:12px;z-index:2;pointer-events:none;">No findings yet</div>
+              <div class="bar-chart-wrapper" id="severity-chart-wrapper" style="grid-area:1/1">
                 <div class="bar-chart-yaxis" id="severity-yaxis">
                   <span></span>
                   <span></span>
@@ -9467,7 +9468,11 @@
       if (msg.type === 'tool_start' && msg.metadata && msg.metadata.tool) {
         contentHtml = '<span class="timeline-tool-badge">' + escHtml(msg.metadata.tool) + '</span> ' + renderMarkdown(msg.content);
       } else if (msg.type === 'finding') {
-        contentHtml = '<strong style="color:var(--zerok-critical)">' + escHtml(msg.severity || '').toUpperCase() + '</strong> ' + escHtml(msg.title || msg.content);
+        const confidence = (msg.metadata && msg.metadata.data && msg.metadata.data.confidence) || (msg.data && msg.data.confidence) || (msg.confidence) || 'high';
+        const isUnvalidated = confidence === 'low';
+        const sevColor = isUnvalidated ? 'var(--zerok-text-dim)' : 'var(--zerok-critical)';
+        const badge = isUnvalidated ? ' <span style="background:rgba(100,100,100,0.3);color:var(--zerok-text-dim);padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;margin-left:4px">UNVALIDATED</span>' : '';
+        contentHtml = '<strong style="color:' + sevColor + '">' + escHtml(msg.severity || '').toUpperCase() + '</strong>' + badge + ' ' + escHtml(msg.title || msg.content);
       } else if (msg.type === 'approval_request') {
         contentHtml = '<strong style="color:var(--zerok-medium)">HITL:</strong> ' + escHtml(msg.action || msg.content);
       } else if (msg.type === 'approval_resolved') {
@@ -9484,6 +9489,11 @@
       if (isReplay) el.style.animation = 'none';
       if (activeChipFilter && msg.agent !== activeChipFilter) {
         el.classList.add('filtered-out');
+      }
+      // Dim LOW confidence (unvalidated) findings
+      if (msg.type === 'finding') {
+        const conf = (msg.metadata && msg.metadata.data && msg.metadata.data.confidence) || (msg.data && msg.data.confidence) || (msg.confidence) || 'high';
+        if (conf === 'low') el.style.opacity = '0.5';
       }
       el.innerHTML =
         '<div class="timeline-icon ' + info.cls + '">' + info.icon + '</div>' +
@@ -10149,16 +10159,9 @@
         if (bar) bar.style.height = (count > 0 ? Math.max(4, (count / maxVal) * 90) : 0) + 'px';
       });
 
-      // BUG-012: Show/hide empty state and chart wrapper
+      // BUG-012: Show/hide empty state text (chart skeleton always visible for grid lines)
       const emptyEl = document.getElementById('severity-empty-state');
-      const wrapperEl = document.getElementById('severity-chart-wrapper');
-      if (total === 0) {
-        if (emptyEl) emptyEl.style.display = '';
-        if (wrapperEl) wrapperEl.style.display = 'none';
-      } else {
-        if (emptyEl) emptyEl.style.display = 'none';
-        if (wrapperEl) wrapperEl.style.display = '';
-      }
+      if (emptyEl) emptyEl.style.display = total === 0 ? '' : 'none';
       // Legacy cleanup
       const oldEmpty = document.getElementById('severity-empty');
       if (oldEmpty) oldEmpty.remove();

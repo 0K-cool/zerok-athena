@@ -3665,23 +3665,17 @@ async def get_engagement_budget(engagement_id: str = ""):
     agent_sum = sum(b.get("actual_cost", 0.0) for b in active.values())
     total_cost = max(_engagement_cost, agent_sum)
     # Restore from Neo4j if in-memory is zero (server restart scenario)
-    if total_cost == 0 and neo4j_available and neo4j_driver:
+    # BUG-028: Only restore cost for the SPECIFIC engagement requested.
+    # Previous fallback query grabbed the highest cost from ANY engagement,
+    # causing deleted engagements' costs to "leak" into new sessions.
+    if total_cost == 0 and engagement_id and neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
-                # Try engagement-specific cost first
-                eid = engagement_id
                 rec = session.run(
                     "MATCH (e:Engagement {id: $eid}) WHERE e.engagement_cost IS NOT NULL "
                     "RETURN e.engagement_cost AS cost",
-                    eid=eid,
+                    eid=engagement_id,
                 ).single()
-                if not rec:
-                    # Fallback: latest engagement with cost
-                    rec = session.run(
-                        "MATCH (e:Engagement) WHERE e.engagement_cost IS NOT NULL "
-                        "RETURN e.engagement_cost AS cost "
-                        "ORDER BY e.engagement_cost DESC LIMIT 1"
-                    ).single()
                 if rec and rec["cost"]:
                     total_cost = float(rec["cost"])
                     _engagement_cost = total_cost
@@ -10294,28 +10288,43 @@ async def request_agent_spawn(payload: AgentRequestPayload):
 
 @app.post("/api/bus/publish")
 async def bus_publish(request: Request):
-    """Agent publishes a finding to the message bus."""
+    """Agent publishes a finding to the message bus.
+
+    Accepts structured Finding schema from agent self-reports.
+    Validates via finding_pipeline.validate_finding() and assigns
+    confidence HIGH (agent self-reports are trusted).
+    """
     global _active_session_manager
     if not _active_session_manager:
         return JSONResponse({"error": "No active engagement"}, 400)
 
     body = await request.json()
+    from finding_pipeline import validate_finding, BROADCAST_CONFIDENCES
     from message_bus import BusMessage
+
+    finding = validate_finding(body)
     msg = BusMessage(
         from_agent=body.get("agent", "unknown"),
         to=body.get("to", "ALL"),
-        bus_type=body.get("type", "finding"),
-        priority=body.get("priority", "medium"),
-        summary=body.get("summary", ""),
-        target=body.get("target"),
-        data=body.get("data", {}),
-        action_needed=body.get("action_needed"),
+        bus_type="finding",
+        priority=finding.severity,
+        summary=finding.summary,
+        target=finding.target,
+        data=finding.to_dict(),
+        action_needed=finding.action_needed,
     )
-    if msg.to == "ALL":
-        await _active_session_manager.bus.broadcast(msg)
+    if finding.confidence in BROADCAST_CONFIDENCES:
+        if msg.to == "ALL":
+            await _active_session_manager.bus.broadcast(msg)
+        else:
+            await _active_session_manager.bus.send(msg)
     else:
-        await _active_session_manager.bus.send(msg)
-    return {"ok": True, "message_id": msg.id}
+        # LOW confidence: dashboard callbacks only, no agent broadcast
+        bus = _active_session_manager.bus
+        bus._history.append(msg)
+        for cb in bus._callbacks:
+            asyncio.create_task(cb(msg))
+    return {"ok": True, "message_id": msg.id, "confidence": finding.confidence}
 
 
 @app.post("/api/bus/directive")

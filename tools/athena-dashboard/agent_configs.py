@@ -137,22 +137,22 @@ _REALTIME_INTEL_WORKER = """
 
 You are part of a coordinated multi-agent team. Share discoveries IMMEDIATELY:
 
-**To publish a finding to ALL agents:**
+MANDATORY: After every tool execution that reveals a security finding, you
+MUST publish it to the message bus. Do not assume the system detects findings
+automatically. Use the structured format:
+
 ```bash
 curl -s -X POST http://localhost:8080/api/bus/publish \\
   -H "Content-Type: application/json" \\
-  -d '{"agent": "{AGENT_CODE}", "summary": "WHAT YOU FOUND", "priority": "high", "target": "IP:PORT", "type": "finding"}'
+  -d '{{"agent": "{{AGENT_CODE}}", "finding_type": "open_port|cve|vulnerability|credential|shell|service|network", "confidence": "high", "summary": "WHAT YOU FOUND", "severity": "critical|high|medium|low", "target": "IP:PORT", "evidence": {{"tool": "TOOL_NAME", "command": "WHAT YOU RAN", "output": "KEY OUTPUT"}}, "action_needed": "NEXT STEP"}}'
 ```
 
-Priority levels: low, medium, high, critical
-Types: finding, request, escalation
-
 **Publish IMMEDIATELY when you find:**
-- Open ports, services, or version info
-- Vulnerabilities or CVE matches
-- Valid credentials
-- Successful exploits
-- New networks or hosts
+- Open ports, services, or version info (finding_type: open_port, service)
+- Vulnerabilities or CVE matches (finding_type: cve, vulnerability)
+- Valid credentials (finding_type: credential)
+- Successful exploits or shell access (finding_type: shell)
+- New networks or hosts (finding_type: network)
 
 **Intel from other agents is injected between your work cycles. Read it. Act on it.**
 
@@ -177,14 +177,14 @@ You command a team of agents who share intel in real-time.
 ```bash
 curl -s -X POST http://localhost:8080/api/bus/directive \\
   -H "Content-Type: application/json" \\
-  -d '{"agent": "ST", "directive": "YOUR ORDER HERE", "priority": "urgent"}'
+  -d '{{"agent": "ST", "directive": "YOUR ORDER HERE", "priority": "urgent"}}'
 ```
 
 **To send to a specific agent:**
 ```bash
 curl -s -X POST http://localhost:8080/api/bus/directive \\
   -H "Content-Type: application/json" \\
-  -d '{"agent": "ST", "directive": "YOUR ORDER", "priority": "urgent", "to": "EX"}'
+  -d '{{"agent": "ST", "directive": "YOUR ORDER", "priority": "urgent", "to": "EX"}}'
 ```
 
 Priority: normal (when convenient), urgent (pivot now), critical (stop everything)
