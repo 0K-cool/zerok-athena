@@ -50,6 +50,9 @@ from sdk_agent import AthenaAgentSession
 
 logger = logging.getLogger("athena.session_manager")
 
+# Derive agent display names from AGENT_ROLES (avoids circular import from server.py)
+AGENT_NAMES = {code: role.name for code, role in AGENT_ROLES.items()}
+
 
 # ── Phase G: Workspace Isolation ──────────────────────────────
 
@@ -327,6 +330,9 @@ class AgentSessionManager:
         self._langfuse_trace = None
         # Cache: knowledge briefs don't change between agent spawns
         self._knowledge_brief_cache: dict[str, str] = {}
+        # BUG-033: Heartbeat timer — send ST periodic status when workers are active
+        self._last_heartbeat: float = 0.0
+        self._heartbeat_interval: float = 60.0  # seconds between heartbeats
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to dashboard."""
@@ -868,6 +874,113 @@ class AgentSessionManager:
                 "Strategy Agent completed. Engagement finished.",
                 {"control": "engagement_ended"})
             self.is_running = False
+            return  # Don't send heartbeat if engagement is ending
+
+        # BUG-033: Send ST periodic heartbeat when workers are active.
+        # Prevents ST from timing out (300s idle) while scans are running.
+        if "ST" not in completed:
+            await self._maybe_send_heartbeat()
+
+    async def _maybe_send_heartbeat(self):
+        """Send ST a status heartbeat if workers are active and interval elapsed."""
+        now = time.time()
+        if now - self._last_heartbeat < self._heartbeat_interval:
+            return
+
+        # Find active workers (not ST, not completed)
+        active_workers = []
+        for code, task in self._agent_tasks.items():
+            if code == "ST":
+                continue
+            if isinstance(task, asyncio.Task) and not task.done():
+                session = self.agents.get(code)
+                tools = session._tool_count if session else 0
+                active_workers.append((code, tools))
+
+        if not active_workers:
+            return  # No workers running, no heartbeat needed
+
+        st = self.agents.get("ST")
+        st_task = self._agent_tasks.get("ST")
+        if not st or not (st.is_running or (st_task and not st_task.done())):
+            return  # ST isn't running
+
+        # Build heartbeat with worker status + scan health
+        msg = self._build_heartbeat_message(active_workers)
+        await st.send_command(msg)
+        self._last_heartbeat = now
+
+        logger.info("Heartbeat sent to ST: %d active workers, %d scans",
+                     len(active_workers),
+                     len(self.dashboard_state.scans) if self.dashboard_state else 0)
+
+    def _build_heartbeat_message(self, active_workers: list[tuple[str, int]]) -> str:
+        """Build a status heartbeat message for ST with worker + scan health."""
+        lines = ["── ENGAGEMENT STATUS UPDATE ──"]
+
+        # Worker status
+        worker_parts = []
+        for code, tools in active_workers:
+            name = AGENT_NAMES.get(code, code)
+            worker_parts.append(f"{code} ({name}): running, {tools} tool calls")
+        lines.append("ACTIVE WORKERS: " + "; ".join(worker_parts))
+
+        # Scan health from dashboard state
+        if self.dashboard_state and hasattr(self.dashboard_state, 'scans'):
+            running_scans = []
+            completed_scans = 0
+            stalled_scans = []
+            for scan in self.dashboard_state.scans:
+                status = scan.get("status", "")
+                tool = scan.get("tool", "unknown")
+                # Normalize tool name for display
+                short_tool = tool.split("__")[-1] if "__" in tool else tool
+                if status == "running":
+                    started = scan.get("started_at")
+                    elapsed = "?"
+                    if started:
+                        try:
+                            from datetime import datetime, timezone
+                            if isinstance(started, str):
+                                started_dt = datetime.fromisoformat(started)
+                                if started_dt.tzinfo is None:
+                                    started_dt = started_dt.replace(tzinfo=timezone.utc)
+                            else:
+                                started_dt = started
+                            elapsed_s = int((datetime.now(timezone.utc) - started_dt).total_seconds())
+                            mins, secs = divmod(elapsed_s, 60)
+                            elapsed = f"{mins}m{secs:02d}s" if mins else f"{secs}s"
+                            if elapsed_s >= 600:
+                                stalled_scans.append(f"{short_tool} ({elapsed} — POSSIBLY STALLED)")
+                        except Exception:
+                            pass
+                    running_scans.append(f"{short_tool} ({elapsed})")
+                elif status == "completed":
+                    completed_scans += 1
+                elif status == "stalled":
+                    stalled_scans.append(f"{short_tool} (STALLED)")
+
+            if running_scans:
+                lines.append(f"RUNNING SCANS: {', '.join(running_scans)}")
+            if completed_scans:
+                lines.append(f"COMPLETED SCANS: {completed_scans}")
+            if stalled_scans:
+                lines.append(f"⚠ STALLED SCANS: {', '.join(stalled_scans)}")
+                lines.append(
+                    "ACTION: Check if stalled scans need cancellation "
+                    "(POST /api/scans/{scan_id}/cancel) or re-dispatch."
+                )
+
+        # Finding count
+        if self.dashboard_state and hasattr(self.dashboard_state, 'findings'):
+            finding_count = len(self.dashboard_state.findings)
+            lines.append(f"FINDINGS REGISTERED: {finding_count}")
+
+        lines.append(
+            "Decide: wait for scans to complete, check scan health, "
+            "spawn additional agents, or take corrective action."
+        )
+        return "\n".join(lines)
 
     # ── Agent Spawning ─────────────────────────
 
