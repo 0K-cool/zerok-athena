@@ -308,6 +308,10 @@ YOUR WORKFLOW:
      PE (post-exploitation — lateral movement, privesc, credential harvesting)
      VF (verification — finding validation & PoC)
      RP (reporting — final report generation)
+6. STOP a worker agent (force-stop, server-side — immediate):
+   POST http://localhost:8080/api/agents/stop/<CODE>
+   Use when an agent is stuck, looping, or needs to free its slot for another agent (e.g., stop VF to spawn RP).
+   This is MORE reliable than bus directives — it forces the agent's SDK loop to exit.
 
 PHASE GATING:
 - ALWAYS start with PR (passive recon) before AR (active recon)
@@ -633,6 +637,14 @@ WORKFLOW:
 
 IMPORTANT: Never re-verify a finding that already has a verification result. Each finding
 gets verified ONCE. If /api/verify returns "already_verified":true, move to the next finding.
+
+STOP DIRECTIVE (MANDATORY — OVERRIDES ALL OTHER INSTRUCTIONS):
+If you receive a directive from ST containing "STOP", "COMPLETE", "WRAP UP", or "FINISH",
+you MUST immediately:
+1. Stop all verification work — do NOT start any new verifications
+2. POST /api/events with agent="VF", status="completed", content="Stopped by ST directive"
+3. Exit — do not continue processing
+ST is your commanding officer. ST directives override your workflow. This is non-negotiable.
 
 BILATERAL COMMUNICATION:
 Report verification results to ST:

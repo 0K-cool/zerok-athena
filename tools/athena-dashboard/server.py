@@ -10359,6 +10359,35 @@ async def _handle_multi_agent_operator_command(cmd_text: str):
         })
 
 
+# ── BUG-037 FIX: Agent Stop API ──────────────
+
+@app.post("/api/agents/stop/{agent_code}")
+async def stop_agent(agent_code: str):
+    """Force-stop a specific agent. Called by ST to stop VF or other workers.
+
+    This is the server-side force-stop mechanism — it signals early_stop on the
+    agent's session, which causes the SDK loop to exit after the current chunk.
+    More reliable than prompt-based directives since it doesn't depend on LLM compliance.
+    """
+    agent_code = agent_code.upper()
+    if agent_code == "ST":
+        return JSONResponse(status_code=400, content={"error": "Cannot stop ST — use engagement stop instead"})
+
+    if not _active_session_manager or not _active_session_manager.is_running:
+        return JSONResponse(status_code=400, content={"error": "No active session manager"})
+
+    _active_session_manager.signal_early_stop(agent_code)
+    await state.update_agent_status(agent_code, AgentStatus.IDLE)
+    await state.broadcast({
+        "type": "agent_status",
+        "agent": agent_code,
+        "status": "idle",
+        "content": f"{agent_code} stopped by directive",
+        "timestamp": time.time(),
+    })
+    return {"ok": True, "agent": agent_code, "message": f"{agent_code} stop signal sent"}
+
+
 # ── Phase F1a: Agent Request API ──────────────
 
 @app.post("/api/agents/request")
@@ -10475,6 +10504,18 @@ async def bus_directive(request: Request):
         await _active_session_manager.bus.broadcast(msg)
     else:
         await _active_session_manager.bus.send(msg)
+
+    # BUG-037 FIX: If ST sends a stop/complete directive to a specific agent,
+    # also signal early_stop server-side. This is more reliable than waiting
+    # for the agent to read and comply with the directive via prompt.
+    directive_text = (body.get("directive", "") or "").upper()
+    target_agent = (msg.to or "").upper()
+    if target_agent != "ALL" and target_agent != "ST" and any(
+        kw in directive_text for kw in ["STOP", "COMPLETE", "WRAP UP", "FINISH", "TERMINATE"]
+    ):
+        _active_session_manager.signal_early_stop(target_agent)
+        logger.info("BUG-037: Auto-triggered early_stop for %s via ST directive", target_agent)
+
     return {"ok": True, "message_id": msg.id}
 
 

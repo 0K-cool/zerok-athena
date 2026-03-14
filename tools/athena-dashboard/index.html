@@ -10250,9 +10250,11 @@
         if (bar) bar.style.height = (count > 0 ? Math.max(4, (count / maxVal) * 90) : 0) + 'px';
       });
 
-      // Toggle empty state text — always keep chart skeleton (grid lines + labels) visible
+      // BUG-011 FIX: Hide gridlines + y-axis when no findings, show only centered empty text
       const emptyEl = document.getElementById('severity-empty-state');
+      const chartWrapper = document.getElementById('severity-chart-wrapper');
       if (emptyEl) emptyEl.style.display = total === 0 ? '' : 'none';
+      if (chartWrapper) chartWrapper.style.opacity = total === 0 ? '0' : '1';
       // Legacy cleanup
       const oldEmpty = document.getElementById('severity-empty');
       if (oldEmpty) oldEmpty.remove();
