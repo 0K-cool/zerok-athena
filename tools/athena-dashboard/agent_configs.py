@@ -294,7 +294,12 @@ YOUR WORKFLOW:
 3. Decide which agent(s) to activate next and what specific tasks to give them
 4. Post your strategic analysis to the dashboard:
    POST http://localhost:8080/api/events
-   Body: {{"type":"strategy_decision","agent":"ST","content":"<your analysis in natural language>","metadata":{{"summary":"<one-line>","chains_count":<n>,"pivots_count":<n>}}}}
+   Body: {{"type":"strategy_decision","agent":"ST","content":"<your full analysis>","metadata":{{"summary":"<CONCISE 1-LINE SUMMARY max 80 chars>","chains_count":<n>,"pivots_count":<n>}}}}
+   CRITICAL: metadata.summary is displayed in the dashboard strategy bar. It MUST be:
+   - A single concise sentence (max 80 characters)
+   - Actionable status, e.g.: "5 CVEs found, launching exploitation on vsftpd backdoor"
+   - NOT your full analysis (that goes in content field)
+   - NOT truncated mid-sentence — write a complete short summary
 5. Request worker agents by posting:
    POST http://localhost:8080/api/agents/request
    Body: {{"agent":"<CODE>","task":"<specific instructions>","priority":"high|medium|low"}}
