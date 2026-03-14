@@ -1564,6 +1564,28 @@ async def create_finding(payload: FindingPayload):
             status_code=400,
             content={"error": f"Invalid severity: {payload.severity}"}
         )
+
+    # BUG-038 FIX: Reject finding titles that look like API errors, not vulnerabilities.
+    # Agents sometimes pass raw HTTP error responses as finding titles.
+    _title = (payload.title or "").strip()
+    _ERROR_PATTERNS = [
+        "<html", "<!doctype", "502 bad gateway", "503 service unavailable",
+        "504 gateway timeout", "500 internal server error", "connection refused",
+        "connection timed out", "errno", "traceback (most recent call last)",
+        '{"error":', "api validation error", "failed to fetch",
+    ]
+    _title_lower = _title.lower()
+    if any(pat in _title_lower for pat in _ERROR_PATTERNS):
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Rejected: title looks like an API error, not a vulnerability: {_title[:100]}"}
+        )
+    if len(_title) < 5:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "Finding title too short (min 5 characters)"}
+        )
+
     timestamp = time.time()
 
     # Write to Neo4j if available — smart endpoint auto-creates relationships
@@ -5653,6 +5675,30 @@ async def get_engagement_credentials(eid: str):
         c for c in raw_credentials
         if c.get("username") and c["username"].lower() not in ("unknown", "", "none")
     ]
+
+    # BUG-036 FIX: Auto-classify default/weak credentials if agents didn't tag them.
+    # Common default credentials on Metasploitable, IoT, network devices, etc.
+    _DEFAULT_CREDS = {
+        "admin", "root", "guest", "test", "user", "administrator", "postgres",
+        "mysql", "ftp", "anonymous", "default", "pi", "ubuntu", "vagrant",
+        "msfadmin", "service", "tomcat", "manager",
+    }
+    _WEAK_PASSWORDS = {
+        "password", "123456", "admin", "root", "guest", "test", "pass",
+        "1234", "12345", "123456789", "qwerty", "letmein", "welcome",
+        "monkey", "dragon", "master", "login", "abc123", "password1",
+        "msfadmin", "service", "tomcat", "s3cret", "changeme", "default",
+    }
+    for c in credentials:
+        if c.get("type") not in ("default", "weak"):
+            uname = (c.get("username") or "").lower()
+            pwd = (c.get("password") or c.get("hash") or "").lower()
+            if uname in _DEFAULT_CREDS and uname == pwd:
+                c["type"] = "default"
+            elif uname in _DEFAULT_CREDS:
+                c["type"] = "default"
+            elif pwd in _WEAK_PASSWORDS:
+                c["type"] = "weak"
 
     total = len(credentials)
     default_weak = sum(1 for c in credentials if c.get("type") in ("default", "weak"))
