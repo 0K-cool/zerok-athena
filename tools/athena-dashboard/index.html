@@ -4138,7 +4138,7 @@
     .event-body {
       min-width: 0;            /* allow flex child to shrink below content size */
       flex: 1;
-      overflow: hidden;
+      overflow: visible;       /* BUG-045b: was hidden, clipping long agent reasoning */
     }
 
     .event-header {
