@@ -881,6 +881,7 @@ async def post_event(payload: EventPayload):
     elif payload.type == "agent_complete":
         await state.update_agent_status(payload.agent, AgentStatus.COMPLETED)
         # BUG-017: All-agents-done watchdog — auto-stop when ST + RP both complete
+        # BUG-025: Route through _auto_stop_with_rp_gate so running-agent check applies
         if payload.agent in ("ST", "RP"):
             eid = state.active_engagement_id
             if eid and _active_session_manager and _active_session_manager.is_running:
@@ -890,7 +891,7 @@ async def post_event(payload: EventPayload):
                     logger.info(
                         "BUG-017: ST + RP both completed. Auto-stopping engagement %s.", eid
                     )
-                    asyncio.create_task(stop_engagement(eid))
+                    asyncio.create_task(_auto_stop_with_rp_gate(eid))
     elif payload.type == "agent_error":
         await state.update_agent_status(payload.agent, AgentStatus.ERROR)
     # Phase F: Strategy Agent events
@@ -1506,6 +1507,9 @@ class FindingPayload(BaseModel):
     service_port: Optional[int] = None
     service_protocol: Optional[str] = "tcp"
     technique_ids: Optional[list[str]] = None
+    # BUG-013: VF evidence fields — store PoC output and script for verification
+    poc_output: Optional[str] = None
+    poc_script: Optional[str] = None
 
 
 def _extract_host_port(target: str) -> tuple[str | None, int | None]:
@@ -1709,7 +1713,18 @@ async def create_finding(payload: FindingPayload):
         merged_severity = payload.severity if new_sev > old_sev else (
             existing.get("severity") or payload.severity)
 
-        new_status = "confirmed" if payload.agent == "VF" else "discovered"
+        # BUG-013: Only auto-confirm VF findings that include evidence
+        if payload.agent == "VF":
+            has_evidence = len(payload.description or '') > 100  # Real evidence is substantial
+            if has_evidence:
+                new_status = "confirmed"
+                # Store VF's output as evidence if not already set
+                if not payload.evidence and payload.poc_output:
+                    payload.evidence = payload.poc_output
+            else:
+                new_status = "discovered"
+        else:
+            new_status = "discovered"
         old_status = existing.get("status", "open")
         merged_status = new_status if _STATUS_RANK.get(new_status, 0) > \
             _STATUS_RANK.get(old_status, 0) else old_status
@@ -1862,6 +1877,16 @@ async def create_finding(payload: FindingPayload):
         except Exception as e:
             print(f"Neo4j finding write error: {e}")
 
+    # BUG-013: For new VF findings, only auto-confirm when evidence is substantial
+    vf_confirmed_at = None
+    if payload.agent == "VF":
+        has_evidence = len(payload.description or '') > 100  # Real evidence is substantial
+        if has_evidence:
+            vf_confirmed_at = timestamp
+            # Store VF's poc_output as evidence if evidence field is empty
+            if not payload.evidence and payload.poc_output:
+                payload.evidence = payload.poc_output
+
     # Always write to in-memory state for real-time broadcast
     finding = Finding(
         id=finding_id,
@@ -1878,6 +1903,7 @@ async def create_finding(payload: FindingPayload):
         engagement=payload.engagement,
         fingerprint=fingerprint,
         discovered_at=timestamp,
+        confirmed_at=vf_confirmed_at,
     )
     await state.add_finding(finding)
 
@@ -9757,6 +9783,22 @@ async def _auto_stop_with_rp_gate(eid: str):
             logger.warning(
                 "BUG-016: RP did not complete within %ds. Stopping anyway.", RP_TIMEOUT_S
             )
+
+    # BUG-025: Before stopping, wait for ALL agents to finish (not just RP)
+    ALL_DONE_TIMEOUT_S = 300  # 5 minutes max wait
+    deadline_all = time.time() + ALL_DONE_TIMEOUT_S
+    while time.time() < deadline_all:
+        running_agents = [
+            code for code, status in state.agent_statuses.items()
+            if status == AgentStatus.RUNNING
+        ]
+        if not running_agents:
+            break
+        logger.info("BUG-025: Waiting for running agents: %s", running_agents)
+        await asyncio.sleep(5)
+    else:
+        still_running = [c for c, s in state.agent_statuses.items() if s == AgentStatus.RUNNING]
+        logger.warning("BUG-025: Timeout — still running: %s. Stopping anyway.", still_running)
 
     await stop_engagement(eid)
 
