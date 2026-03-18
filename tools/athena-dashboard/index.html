@@ -9232,7 +9232,7 @@
       const action = msg.metadata.action || '';
 
       const card = document.createElement('div');
-      card.className = 'timeline-card';
+      card.className = 'timeline-card expanded';
       card.setAttribute('data-agent', msg.agent || '');
       if (activeChipFilter && msg.agent !== activeChipFilter) {
         card.classList.add('filtered-out');

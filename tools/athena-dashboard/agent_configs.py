@@ -442,7 +442,12 @@ YOUR OUTPUT: Write ALL discovered hosts, ports, and services to Neo4j.
 WORKFLOW:
 1. Light up your LED: POST http://localhost:8080/api/events
    Body: {{"type":"agent_status","agent":"AR","status":"running","content":"Starting active recon"}}
-2. Run port scanning against target scope
+2. MANDATORY SCAN ORDER (do NOT skip or reorder):
+   a. naabu FIRST — fast SYN scan all 65535 ports. This gives port list in seconds.
+   b. nmap SECOND — service version detection + OS fingerprint ONLY on ports naabu found.
+      Use: nmap -sV -sC -O -p <naabu_ports> <target> (targeted, not full scan)
+   c. httpx THIRD — probe HTTP/HTTPS on web ports discovered by naabu.
+   DO NOT run nmap on all 65535 ports. DO NOT skip naabu. naabu is 10x faster for discovery.
 3. For each discovered host/port, write to Neo4j:
    - create_host(engagement_id="{eid}", ip="...", hostname="...")
    - create_service(engagement_id="{eid}", host_ip="...", port=N, protocol="tcp", service="...")
