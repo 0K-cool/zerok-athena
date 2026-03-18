@@ -8549,6 +8549,52 @@ async def find_similar_cases(service: str, version: str = ""):
     return {"results": results, "enabled": True}
 
 
+@app.get("/api/knowledge/search")
+async def search_knowledge_base(q: str, top_k: int = 5):
+    """Search the ATHENA RAG knowledge base.
+
+    Agents can query pentest techniques, tool usage, exploitation methods,
+    and reference material (e.g., Ultimate Kali Linux book, playbooks,
+    Atomic Red Team, PayloadsAllTheThings).
+
+    Usage from agents:
+        curl -s "http://localhost:8080/api/knowledge/search?q=privilege+escalation+linux"
+    """
+    import subprocess
+
+    vex_rag_python = "/Users/kelvinlomboy/tools/vex-rag/.venv/bin/python3"
+    athena_rag_config = "/Users/kelvinlomboy/VERSANT/Projects/ATHENA/.vex-rag.yml"
+
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [
+                vex_rag_python, "-m", "rag.cli.search",
+                q, "--top-k", str(min(top_k, 10)), "--json",
+            ],
+            capture_output=True, text=True, timeout=10,
+            env={
+                **dict(__import__("os").environ),
+                "RAG_CONFIG": athena_rag_config,
+                "PYTHONPATH": "/Users/kelvinlomboy/tools/vex-rag",
+            },
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            import json as _json
+            try:
+                data = _json.loads(result.stdout)
+                return {"results": data, "query": q, "top_k": top_k}
+            except _json.JSONDecodeError:
+                # CLI may output plain text instead of JSON
+                return {"results": [{"content": result.stdout.strip()}], "query": q, "format": "text"}
+        else:
+            return {"results": [], "query": q, "error": result.stderr[:200] if result.stderr else "No results"}
+    except subprocess.TimeoutExpired:
+        return {"results": [], "query": q, "error": "Search timed out (10s)"}
+    except Exception as e:
+        return {"results": [], "query": q, "error": str(e)[:200]}
+
+
 # ──────────────────────────────────────────────
 # Phase C: Real Engagement + Backend API
 # ──────────────────────────────────────────────
