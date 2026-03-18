@@ -2615,6 +2615,14 @@
       background: rgba(251, 191, 36, 0.1);
     }
 
+    /* BUG-046: Active engagement row highlight in Engagements table */
+    tr.active-engagement-row > td:first-child {
+      border-left: 3px solid var(--zerok-primary);
+    }
+    tr.active-engagement-row {
+      background: rgba(0, 230, 118, 0.05);
+    }
+
     .modal-btn-warning {
       background: var(--zerok-warning);
       color: #1a1a1a;
@@ -12494,7 +12502,7 @@
       }
     }
 
-    function selectEngagement(eid) {
+    function selectEngagement(eid, triggerBtn) {
       currentEngagementId = eid;
       document.getElementById('engagementSelect').value = eid;
 
@@ -12502,6 +12510,29 @@
       document.querySelectorAll('.engagement-list-item').forEach(el => {
         el.classList.toggle('active', el.dataset.engId === eid);
       });
+
+      // BUG-046 Fix 2: Highlight selected row in Engagements table
+      document.querySelectorAll('#engagementsTableBody tr[data-eng-id]').forEach(row => {
+        row.classList.toggle('active-engagement-row', row.dataset.engId === eid);
+      });
+
+      // BUG-046 Fix 1: Button state feedback on "Select as Active" click
+      if (triggerBtn) {
+        // Reset all other "Select as Active" buttons first
+        document.querySelectorAll('#engagementsTableBody .modal-btn-primary').forEach(btn => {
+          if (btn !== triggerBtn) {
+            btn.textContent = 'Select as Active';
+            btn.disabled = false;
+          }
+        });
+        triggerBtn.textContent = '✓ Active';
+        triggerBtn.disabled = true;
+
+        // BUG-046 Fix 1: Toast confirmation
+        const eng = allEngagementsData.find(e => e.id === eid);
+        const engName = eng ? eng.name : eid;
+        showToast('success', 'Engagement Selected', engName + ' is now active');
+      }
 
       // Clear AI timeline and LED badges to prevent cross-engagement data leak
       _clearDrawerUI();
@@ -13055,7 +13086,7 @@
                 </div>
               </div>
               <div style="margin-top: 12px;">
-                <button class="modal-btn modal-btn-primary" onclick="event.stopPropagation(); selectEngagement('${e.id}'); switchView('dashboard');" style="font-size: 12px;">
+                <button class="modal-btn modal-btn-primary" onclick="event.stopPropagation(); selectEngagement('${e.id}', this); switchView('dashboard');" style="font-size: 12px;">
                   Select as Active
                 </button>
               </div>
