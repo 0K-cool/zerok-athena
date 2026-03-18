@@ -4806,13 +4806,15 @@
       border-radius: 3px;
       background: color-mix(in srgb, var(--zerok-primary) 12%, transparent);
       color: var(--zerok-primary);
-      margin-left: 4px;
-      overflow: hidden;
-      text-overflow: ellipsis;
       white-space: nowrap;
-      max-width: 180px;
-      min-width: 0;
-      flex-shrink: 1;
+    }
+
+    .timeline-card-tool-info {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      padding: 4px 12px 0;
+      font-size: 11px;
     }
 
     .tool-args-grid {
@@ -9283,11 +9285,11 @@
         card.classList.add('filtered-out');
       }
 
+      const inputText = (msg.metadata && msg.metadata.input) ? JSON.stringify(msg.metadata.input, null, 2) : (msg.content || '');
       card.innerHTML =
         '<div class="timeline-card-header" onclick="toggleCard(this)">' +
           '<div class="timeline-card-icon tool">&#9654;</div>' +
           '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
-          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName, msg.metadata)) + '</span>' +
           '<div class="timeline-card-meta">' +
             '<span class="tool-status-badge running" data-status-badge="' + toolId + '">Running...</span>' +
             '<span class="tool-timer running" data-timer="' + toolId + '">0s</span>' +
@@ -9295,7 +9297,11 @@
             '<span class="timeline-card-chevron">&#9654;</span>' +
           '</div>' +
         '</div>' +
+        '<div class="timeline-card-tool-info">' +
+          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName, msg.metadata)) + '</span>' +
+        '</div>' +
         '<div class="timeline-card-body"><div class="timeline-card-body-inner">' +
+          (inputText ? '<div class="thinking-section-label" style="color: var(--zerok-text-dim); margin-bottom: 4px;">INPUT</div><div class="tool-output-block" style="margin-bottom: 8px;">' + escHtml(inputText) + '</div>' : '') +
           '<div class="thinking-section-label" style="color: var(--zerok-primary); margin-bottom: 6px;">OUTPUT</div>' +
           '<div class="tool-output-block" data-output="' + toolId + '"><span class="streaming-cursor"></span></div>' +
           '<div class="tool-progress-bar"><div class="tool-progress-fill running" data-progress="' + toolId + '"></div></div>' +
@@ -9432,18 +9438,22 @@
         card.classList.add('filtered-out');
       }
 
+      const inputText_ = (msg.metadata && msg.metadata.input) ? JSON.stringify(msg.metadata.input, null, 2) : (msg.content || '');
       card.innerHTML =
         '<div class="timeline-card-header" onclick="toggleCard(this)">' +
           '<div class="timeline-card-icon complete">&#10003;</div>' +
           '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
-          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName, msg.metadata)) + '</span>' +
           '<div class="timeline-card-meta">' +
             '<span class="tool-status-badge done">Done (' + duration + 's)</span>' +
             '<span class="tool-timer done">' + duration + 's</span>' +
             '<span class="timeline-card-chevron">&#9654;</span>' +
           '</div>' +
         '</div>' +
+        '<div class="timeline-card-tool-info">' +
+          '<span class="tool-name-badge" title="' + escHtml(toolName) + '">' + escHtml(shortToolName(toolName, msg.metadata)) + '</span>' +
+        '</div>' +
         '<div class="timeline-card-body"><div class="timeline-card-body-inner">' +
+          (inputText_ ? '<div class="thinking-section-label" style="color: var(--zerok-text-dim); margin-bottom: 4px;">INPUT</div><div class="tool-output-block" style="margin-bottom: 8px;">' + escHtml(inputText_) + '</div>' : '') +
           '<div class="thinking-section-label" style="color: var(--zerok-primary); margin-bottom: 6px;">OUTPUT</div>' +
           '<div class="tool-output-block">' + escHtml(output) + '</div>' +
           '<div class="tool-progress-bar"><div class="tool-progress-fill done"></div></div>' +
@@ -12124,6 +12134,11 @@
             // Mark stale "Running" tool cards as cancelled after history replay
             // (engagement is no longer active, so any tool_start without tool_complete is stale)
             if (_currentCtrlState !== 'running') {
+              // Clear all timers for tracked running tools before wiping runningTools
+              Object.keys(runningTools).forEach(tid => {
+                if (runningTools[tid] && runningTools[tid].timerInterval) clearInterval(runningTools[tid].timerInterval);
+                delete runningTools[tid];
+              });
               document.querySelectorAll('.tool-status-badge.running').forEach(badge => {
                 badge.textContent = 'Cancelled';
                 badge.className = 'tool-status-badge cancelled';
