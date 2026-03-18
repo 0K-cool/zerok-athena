@@ -11612,6 +11612,9 @@
         if (kpiFindingsEl) kpiFindingsEl.textContent = findings.length;
         const donutTotalEl = document.getElementById('donut-total');
         if (donutTotalEl && findings.length > 0) donutTotalEl.textContent = findings.length;
+        // BUG-041: Sync drawer findings stat from same API source as KPI card
+        const statFindingsEl = document.getElementById('stat-findings');
+        if (statFindingsEl && findings.length > 0) statFindingsEl.textContent = findings.length;
 
         const recentBody = document.getElementById('recent-findings-body');
         const sevColors = {
@@ -11932,6 +11935,13 @@
         const vulnRes = await fetch(`/api/engagements/${currentEngagementId}/vuln-severity`);
         const vulnData = await vulnRes.json();
         updateVulnStatusDonut(vulnData);
+        // BUG-041: Sync drawer vulns stat from same source as Unique Vulnerabilities KPI
+        const vulnDonutTotalEl = document.getElementById('vuln-donut-total');
+        const statVulnsEl = document.getElementById('stat-vulns');
+        if (vulnDonutTotalEl && statVulnsEl) {
+          const vulnTotal = parseInt(vulnDonutTotalEl.textContent, 10) || 0;
+          if (vulnTotal > 0) statVulnsEl.textContent = vulnTotal;
+        }
       } catch (e) { console.warn('vuln-severity:', e.message); }
 
       // ── Engagement Cost from budget API (BUG-011 fix: persist cost across page reloads) ──
