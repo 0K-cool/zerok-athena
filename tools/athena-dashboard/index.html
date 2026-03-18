@@ -4726,7 +4726,7 @@
     }
 
     .timeline-card.expanded .timeline-card-body {
-      max-height: 2000px;
+      max-height: none;
       overflow-y: auto;
       border-top: 1px solid color-mix(in srgb, var(--zerok-border) 40%, transparent);
     }
@@ -9247,7 +9247,7 @@
         '<div class="timeline-card-header" onclick="toggleCard(this)">' +
           '<div class="timeline-card-icon thinking">?</div>' +
           '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
-          '<span class="timeline-card-preview">' + escHtml(thought).substring(0, 60) + '</span>' +
+          '<span class="timeline-card-preview"></span>' +
           '<div class="timeline-card-meta">' +
             '<span class="timeline-card-time">' + time + '</span>' +
             '<span class="timeline-card-chevron">&#9654;</span>' +

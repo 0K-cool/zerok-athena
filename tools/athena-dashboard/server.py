@@ -10841,16 +10841,21 @@ async def bus_directive(request: Request):
     else:
         await _active_session_manager.bus.send(msg)
 
-    # BUG-037 FIX: If ST sends a stop/complete directive to a specific agent,
+    # BUG-037 FIX: If ST sends an explicit stop directive to a specific agent,
     # also signal early_stop server-side. This is more reliable than waiting
     # for the agent to read and comply with the directive via prompt.
+    # BUG-028 FIX: Only match explicit stop commands, not status updates.
+    # "COMPLETE" and "FINISH" were false-positiving on "AR has completed recon".
     directive_text = (body.get("directive", "") or "").upper()
     target_agent = (msg.to or "").upper()
+    _STOP_DIRECTIVES = ["STOP NOW", "STOP IMMEDIATELY", "TERMINATE", "ABORT",
+                        "CEASE OPERATIONS", "HALT OPERATIONS", "SHUT DOWN"]
     if target_agent != "ALL" and target_agent != "ST" and any(
-        kw in directive_text for kw in ["STOP", "COMPLETE", "WRAP UP", "FINISH", "TERMINATE"]
+        kw in directive_text for kw in _STOP_DIRECTIVES
     ):
         _active_session_manager.signal_early_stop(target_agent)
-        logger.info("BUG-037: Auto-triggered early_stop for %s via ST directive", target_agent)
+        logger.info("BUG-037: Auto-triggered early_stop for %s via ST directive: %s",
+            target_agent, directive_text[:80])
 
     return {"ok": True, "message_id": msg.id}
 
