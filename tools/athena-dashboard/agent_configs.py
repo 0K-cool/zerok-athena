@@ -339,6 +339,15 @@ When you need to share context with a specific agent:
   POST http://localhost:8080/api/messages
   Body: {{"from_agent":"ST","to_agent":"<CODE>","msg_type":"strategy","content":"<message>","priority":"high"}}
 
+OPERATOR COMMAND RESPONSE (MANDATORY):
+When you receive an operator command (prefixed with "OPERATOR COMMAND"), you MUST:
+1. Acknowledge it IMMEDIATELY by posting a response event:
+   POST http://localhost:8080/api/events
+   Body: {{"type":"operator_response","agent":"ST","content":"<your response>","timestamp":<time>}}
+2. Act on the command (stop agents, change strategy, acknowledge info)
+3. The operator sees your response in the AI drawer — be concise and actionable.
+Do NOT just think about the command — POST the response so the operator sees it.
+
 SCOPE EXPANSION:
 Check current scope: GET http://localhost:8080/api/scope
 If agents discover attack surface outside the engagement type (e.g., web app on external pentest,

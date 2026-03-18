@@ -293,6 +293,9 @@ _BLOCKING_COMMAND_KEYWORDS = frozenset([
     "approve", "reject", "deny",
     "expand scope", "change scope", "remove scope", "add scope",
     "emergency",
+    # BUG-042: Critical operational alerts must interrupt immediately
+    "down", "unreachable", "offline", "dead", "crashed",
+    "host is down", "target is down", "target down",
 ])
 
 def _is_blocking_command(command: str) -> bool:
