@@ -700,7 +700,10 @@ async def websocket_endpoint(ws: WebSocket):
             for e in list(state.events)[-50:]  # MED-7: snapshot to avoid race with add_event
         ],
         "engagement_active": (state.engagement_task is not None and not state.engagement_task.done()) or (_active_session_manager is not None and _active_session_manager.is_running),
-        "engagement_paused": not state.engagement_pause_event.is_set() if (state.engagement_task and not state.engagement_task.done()) else False,
+        "engagement_paused": not state.engagement_pause_event.is_set() if (
+            (state.engagement_task and not state.engagement_task.done())
+            or (_active_session_manager is not None and _active_session_manager.is_running)
+        ) else False,
         "active_engagement_id": state.active_engagement_id,
         "timestamp": time.time(),
     }))

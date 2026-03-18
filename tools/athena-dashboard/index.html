@@ -1263,7 +1263,7 @@
     }
     .strategy-bar-inner {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       gap: 12px;
       padding: 8px 16px;
       background: color-mix(in srgb, var(--zerok-strategy) 6%, var(--zerok-card));
@@ -1281,7 +1281,6 @@
       border: 1px solid color-mix(in srgb, var(--zerok-strategy) 50%, transparent);
       border-radius: 2px;
       flex-shrink: 0;
-      margin-top: 1px;
     }
     .strategy-bar-directive {
       flex: 1;
@@ -1300,7 +1299,6 @@
       font-size: 9px;
       white-space: nowrap;
       flex-shrink: 0;
-      padding-top: 2px;
     }
     .strategy-bar-close {
       background: none;
@@ -6275,10 +6273,7 @@
           <div class="widget">
             <div class="widget-header">
               <span class="widget-title">AI Agent Status</span>
-              <div style="display:flex;gap:4px;align-items:center;">
-                <button class="strategy-toggle" id="strategyToggle" onclick="toggleStrategyPanel()" title="Strategy Agent Intel">ST</button>
-                <button class="widget-action" onclick="var g=document.getElementById('agent-status-grid');g.style.outline='1px solid var(--zerok-primary)';setTimeout(function(){g.style.outline=''},1500)">See All</button>
-              </div>
+              <button class="strategy-toggle" id="strategyToggle" onclick="toggleStrategyPanel()" title="Strategy Agent Intel">ST</button>
             </div>
             <div class="widget-body" style="display:flex;align-items:stretch;">
               <div class="layer-grid" id="agent-status-grid" style="width:100%;">
