@@ -4678,9 +4678,8 @@
       flex: 1;
       font-size: 11px;
       color: var(--zerok-text-muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      white-space: normal;
+      overflow: visible;
       min-width: 0;
     }
 
@@ -9217,7 +9216,7 @@
         '<div class="timeline-card-header" onclick="toggleCard(this)">' +
           '<div class="timeline-card-icon thinking">?</div>' +
           '<span class="timeline-card-agent">' + escHtml(agentName) + '</span>' +
-          '<span class="timeline-card-preview">' + escHtml(thought).substring(0, 60) + '</span>' +
+          '<span class="timeline-card-preview">' + escHtml(thought).substring(0, 200) + '</span>' +
           '<div class="timeline-card-meta">' +
             '<span class="timeline-card-time">' + time + '</span>' +
             '<span class="timeline-card-chevron">&#9654;</span>' +
@@ -15001,6 +15000,8 @@
                  e.type === 'LATERAL_MOVE' || e.type === 'LEADS_TO' ? '#FF9800' :
                  e.type === 'HARVESTED_FROM' || e.type === 'YIELDED' ? '#9C27B0' :
                  e.type === 'VERIFIED_BY' ? '#4CAF50' :
+                 e.type === 'HAS_VULN' || e.type === 'AFFECTS' ? '#FF9800' :
+                 e.type === 'RUNS_ON' || e.type === 'HAS_SERVICE' ? '#2196F3' :
                  '#555',
           highlight: '#fff',
           opacity: 0.7
@@ -15294,7 +15295,7 @@
                          e.type === 'LATERAL_MOVE' || e.type === 'LEADS_TO' ? '#FF9800' :
                          e.type === 'HARVESTED_FROM' || e.type === 'YIELDED' ? '#9C27B0' :
                          e.type === 'VERIFIED_BY' ? '#4CAF50' :
-                         e.type === 'AFFECTS' || e.type === 'HAS_VULN' ? '#f44336' :
+                         e.type === 'AFFECTS' || e.type === 'HAS_VULN' ? '#FF9800' :
                          e.type === 'RUNS_ON' || e.type === 'HAS_SERVICE' ? '#2196F3' :
                          '#555',
                   highlight: '#fff', opacity: 0.7

@@ -1271,6 +1271,10 @@ class AthenaAgentSession:
                 # Emit agent_session_ended instead (filtered as noise by frontend).
                 agent_code = (self._role_config.code
                               if self._role_config else "OR")
+                # BUG-023: Always emit agent_complete so server.py watchdog
+                # can detect ST/RP completion and trigger auto-stop correctly.
+                await self._emit("agent_complete", agent_code,
+                    f"Agent {agent_code} session ended")
                 await self._emit("system", agent_code,
                     f"Agent {agent_code} session ended. "
                     f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} cost.",
@@ -1442,6 +1446,10 @@ class AthenaAgentSession:
                 # BUG-013: Multi-agent mode — emit agent-scoped event, not engagement_ended
                 agent_code = (self._role_config.code
                               if self._role_config else "OR")
+                # BUG-023: Always emit agent_complete so server.py watchdog
+                # can detect ST/RP completion and trigger auto-stop correctly.
+                await self._emit("agent_complete", agent_code,
+                    f"Agent {agent_code} session ended")
                 await self._emit("system", agent_code,
                     f"Agent {agent_code} session ended. "
                     f"{self._tool_count} tool calls, ${self._total_cost_usd:.4f} cost.",
@@ -1504,7 +1512,7 @@ class AthenaAgentSession:
                 await self._emit(event_type, self._current_agent,
                     thought, {
                         "thought": thought,
-                        "reasoning": block.thinking[:1000],
+                        # removed "reasoning" — same source as thought, caused duplication
                     })
 
             elif isinstance(block, TextBlock):
