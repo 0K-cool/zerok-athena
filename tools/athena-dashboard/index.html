@@ -6304,8 +6304,8 @@
               <span class="widget-title">Findings by Severity</span>
             </div>
             <div class="widget-body" id="severity-chart-body" style="display:grid;min-height:140px;position:relative">
-              <div id="severity-empty-state" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--zerok-text-dim);font-size:12px;z-index:2;pointer-events:none;text-align:center;">No findings yet</div>
-              <div class="bar-chart-wrapper" id="severity-chart-wrapper" style="grid-area:1/1;position:relative">
+              <div id="severity-empty-state" style="display:none;"></div>
+              <div class="bar-chart-wrapper" id="severity-chart-wrapper" style="grid-area:1/1;position:relative;opacity:0.3">
                 <div class="bar-chart-yaxis" id="severity-yaxis">
                   <span></span>
                   <span></span>
@@ -8699,6 +8699,8 @@
         handleStatUpdate(msg);
         // FIX-8: Trigger debounced dashboard refresh so KPI counters stay current
         debouncedDashboardRefresh();
+        // State-driven strategy bar: debounced rebuild from current data
+        clearTimeout(window._stateBarTimer); window._stateBarTimer = setTimeout(buildStateBar, 600);
         return;
       }
 
@@ -8708,6 +8710,8 @@
         // Skip timeline entry — agent chips already show status; STATUS lines are noise
         // Update main dashboard agent status grid
         updateAgentStatusTile(msg.agent, msg.status);
+        // State-driven strategy bar: debounced phase update
+        clearTimeout(window._stateBarTimer); window._stateBarTimer = setTimeout(buildStateBar, 600);
         return;
       }
 
@@ -9464,15 +9468,70 @@
       document.getElementById('strategyToggle').classList.remove('has-decision');
     }
 
-    function updateStrategyPanel(msg) {
-      const directive = document.getElementById('strategyDirective');
-      const toggle = document.getElementById('strategyToggle');
-      const panel = document.getElementById('strategyPanel');
+    // State-driven strategy bar: builds summary from engagement data, not agent text
+    function buildStateBar() {
+      var directive = document.getElementById('strategyDirective');
+      var panel = document.getElementById('strategyPanel');
+      var toggle = document.getElementById('strategyToggle');
+      if (!directive || !panel) return;
+      var hosts = parseInt((document.getElementById('kpi-hosts') || {}).textContent) || 0;
+      var ports = parseInt((document.getElementById('kpi-open-ports') || {}).textContent) || 0;
+      var findings = parseInt((document.getElementById('kpi-findings') || {}).textContent) || 0;
+      var exploits = parseInt((document.getElementById('kpi-criticals') || {}).textContent) || 0;
+      var sevBars = document.querySelectorAll('#severity-bars .bar-value');
+      var crit = 0, high = 0, med = 0;
+      if (sevBars.length >= 3) {
+        crit = parseInt(sevBars[0].textContent) || 0;
+        high = parseInt(sevBars[1].textContent) || 0;
+        med = parseInt(sevBars[2].textContent) || 0;
+      }
+      var agentTiles = document.querySelectorAll('.layer-cell');
+      var running = [];
+      agentTiles.forEach(function(t) {
+        var blocks = t.querySelector('.layer-blocks');
+        if (blocks && blocks.textContent.toLowerCase().indexOf('running') !== -1) {
+          var id = t.querySelector('.layer-id');
+          if (id) running.push(id.textContent.trim());
+        }
+      });
+      var phase = 'Initializing';
+      if (running.indexOf('RP') !== -1) phase = 'Reporting';
+      else if (running.indexOf('PE') !== -1) phase = 'Post-Exploitation';
+      else if (running.indexOf('VF') !== -1) phase = 'Verification';
+      else if (running.indexOf('EX') !== -1) phase = 'Exploitation';
+      else if (running.indexOf('WV') !== -1) phase = 'Vuln Scanning';
+      else if (running.indexOf('AR') !== -1) phase = 'Active Recon';
+      else if (running.indexOf('ST') !== -1) phase = 'Planning';
+      var parts = [];
+      parts.push(phase);
+      if (hosts > 0) parts.push(hosts + (hosts === 1 ? ' host' : ' hosts'));
+      if (ports > 0) parts.push(ports + ' ports');
+      if (findings > 0) {
+        var sevParts = [];
+        if (crit > 0) sevParts.push(crit + ' CRIT');
+        if (high > 0) sevParts.push(high + ' HIGH');
+        if (med > 0) sevParts.push(med + ' MED');
+        parts.push(findings + ' findings' + (sevParts.length ? ' (' + sevParts.join(', ') + ')' : ''));
+      }
+      if (exploits > 0) parts.push(exploits + ' confirmed');
+      var summary = parts.join(' \u00b7 ');
+      directive.textContent = summary;
+      directive.title = summary;
+      if (!panel.classList.contains('open') && (hosts > 0 || findings > 0 || running.length > 0)) {
+        panel.classList.add('open');
+        toggle.classList.add('has-decision');
+      }
+      document.getElementById('strategyUpdated').textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    }
 
-      // Update directive text — show only first line/sentence (full content goes to timeline)
-      const raw = (msg.metadata && msg.metadata.summary) || msg.content || 'Strategy updated';
-      const firstLine = raw.split('\n').filter(function(l){ return l.trim(); })[0] || raw;
-      const summary = firstLine.length > 200 ? firstLine.substring(0, 200) + '…' : firstLine;
+    function updateStrategyPanel(msg) {
+      var directive = document.getElementById('strategyDirective');
+      var toggle = document.getElementById('strategyToggle');
+      var panel = document.getElementById('strategyPanel');
+      var raw = (msg.metadata && msg.metadata.summary) || msg.content || '';
+      if (!raw) { buildStateBar(); return; }
+      var firstLine = raw.split('\n').filter(function(l){ return l.trim(); })[0] || raw;
+      var summary = firstLine.length > 200 ? firstLine.substring(0, 200) + '\u2026' : firstLine;
       directive.innerHTML = renderMarkdown(summary);
       directive.title = firstLine;
 
@@ -10203,11 +10262,13 @@
         if (bar) bar.style.height = (count > 0 ? Math.max(4, (count / maxVal) * 90) : 0) + 'px';
       });
 
-      // BUG-011 FIX: Hide gridlines + y-axis when no findings, show only centered empty text
+      // BUG-NEW-003 FIX: Keep chart grid visible at all times (dimmed when empty)
+      // Previous BUG-011 fix hid the grid entirely — now we keep it visible
+      // so the widget maintains its structure during active engagements with 0 findings
       const emptyEl = document.getElementById('severity-empty-state');
       const chartWrapper = document.getElementById('severity-chart-wrapper');
       if (emptyEl) emptyEl.style.display = total === 0 ? '' : 'none';
-      if (chartWrapper) chartWrapper.style.opacity = total === 0 ? '0' : '1';
+      if (chartWrapper) chartWrapper.style.opacity = total === 0 ? '0.3' : '1';
       // Legacy cleanup
       const oldEmpty = document.getElementById('severity-empty');
       if (oldEmpty) oldEmpty.remove();
@@ -11781,7 +11842,14 @@
         const svcs = await svcRes.json();
         // Update Open Ports KPI card
         const openPortsEl = document.getElementById('kpi-open-ports');
-        if (openPortsEl && Array.isArray(svcs)) openPortsEl.textContent = svcs.length;
+        if (openPortsEl && Array.isArray(svcs)) {
+          // Single source of truth: never decrease during active engagement
+          var currentPorts = parseInt(openPortsEl.textContent) || 0;
+          var newPorts = svcs.length;
+          if (newPorts >= currentPorts) {
+            openPortsEl.textContent = newPorts;
+          }
+        }
       } catch (e) { console.warn('services-summary:', e.message); }
 
       // ── Credentials Tracker ──

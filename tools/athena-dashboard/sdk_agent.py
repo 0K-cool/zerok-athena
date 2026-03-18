@@ -1463,12 +1463,15 @@ class AthenaAgentSession:
             elif isinstance(block, TextBlock):
                 text = block.text.strip()
                 if text and not self._is_debug_noise(text):
-                    # ST text output → strategy_decision (opens blue bar)
-                    event_type = ("strategy_decision"
-                                  if self._current_agent == "ST"
-                                  else "system")
-                    await self._emit(event_type, self._current_agent,
-                        text[:1000])
+                    # BUG-NEW-004 fix v5: Strategy bar is now state-driven
+                    # (built from KPI data in the frontend via buildStateBar).
+                    # ST text goes to timeline only — no more regex parsing.
+                    if self._current_agent == "ST":
+                        await self._emit("strategy_thinking", self._current_agent,
+                            text[:1000])
+                    else:
+                        await self._emit("system", self._current_agent,
+                            text[:1000])
 
             elif isinstance(block, ToolUseBlock):
                 self._tool_count += 1
