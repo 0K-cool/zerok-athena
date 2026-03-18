@@ -880,6 +880,17 @@ async def post_event(payload: EventPayload):
         await state.update_agent_status(payload.agent, AgentStatus.RUNNING, payload.content)
     elif payload.type == "agent_complete":
         await state.update_agent_status(payload.agent, AgentStatus.COMPLETED)
+        # BUG-017: All-agents-done watchdog — auto-stop when ST + RP both complete
+        if payload.agent in ("ST", "RP"):
+            eid = state.active_engagement_id
+            if eid and _active_session_manager and _active_session_manager.is_running:
+                st_done = state.agent_statuses.get("ST") == AgentStatus.COMPLETED
+                rp_done = state.agent_statuses.get("RP") == AgentStatus.COMPLETED
+                if st_done and rp_done:
+                    logger.info(
+                        "BUG-017: ST + RP both completed. Auto-stopping engagement %s.", eid
+                    )
+                    asyncio.create_task(stop_engagement(eid))
     elif payload.type == "agent_error":
         await state.update_agent_status(payload.agent, AgentStatus.ERROR)
     # Phase F: Strategy Agent events
@@ -898,8 +909,8 @@ async def post_event(payload: EventPayload):
         if any(kw in _content_upper for kw in _COMPLETION_KEYWORDS):
             eid = state.active_engagement_id
             if eid and _active_session_manager and _active_session_manager.is_running:
-                # Schedule stop asynchronously so this response returns first
-                asyncio.create_task(stop_engagement(eid))
+                # BUG-016: Gate auto-stop on RP completion before halting
+                asyncio.create_task(_auto_stop_with_rp_gate(eid))
     # Phase F2: Bilateral message events (posted via /api/messages, but also renderable here)
     elif payload.type == "agent_message":
         await state.update_agent_status(payload.agent, AgentStatus.RUNNING, payload.content)
@@ -9709,6 +9720,45 @@ async def _generate_engagement_learnings(eid: str) -> str:
     except Exception as e:
         logger.warning("CEI learnings generator: %s", e)
         return ""
+
+
+async def _auto_stop_with_rp_gate(eid: str):
+    """BUG-016: When ST declares completion, ensure RP runs before stopping."""
+    RP_TIMEOUT_S = 120
+    rp_status = state.agent_statuses.get("RP", AgentStatus.IDLE)
+
+    if rp_status != AgentStatus.COMPLETED:
+        logger.info(
+            "BUG-016: ST complete but RP not done (status=%s). Auto-requesting RP.",
+            rp_status.value if hasattr(rp_status, "value") else rp_status,
+        )
+        if _active_session_manager and _active_session_manager.is_running:
+            try:
+                await state.broadcast({
+                    "type": "agent_request",
+                    "agent": "RP",
+                    "task": f"Generate final pentest report for engagement {eid}",
+                    "priority": "high",
+                    "requested_by": "system",
+                    "timestamp": time.time(),
+                })
+            except Exception as e:
+                logger.warning("BUG-016: Failed to request RP: %s", e)
+
+        # Poll until RP completes or timeout
+        deadline = time.time() + RP_TIMEOUT_S
+        while time.time() < deadline:
+            await asyncio.sleep(3)
+            rp_now = state.agent_statuses.get("RP", AgentStatus.IDLE)
+            if rp_now == AgentStatus.COMPLETED:
+                logger.info("BUG-016: RP completed. Proceeding to stop.")
+                break
+        else:
+            logger.warning(
+                "BUG-016: RP did not complete within %ds. Stopping anyway.", RP_TIMEOUT_S
+            )
+
+    await stop_engagement(eid)
 
 
 @app.post("/api/engagement/{eid}/stop")

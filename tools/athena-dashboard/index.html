@@ -10907,6 +10907,16 @@
           chip.classList.remove('running', 'waiting');
           chip.classList.add('completed');
         });
+        // BUG-021: Reset all agent STATUS TILES to Idle on engagement end
+        _agentsCompleted.clear();
+        document.querySelectorAll('#agent-status-grid [data-agent]').forEach(function(cell) {
+            var statusSpan = cell.querySelector('.layer-blocks');
+            if (statusSpan) { statusSpan.textContent = 'Idle'; statusSpan.style.cssText = ''; }
+            cell.classList.remove('st-active');
+            // Clear budget badges on each tile
+            var badge = cell.querySelector('.budget-badge');
+            if (badge) badge.remove();
+        });
         // BUG-6: Stop ST strategy toggle from pulsing after engagement ends
         const stToggle = document.getElementById('strategyToggle');
         if (stToggle) stToggle.classList.remove('has-decision');
