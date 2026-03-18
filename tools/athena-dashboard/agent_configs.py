@@ -1154,6 +1154,40 @@ _DA_PROMPT = _DA_PROMPT + _REALTIME_INTEL_WORKER
 _PX_PROMPT = _PX_PROMPT + _REALTIME_INTEL_WORKER
 _RP_PROMPT = _RP_PROMPT + _REALTIME_INTEL_WORKER
 
+# ── Knowledge Base Access (all agents) ──────────────────
+_KNOWLEDGE_BASE_PROMPT = """
+
+KNOWLEDGE BASE ACCESS:
+You have access to ATHENA's pentest knowledge base (RAG) containing:
+- Ultimate Kali Linux book (full reference)
+- Pentest playbooks (web, cloud, AD, credential, C2, privesc)
+- Atomic Red Team, PayloadsAllTheThings, InternalAllTheThings
+- LOLBins, LOLDrivers, LOLApps catalogs
+- Praetorian tool guides (Brutus, Titus)
+
+To search for techniques, tools, or methodology guidance:
+  curl -s "http://localhost:8080/api/knowledge/search?q=<your+query>&top_k=5"
+
+Examples:
+  curl -s "http://localhost:8080/api/knowledge/search?q=nmap+privilege+escalation"
+  curl -s "http://localhost:8080/api/knowledge/search?q=lateral+movement+windows+AD"
+  curl -s "http://localhost:8080/api/knowledge/search?q=samba+exploitation+CVE"
+
+Use this BEFORE attempting unfamiliar techniques — the knowledge base has proven
+commands, tool flags, and attack chains you can reference.
+"""
+
+_ST_PROMPT = _ST_PROMPT + _KNOWLEDGE_BASE_PROMPT
+_AR_PROMPT = _AR_PROMPT + _KNOWLEDGE_BASE_PROMPT
+_WV_PROMPT = _WV_PROMPT + _KNOWLEDGE_BASE_PROMPT
+_EX_PROMPT = _EX_PROMPT + _KNOWLEDGE_BASE_PROMPT
+_PR_PROMPT = _PR_PROMPT + _KNOWLEDGE_BASE_PROMPT
+_PE_PROMPT = _PE_PROMPT + _KNOWLEDGE_BASE_PROMPT
+_VF_PROMPT = _VF_PROMPT + _KNOWLEDGE_BASE_PROMPT
+_DA_PROMPT = _DA_PROMPT + _KNOWLEDGE_BASE_PROMPT
+_PX_PROMPT = _PX_PROMPT + _KNOWLEDGE_BASE_PROMPT
+_RP_PROMPT = _RP_PROMPT + _KNOWLEDGE_BASE_PROMPT
+
 # ──────────────────────────────────────────────
 # F1a MVP: Agent role registry
 # ──────────────────────────────────────────────
