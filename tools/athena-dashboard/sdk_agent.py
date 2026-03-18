@@ -823,8 +823,15 @@ class AthenaAgentSession:
     )
 
     def _extract_st_summary(self, text: str) -> str:
-        """Extract first line of strategic reasoning, skipping noise."""
+        """Extract a concise strategic summary that fits in the bar (120 chars).
+
+        Strategy: find the first meaningful line, then trim to the first
+        complete sentence that fits. This gives a coherent thought, not
+        a mid-word truncation.
+        """
         import re
+        # Find first qualifying line
+        candidate = ""
         for line in text.split("\n"):
             stripped = line.strip()
             if not stripped or len(stripped) < 20:
@@ -836,8 +843,23 @@ class AthenaAgentSession:
             lower = stripped.lower()
             if any(lower.startswith(p) for p in self._ST_BAR_NOISE_PREFIXES):
                 continue
-            return stripped
-        return ""
+            candidate = stripped
+            break
+        if not candidate:
+            return ""
+        # If it fits, use it directly
+        if len(candidate) <= 120:
+            return candidate
+        # Try to cut at the last sentence boundary that fits
+        for sep in (". ", " — ", "; ", ", "):
+            idx = candidate.rfind(sep, 0, 120)
+            if idx > 30:  # Must keep at least 30 chars
+                return candidate[:idx + (1 if sep == ". " else 0)].strip()
+        # No good boundary — cut at last space before 120
+        idx = candidate.rfind(" ", 0, 117)
+        if idx > 30:
+            return candidate[:idx] + "..."
+        return candidate[:117] + "..."
 
     def _is_finding_creation(self, tool_name: str, output: str) -> bool:
         """Detect if a tool result indicates a finding was created.
