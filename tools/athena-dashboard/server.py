@@ -85,11 +85,14 @@ except ImportError:
 
 # Phase F1a: Multi-agent session manager
 try:
-    from agent_session_manager import AgentSessionManager
+    from agent_session_manager import AgentSessionManager, _is_blocking_command
     MULTI_AGENT_AVAILABLE = True
 except ImportError:
     MULTI_AGENT_AVAILABLE = False
     AgentSessionManager = None
+
+    def _is_blocking_command(command: str) -> bool:
+        return False
 
 
 # ──────────────────────────────────────────────
@@ -6990,6 +6993,110 @@ async def get_scans(engagement: Optional[str] = None):
     return merged
 
 
+# ── Tool Matrix category display names ──
+_CATEGORY_DISPLAY = {
+    "recon": "Recon",
+    "web": "Web Apps",
+    "exploit": "Exploitation",
+    "enrichment": "Enrichment",
+    "post_exploit": "Post-Exploit",
+    "cloud": "Cloud",
+    "vuln": "Vuln Scan",
+    "vuln_scan": "Vuln Scan",  # merged with vuln
+    "evidence": "Evidence",
+}
+
+# Canonical order for display (vuln and vuln_scan merged as "Vuln Scan")
+_CATEGORY_ORDER = ["recon", "web", "exploit", "enrichment", "post_exploit", "cloud", "vuln_scan", "evidence"]
+
+
+@app.get("/api/tool-matrix")
+async def get_tool_matrix(engagement: Optional[str] = None):
+    """Return tool registry grouped by category with engagement-aware status.
+
+    Status logic:
+        - No engagement param  → all tools 'none'
+        - Has engagement       → cross-reference scan history
+            covered  = tool has a scan with findings_count > 0
+            partial  = tool has a scan but findings_count == 0
+            none     = tool has no scan
+    """
+    tools_list = kali_client.list_tools()
+
+    # Build lookup: tool_name → {findings_count, scan_count, last_scan_status}
+    scan_summary: dict[str, dict] = {}
+    if engagement:
+        scans_raw = await get_scans(engagement=engagement)
+        for s in scans_raw:
+            tname = s.get("tool", "")
+            if not tname:
+                continue
+            entry = scan_summary.setdefault(tname, {
+                "findings_count": 0,
+                "scan_count": 0,
+                "last_scan_status": s.get("status", ""),
+            })
+            entry["scan_count"] += 1
+            entry["findings_count"] += s.get("findings_count", 0) or 0
+            entry["last_scan_status"] = s.get("status", "")
+
+    # Group tools by canonical category key (merge vuln → vuln_scan)
+    category_buckets: dict[str, list] = {}
+    for t in tools_list:
+        raw_cat = t.get("category", "")
+        canon_cat = "vuln_scan" if raw_cat == "vuln" else raw_cat
+        if canon_cat not in _CATEGORY_DISPLAY:
+            canon_cat = "recon"  # fallback for unknown categories
+        bucket = category_buckets.setdefault(canon_cat, [])
+
+        scan_info = scan_summary.get(t["name"], {})
+        findings_count = scan_info.get("findings_count", 0)
+        scan_count = scan_info.get("scan_count", 0)
+        last_status = scan_info.get("last_scan_status", "")
+
+        if not engagement:
+            status = "none"
+        elif scan_count == 0:
+            status = "none"
+        elif findings_count > 0:
+            status = "covered"
+        else:
+            status = "partial"
+
+        bucket.append({
+            "id": t["name"],
+            "display_name": t.get("display_name", t["name"]),
+            "backends": t.get("backends", []),
+            "status": status,
+            "findings_count": findings_count,
+            "scan_count": scan_count,
+            "last_scan_status": last_status,
+        })
+
+    # Build ordered category list (skip empty categories)
+    categories = []
+    for cat_key in _CATEGORY_ORDER:
+        tools_in_cat = category_buckets.get(cat_key, [])
+        if not tools_in_cat:
+            continue
+        categories.append({
+            "name": _CATEGORY_DISPLAY[cat_key],
+            "key": cat_key,
+            "tools": tools_in_cat,
+        })
+
+    # Append any categories not in the canonical order
+    for cat_key, tools_in_cat in category_buckets.items():
+        if cat_key not in _CATEGORY_ORDER and tools_in_cat:
+            categories.append({
+                "name": _CATEGORY_DISPLAY.get(cat_key, cat_key.title()),
+                "key": cat_key,
+                "tools": tools_in_cat,
+            })
+
+    return {"categories": categories}
+
+
 @app.post("/api/scans")
 async def create_scan(request: dict):
     """Register a scan from an external AI agent (Phase E: AI Mode).
@@ -10525,22 +10632,39 @@ async def _run_demo_scenario():
 
 
 async def _handle_multi_agent_operator_command(cmd_text: str):
-    """Forward an operator command to ST via the multi-agent session manager."""
+    """Forward an operator command to ST via the multi-agent session manager.
+
+    BUG-020 FIX: Send immediate acknowledgment BEFORE calling send_command()
+    so the operator always sees feedback in the timeline.
+    BUG-019 FIX: Classify command and communicate routing to operator.
+    """
+    # Immediate acknowledgment — operator sees this BEFORE send_command() runs
+    is_blocking = _is_blocking_command(cmd_text)
+    if is_blocking:
+        immediate_ack = "⚡ Blocking command received — interrupting ST now."
+    else:
+        immediate_ack = "📋 Suggestion queued — ST picks up at next turn boundary (~0.2s-2min)."
+
+    await state.broadcast({
+        "type": "system_notification",
+        "agent": "ST",
+        "agentName": AGENT_NAMES.get("ST", "Strategy"),
+        "content": immediate_ack,
+        "timestamp": time.time(),
+        "metadata": {"command_type": "blocking" if is_blocking else "non_blocking"},
+    })
+
     try:
         result = await _active_session_manager.send_command(cmd_text)
-        resp_content = result or "Command forwarded to Strategy Agent."
-        resp_agent = "ST"
-        # BUG-024 FIX: Only broadcast the acknowledgment once. The SDK agent will emit
-        # its own "Processing operator command" event when it picks it up — that's the
-        # real response. The "Command queued" ack is just a system notification.
-        # Don't persist as operator_response (was creating duplicate timeline entries).
-        await state.broadcast({
-            "type": "system_notification",
-            "agent": resp_agent,
-            "agentName": AGENT_NAMES.get(resp_agent, "Strategy"),
-            "content": resp_content,
-            "timestamp": time.time(),
-        })
+        # Only broadcast final result if it adds info beyond the immediate ack
+        if result and "queued" not in result.lower() and "sent" not in result.lower():
+            await state.broadcast({
+                "type": "system_notification",
+                "agent": "ST",
+                "agentName": AGENT_NAMES.get("ST", "Strategy"),
+                "content": result,
+                "timestamp": time.time(),
+            })
     except Exception as e:
         err_content = f"Error forwarding command: {str(e)[:200]}"
         await state.add_event(AgentEvent(

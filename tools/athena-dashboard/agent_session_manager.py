@@ -287,6 +287,24 @@ class WorkspaceManager:
             logger.info("Cleaned %d stale ATHENA workspaces", cleaned)
 
 
+# ── Operator command classification ───────────────────────────────────
+_BLOCKING_COMMAND_KEYWORDS = frozenset([
+    "stop", "pause", "cancel", "abort", "halt",
+    "approve", "reject", "deny",
+    "expand scope", "change scope", "remove scope", "add scope",
+    "emergency",
+])
+
+def _is_blocking_command(command: str) -> bool:
+    """Return True if this command must interrupt ST's active query immediately.
+
+    BLOCKING: stop, pause, cancel, abort, approve, reject, scope changes, emergency.
+    NON-BLOCKING: suggestions, questions, status queries — queued for next chunk boundary.
+    """
+    lower = command.lower()
+    return any(kw in lower for kw in _BLOCKING_COMMAND_KEYWORDS)
+
+
 class AgentSessionManager:
     """Manages multiple concurrent Claude SDK agent sessions.
 
@@ -799,18 +817,28 @@ class AgentSessionManager:
             {"control": "engagement_resumed", "deferred_replayed": len(deferred)})
 
     async def send_command(self, command: str) -> str:
-        """Forward operator command to ST via cancel+resume for instant response.
+        """Forward operator command to ST with two-tier routing.
 
-        BUG-025 FIX: Instead of queuing the command and waiting for ST's current
-        chunk to finish (60-120s delay), we cancel the active query and resume
-        with the command prepended. This gives sub-10s response time.
+        NON-BLOCKING commands (suggestions, questions) are queued into ST's
+        _command_queue and picked up at the next chunk boundary (~0.2s if active,
+        up to 60s if idle-waiting).
+
+        BLOCKING commands (stop, pause, approve, scope change, emergency) cancel
+        the active query and resume immediately with the command prepended.
+
+        BUG-019 FIX: Previously ALL commands used cancel+resume, which killed
+        _engagement_loop and caused ST to over-react/end engagements on harmless
+        suggestions.
         """
         st = self.agents.get("ST")
         st_task = self._agent_tasks.get("ST")
         # BUG-H4: Also check task.done() — is_running goes False in finally before task completes
         if st and (st.is_running or (st_task and not st_task.done())):
-            # Cancel + Resume pattern: interrupt current chunk for instant command pickup
-            if st.session_id and st._query_task and not st._query_task.done():
+            blocking = _is_blocking_command(command)
+            if blocking and st.session_id and st._query_task and not st._query_task.done():
+                # BLOCKING: Cancel current chunk and resume with command immediately
+                logger.info("BUG-019: BLOCKING command detected — interrupting ST: %s",
+                    command[:80])
                 st._query_task.cancel()
                 try:
                     await st._query_task
@@ -821,9 +849,13 @@ class AgentSessionManager:
                     f"OPERATOR COMMAND (respond immediately):\n{command}"
                 )
                 st._query_task = asyncio.create_task(st._run_query(prompt, st.session_id))
-                return "Command sent — ST interrupted and resuming with your command."
-            # Fallback: queue if no active query to cancel
-            return await st.send_command(command)
+                return "Blocking command sent — ST interrupted and resuming with your command."
+            else:
+                # NON-BLOCKING: Queue for next chunk boundary (preserves _engagement_loop)
+                logger.info("BUG-019: Non-blocking command queued for ST: %s",
+                    command[:80])
+                return await st.send_command(command)
+
         # BUG-028: ST is not running — queue command and re-spawn ST immediately
         self._pending_commands.append(command)
         if not self._st_spawning and self.is_running:

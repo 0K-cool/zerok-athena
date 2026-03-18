@@ -6767,86 +6767,10 @@
               </div>
             </div>
 
-            <!-- Tool Availability Matrix -->
-            <div id="matrix-owasp-agentic" class="matrix-container" >
-              <div class="matrix-table">
-                <div class="tactic-column">
-                  <div class="tactic-header">Recon</div>
-                  <div class="technique-cell covered">
-                    <span class="technique-id">GAU</span>
-                    <span class="technique-name">Historical URLs</span>
-                    <span class="technique-count">Both backends</span>
-                  </div>
-                  <div class="technique-cell covered">
-                    <span class="technique-id">Nmap</span>
-                    <span class="technique-name">Port Scanning</span>
-                    <span class="technique-count">Both backends</span>
-                  </div>
-                </div>
-                <div class="tactic-column">
-                  <div class="tactic-header">Discovery</div>
-                  <div class="technique-cell covered">
-                    <span class="technique-id">Naabu</span>
-                    <span class="technique-name">Fast SYN Scan</span>
-                    <span class="technique-count">Internal only</span>
-                  </div>
-                  <div class="technique-cell covered">
-                    <span class="technique-id">Httpx</span>
-                    <span class="technique-name">HTTP Probing</span>
-                    <span class="technique-count">Both backends</span>
-                  </div>
-                </div>
-                <div class="tactic-column">
-                  <div class="tactic-header">Scanning</div>
-                  <div class="technique-cell covered">
-                    <span class="technique-id">Nuclei</span>
-                    <span class="technique-name">Vuln Scanner</span>
-                    <span class="technique-count">Both backends</span>
-                  </div>
-                  <div class="technique-cell partial">
-                    <span class="technique-id">Nikto</span>
-                    <span class="technique-name">Web Scanner</span>
-                    <span class="technique-count">Internal only</span>
-                  </div>
-                </div>
-                <div class="tactic-column">
-                  <div class="tactic-header">Enumeration</div>
-                  <div class="technique-cell covered">
-                    <span class="technique-id">Gobuster</span>
-                    <span class="technique-name">Dir Brute-force</span>
-                    <span class="technique-count">Internal only</span>
-                  </div>
-                  <div class="technique-cell partial">
-                    <span class="technique-id">Kiterunner</span>
-                    <span class="technique-name">API Discovery</span>
-                    <span class="technique-count">Internal only</span>
-                  </div>
-                </div>
-                <div class="tactic-column">
-                  <div class="tactic-header">Exploitation</div>
-                  <div class="technique-cell covered">
-                    <span class="technique-id">SQLMap</span>
-                    <span class="technique-name">SQL Injection</span>
-                    <span class="technique-count">Internal only</span>
-                  </div>
-                  <div class="technique-cell covered">
-                    <span class="technique-id">Metasploit</span>
-                    <span class="technique-name">Exploit Framework</span>
-                    <span class="technique-count">Internal only</span>
-                  </div>
-                </div>
-                <div class="tactic-column">
-                  <div class="tactic-header">Cloud</div>
-                  <div class="technique-cell covered">
-                    <span class="technique-id">S3Scanner</span>
-                    <span class="technique-name">Bucket Enum</span>
-                    <span class="technique-count">Both backends</span>
-                  </div>
-                  <div class="technique-cell none">
-                    <span class="technique-id">GVM</span>
-                    <span class="technique-name">OpenVAS Scanner</span>
-                  </div>
-                </div>
+            <!-- Tool Availability Matrix (dynamically rendered by renderToolMatrix()) -->
+            <div id="matrix-owasp-agentic" class="matrix-container">
+              <div class="matrix-table" id="toolMatrixGrid">
+                <div style="text-align:center;color:var(--zerok-text-secondary);padding:40px;">Loading tool matrix...</div>
               </div>
             </div>
           </div>
@@ -7935,6 +7859,97 @@
     }
 
     // Framework Matrix Switcher
+    function renderToolMatrix(data) {
+      var grid = document.getElementById('toolMatrixGrid');
+      if (!grid) return;
+
+      // Clear existing content safely via DOM traversal
+      while (grid.firstChild) { grid.removeChild(grid.firstChild); }
+
+      if (!data || !data.categories || data.categories.length === 0) {
+        var empty = document.createElement('div');
+        empty.style.textAlign = 'center';
+        empty.style.padding = '40px';
+        empty.style.color = 'var(--zerok-text-secondary)';
+        empty.textContent = 'No tools registered';
+        grid.appendChild(empty);
+        return;
+      }
+
+      data.categories.forEach(function(cat) {
+        var col = document.createElement('div');
+        col.className = 'tactic-column';
+
+        var header = document.createElement('div');
+        header.className = 'tactic-header';
+        header.textContent = cat.name;
+        col.appendChild(header);
+
+        // Limit to first 6 tools per column to keep the grid balanced
+        var visible = cat.tools.slice(0, 6);
+        var overflow = cat.tools.length - visible.length;
+
+        visible.forEach(function(tool) {
+          var cell = document.createElement('div');
+          cell.className = 'technique-cell ' + tool.status;
+          cell.setAttribute('data-tool-id', tool.id);
+
+          var idSpan = document.createElement('span');
+          idSpan.className = 'technique-id';
+          idSpan.textContent = tool.display_name.split(' ')[0];
+
+          var nameSpan = document.createElement('span');
+          nameSpan.className = 'technique-name';
+          nameSpan.textContent = tool.display_name.length > 25
+            ? tool.display_name.slice(0, 22) + '...'
+            : tool.display_name;
+
+          var countSpan = document.createElement('span');
+          countSpan.className = 'technique-count';
+          if (tool.status === 'none') {
+            countSpan.textContent = '\u2014';
+          } else if (tool.findings_count > 0) {
+            countSpan.textContent = tool.findings_count + ' finding' + (tool.findings_count !== 1 ? 's' : '');
+          } else {
+            countSpan.textContent = tool.scan_count + ' scan' + (tool.scan_count !== 1 ? 's' : '') + ', 0 findings';
+          }
+
+          cell.appendChild(idSpan);
+          cell.appendChild(nameSpan);
+          cell.appendChild(countSpan);
+          col.appendChild(cell);
+        });
+
+        // Show overflow indicator if tools were truncated
+        if (overflow > 0) {
+          var more = document.createElement('div');
+          more.style.textAlign = 'center';
+          more.style.fontSize = '10px';
+          more.style.padding = '4px 0';
+          more.style.opacity = '0.7';
+          more.style.color = 'var(--zerok-text-secondary)';
+          more.textContent = '+' + overflow + ' more';
+          col.appendChild(more);
+        }
+
+        grid.appendChild(col);
+      });
+    }
+
+    async function loadToolMatrix() {
+      try {
+        var eid = typeof currentEngagementId !== 'undefined' ? currentEngagementId : '';
+        var url = eid ? '/api/tool-matrix?engagement=' + encodeURIComponent(eid) : '/api/tool-matrix';
+        var resp = await fetch(url);
+        if (resp.ok) {
+          var data = await resp.json();
+          renderToolMatrix(data);
+        }
+      } catch (e) {
+        console.warn('Tool matrix load failed:', e);
+      }
+    }
+
     function switchFramework(framework, tabEl) {
       // Update tabs — BUG-C5: pass element explicitly, don't use implicit window.event
       document.querySelectorAll('.framework-tab').forEach(tab => {
@@ -7947,6 +7962,11 @@
         matrix.classList.remove('active');
       });
       document.getElementById('matrix-' + framework).classList.add('active');
+
+      // Refresh tool matrix when its tab becomes active
+      if (framework === 'owasp-agentic') {
+        loadToolMatrix();
+      }
     }
 
     // Load saved preferences on page load
@@ -8882,6 +8902,17 @@
         bumpAgentCount(msg.agent);
         // Ensure KPI polling is active when tools are running (but don't override paused state)
         if (_currentCtrlState === 'idle') setCtrlState('running');
+        // Real-time matrix: transition none -> partial for instant visual feedback
+        var toolStartName = msg.tool_name || (msg.metadata && msg.metadata.tool);
+        if (toolStartName) {
+          var matrixCell = document.querySelector('#toolMatrixGrid [data-tool-id="' + toolStartName + '"]');
+          if (matrixCell && matrixCell.classList.contains('none')) {
+            matrixCell.className = 'technique-cell partial';
+            matrixCell.setAttribute('data-tool-id', toolStartName);
+            var countEl = matrixCell.querySelector('.technique-count');
+            if (countEl) countEl.textContent = 'Scanning...';
+          }
+        }
         return;
       }
 
@@ -12175,6 +12206,9 @@
           if (evBadge) { evBadge.textContent = evCount; evBadge.style.display = evCount > 0 ? '' : 'none'; }
         }
       } catch (e) { /* ignore */ }
+
+      // ── Tool Matrix (refresh on each polling cycle) ──
+      loadToolMatrix();
     }
 
     // ────────────────────────────────────────
