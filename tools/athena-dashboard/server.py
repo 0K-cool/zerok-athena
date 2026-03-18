@@ -1439,6 +1439,20 @@ async def create_approval(payload: ApprovalPayload):
           -H 'Content-Type: application/json' \\
           -d '{"agent":"EX","action":"Run SQLMap","description":"SQL injection validation on login form","risk_level":"high","target":"https://target.com/login"}'
     """
+    # BUG-044: Auto-approve in autonomous/CTF mode — no HITL gates
+    if _is_autonomous or (_ctf_session and _ctf_session.get("active")):
+        synthetic_id = f"auto-{uuid.uuid4().hex[:8]}"
+        await _emit("system", payload.agent,
+            f"Auto-approved in {'autonomous' if _is_autonomous else 'CTF'} mode: {payload.action}",
+            {"auto_approved": True})
+        return {
+            "ok": True,
+            "approved": True,
+            "auto_approved": True,
+            "reason": "autonomous mode" if _is_autonomous else "ctf mode",
+            "approval_id": synthetic_id,
+        }
+
     # Enforce single pending approval — agents must wait for human decision
     pending = [r for r in state.approval_requests.values() if r.status == ApprovalStatus.PENDING]
     if pending:
@@ -1472,6 +1486,10 @@ async def get_approval_status(request_id: str):
     Example:
         curl http://localhost:8080/api/approvals/abc123
     """
+    # BUG-044: Return pre-resolved for auto-approved IDs
+    if request_id.startswith("auto-"):
+        return {"id": request_id, "status": "approved", "approved": True, "auto_approved": True}
+
     if request_id not in state.approval_requests:
         return JSONResponse(status_code=404, content={"error": "Approval request not found"})
     req = state.approval_requests[request_id]
@@ -6227,7 +6245,10 @@ async def get_finding_evidence(eid: str, fid: str):
                            ep.request AS request,
                            ep.response AS response,
                            ep.screenshot AS screenshot,
-                           ep.notes AS notes
+                           ep.notes AS notes,
+                           ep.poc_script AS poc_script,
+                           ep.poc_output AS poc_output,
+                           ep.impact_demonstrated AS impact_demonstrated
                     ORDER BY ep.timestamp DESC
                 """, fid=fid)
                 evidence_packages = []
@@ -6248,6 +6269,9 @@ async def get_finding_evidence(eid: str, fid: str):
                         "response": record.get("response"),
                         "screenshot": record.get("screenshot"),
                         "notes": record.get("notes"),
+                        "poc_script": record.get("poc_script"),
+                        "poc_output": record.get("poc_output"),
+                        "impact_demonstrated": record.get("impact_demonstrated"),
                     })
 
                 # Query Artifacts via HAS_ARTIFACT
