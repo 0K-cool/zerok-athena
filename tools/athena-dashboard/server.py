@@ -1593,6 +1593,20 @@ def _extract_host_port(target: str) -> tuple[str | None, int | None]:
 _VALID_IP_RE = re.compile(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$')
 
 
+def _is_version_string_ip(ip: str) -> bool:
+    """Return True if the IP looks like a version string (all octets < 20).
+    Version strings like '3.2.8.1' (UnrealIRCd) are created directly as Host
+    nodes by MCP tools, bypassing _safe_extract_host. This filter catches them
+    at query result time. (BUG-036)"""
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        return all(int(p) < 20 for p in parts)
+    except ValueError:
+        return False
+
+
 def _safe_extract_host(raw: str) -> str:
     """Extract and validate hostname/IP from a finding target string.
     Returns empty string if the result is not a plausible host."""
@@ -5161,6 +5175,18 @@ async def get_engagement_summary(eid: str):
                 record = result.single()
                 if record:
                     neo4j_hosts = record["hosts"]
+                    # BUG-036: Subtract version-string Host nodes (e.g. "3.2.8.1" from UnrealIRCd)
+                    # that were created directly via MCP tools, bypassing _safe_extract_host.
+                    # We fetch Host IPs in a lightweight query and filter in Python.
+                    if neo4j_hosts > 0:
+                        ip_result = session.run(
+                            "MATCH (h:Host {engagement_id: $eid}) RETURN h.ip AS ip",
+                            eid=eid,
+                        )
+                        version_string_count = sum(
+                            1 for r in ip_result if _is_version_string_ip(r["ip"] or "")
+                        )
+                        neo4j_hosts = max(0, neo4j_hosts - version_string_count)
                     neo4j_services = record["services"]
                     neo4j_findings = record["findings"]
                     # If Neo4j has real Host/Service data, use it; otherwise supplement from in-memory state
@@ -8088,6 +8114,10 @@ async def get_attack_graph(engagement: Optional[str] = None):
                         )
                     for record in result:
                         node = dict(record["n"])
+                        # BUG-036: Filter out version-string IPs (e.g. "3.2.8.1" from UnrealIRCd)
+                        # that were created directly as Host nodes by MCP tools, bypassing _safe_extract_host.
+                        if ntype == "host" and _is_version_string_ip(node.get("ip", "")):
+                            continue
                         node_id = node.get("id", node.get("ip", node.get("name", str(id(node)))))
                         # Services need port in ID to avoid collisions
                         # (e.g. netbios-ssn on port 139 and 445)
