@@ -1546,6 +1546,37 @@ def _extract_host_port(target: str) -> tuple[str | None, int | None]:
     return host_ip, port
 
 
+# BUG-NEW-008: Validate extracted host so version strings like "3.2.8.1"
+# from "UnrealIRCd 3.2.8.1 Backdoor" are not counted as hosts.
+_VALID_IP_RE = re.compile(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$')
+
+
+def _safe_extract_host(raw: str) -> str:
+    """Extract and validate hostname/IP from a finding target string.
+    Returns empty string if the result is not a plausible host."""
+    if not raw:
+        return ""
+    raw = raw.strip()
+    if raw.startswith(("http://", "https://")):
+        from urllib.parse import urlparse
+        host = urlparse(raw).hostname or ""
+    else:
+        host = raw.split(":")[0].split("/")[0].strip()
+
+    # Validate: if it looks like an IP, all octets must be 0-255
+    m = _VALID_IP_RE.match(host)
+    if m:
+        if all(0 <= int(g) <= 255 for g in m.groups()):
+            return host
+        return ""
+
+    # For hostnames: must have no spaces and at least 1 non-digit char
+    if host and " " not in host and not host.replace(".", "").isdigit():
+        return host
+
+    return ""
+
+
 # ── BUG-013: Finding Deduplication ────────────────────────
 
 _SEV_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -1872,12 +1903,7 @@ async def create_finding(payload: FindingPayload):
         hosts = set()
         for f in eng_findings:
             if f.target:
-                raw = f.target.strip()
-                if raw.startswith(("http://", "https://")):
-                    from urllib.parse import urlparse
-                    host = urlparse(raw).hostname or ""
-                else:
-                    host = raw.split(":")[0].split("/")[0]
+                host = _safe_extract_host(f.target)
                 if host:
                     hosts.add(host)
         # Extract unique ports from finding targets for Open Ports KPI
@@ -4339,15 +4365,7 @@ async def get_lateral_movement(engagement_id: str = "eng-001"):
 
 def _extract_host_from_target(target: str) -> str:
     """Extract hostname/IP from a finding's target field for grouping."""
-    if not target:
-        return ""
-    t = target.strip()
-    if t.startswith(("http://", "https://")):
-        from urllib.parse import urlparse
-        parsed = urlparse(t)
-        return parsed.hostname or ""
-    # ip:port or hostname:port
-    return t.split(":")[0].split("/")[0]
+    return _safe_extract_host(target)
 
 
 def _normalize_category(cat: str) -> set[str]:
@@ -5061,12 +5079,7 @@ async def get_engagement_summary(eid: str):
                         mem_hosts = set()
                         for f in mem_findings:
                             if f.target:
-                                raw = f.target.strip()
-                                if raw.startswith(("http://", "https://")):
-                                    from urllib.parse import urlparse
-                                    h = urlparse(raw).hostname or ""
-                                else:
-                                    h = raw.split(":")[0].split("/")[0]
+                                h = _safe_extract_host(f.target)
                                 if h:
                                     mem_hosts.add(h)
                         # Count ports from scans first, then fallback to finding targets
@@ -5131,12 +5144,7 @@ async def get_engagement_summary(eid: str):
     hosts = set()
     for f in eng_findings:
         if f.target:
-            raw = f.target.strip()
-            if raw.startswith(("http://", "https://")):
-                from urllib.parse import urlparse
-                host = urlparse(raw).hostname or ""
-            else:
-                host = raw.split(":")[0].split("/")[0]
+            host = _safe_extract_host(f.target)
             if host:
                 hosts.add(host)
     # Count open ports from scan data
@@ -5412,7 +5420,24 @@ async def get_vuln_severity(eid: str):
     mem_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     mem_total = 0
     mem_findings = [f for f in state.findings if f.engagement == eid]
+    # BUG-NEW-005 fix: Deduplicate findings before counting to avoid inflated
+    # "Unique Vulnerabilities" numbers when the same vuln appears multiple times.
+    seen_fingerprints = set()
+    seen_title_keys = set()
     for f in mem_findings:
+        # Deduplicate by fingerprint (same vuln on same target)
+        fp = getattr(f, 'fingerprint', None)
+        if fp:
+            if fp in seen_fingerprints:
+                continue
+            seen_fingerprints.add(fp)
+        else:
+            # Fallback dedup: normalized title + category
+            title_key = f"{getattr(f, 'category', '')}:{getattr(f, 'title', '')[:50].lower().strip()}"
+            if title_key in seen_title_keys:
+                continue
+            seen_title_keys.add(title_key)
+
         sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
         if sev in mem_counts:
             mem_counts[sev] += 1
@@ -7724,8 +7749,8 @@ def _synthesize_graph_from_findings(existing_nodes: list, existing_edges: list) 
             existing_ids.add(fid)
         # Edge: Finding AFFECTS Host
         if f.target:
-            ip = f.target.split(":")[0].split("/")[0]
-            if ip in existing_ids:
+            ip = _safe_extract_host(f.target)
+            if ip and ip in existing_ids:
                 edges.append({"from": fid, "to": ip, "type": "AFFECTS", "label": "AFFECTS"})
             # Edge: Finding AFFECTS Service (if port specified)
             parts = f.target.split(":")
@@ -8701,12 +8726,7 @@ async def _sync_neo4j_findings(eid: str):
                 hosts = set()
                 for f in eng_findings:
                     if f.target:
-                        raw = f.target.strip()
-                        if raw.startswith(("http://", "https://")):
-                            from urllib.parse import urlparse
-                            host = urlparse(raw).hostname or ""
-                        else:
-                            host = raw.split(":")[0].split("/")[0]
+                        host = _safe_extract_host(f.target)
                         if host:
                             hosts.add(host)
                 findings_display = len(eng_findings) if eng_findings else neo4j_vuln_count
