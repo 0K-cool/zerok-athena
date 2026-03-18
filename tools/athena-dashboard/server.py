@@ -291,6 +291,27 @@ KALI_EXTERNAL_URL = os.environ.get("KALI_EXTERNAL_URL", "http://your-kali-host:5
 KALI_INTERNAL_URL = os.environ.get("KALI_INTERNAL_URL", "http://your-internal-kali:5000")
 KALI_INTERNAL_API_KEY = os.environ.get("KALI_API_KEY", "")
 
+# BUG-040: Kali backend IPs — never register these as target hosts
+_KALI_BACKEND_IPS: set[str] = set()
+try:
+    from urllib.parse import urlparse as _urlparse
+    import socket as _socket
+    for _url in [KALI_EXTERNAL_URL, KALI_INTERNAL_URL]:
+        _parsed = _urlparse(_url)
+        _host = _parsed.hostname or ""
+        if _host:
+            # Try to resolve hostname to IP
+            try:
+                _resolved = _socket.gethostbyname(_host)
+                _KALI_BACKEND_IPS.add(_resolved)
+            except _socket.gaierror:
+                pass
+            # Also add the raw hostname in case it's already an IP
+            _KALI_BACKEND_IPS.add(_host)
+    _KALI_BACKEND_IPS.discard("")
+except Exception:
+    pass  # Non-critical — worst case, no filtering
+
 # Initialize Kali client (set up after state is created below)
 kali_client: KaliClient | None = None
 
@@ -1592,6 +1613,9 @@ def _safe_extract_host(raw: str) -> str:
             # (e.g., "3.2.8.1" for UnrealIRCd). Real target IPs have
             # at least one octet >= 20.
             if all(int(g) < 20 for g in m.groups()):
+                return ""
+            # BUG-040: Reject Kali backend IPs — never register attack box as target
+            if host in _KALI_BACKEND_IPS:
                 return ""
             return host
         return ""
