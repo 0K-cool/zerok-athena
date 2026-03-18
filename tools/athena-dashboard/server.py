@@ -8562,17 +8562,26 @@ async def search_knowledge_base(q: str, top_k: int = 5):
     """
     import subprocess
 
+    # Use the MCP server's search_kb function via subprocess.
+    # The MCP server initializes the pipeline correctly (embedder + reranker on GPU).
+    # We call the MCP's search_kb directly via a Python one-liner to avoid CLI path issues.
     vex_rag_python = "/Users/kelvinlomboy/tools/vex-rag/.venv/bin/python3"
     athena_rag_config = "/Users/kelvinlomboy/VERSANT/Projects/ATHENA/.vex-rag.yml"
+
+    search_script = (
+        "import sys, os; "
+        "os.environ['RAG_CONFIG'] = os.environ.get('RAG_CONFIG', ''); "
+        "sys.path.insert(0, '/Users/kelvinlomboy/tools/vex-rag'); "
+        "from mcp_server.vex_kb_server import search_kb; "
+        f"print(search_kb({q!r}, top_k={min(top_k, 10)}))"
+    )
 
     try:
         result = await asyncio.to_thread(
             subprocess.run,
-            [
-                vex_rag_python, "-m", "rag.cli.search",
-                q, "--top-k", str(min(top_k, 10)), "--json",
-            ],
-            capture_output=True, text=True, timeout=10,
+            [vex_rag_python, "-c", search_script],
+            capture_output=True, text=True, timeout=15,
+            cwd="/Users/kelvinlomboy/VERSANT/Projects/ATHENA",
             env={
                 **dict(__import__("os").environ),
                 "RAG_CONFIG": athena_rag_config,
@@ -8585,12 +8594,12 @@ async def search_knowledge_base(q: str, top_k: int = 5):
                 data = _json.loads(result.stdout)
                 return {"results": data, "query": q, "top_k": top_k}
             except _json.JSONDecodeError:
-                # CLI may output plain text instead of JSON
+                # MCP returns formatted text
                 return {"results": [{"content": result.stdout.strip()}], "query": q, "format": "text"}
         else:
             return {"results": [], "query": q, "error": result.stderr[:200] if result.stderr else "No results"}
     except subprocess.TimeoutExpired:
-        return {"results": [], "query": q, "error": "Search timed out (10s)"}
+        return {"results": [], "query": q, "error": "Search timed out (15s)"}
     except Exception as e:
         return {"results": [], "query": q, "error": str(e)[:200]}
 
