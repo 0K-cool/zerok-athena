@@ -11428,13 +11428,10 @@
     });
 
     function resetDashboardFindingWidgets() {
-      // Reset Engagement Cost KPI — only zero when no engagement is selected
-      // (purge/delete/archive case). On engagement switch, loadDashboardFromAPI
-      // will populate the correct cost value.
-      if (!currentEngagementId) {
-        const costEl = document.getElementById('kpi-cost');
-        if (costEl) costEl.textContent = '$0.00';
-      }
+      // Reset Engagement Cost KPI — always zero on reset, loadDashboardFromAPI
+      // will populate the correct cost value for the new engagement.
+      const costEl = document.getElementById('kpi-cost');
+      if (costEl) costEl.textContent = '$0.00';
       // Reset severity counts
       Object.keys(_severityCounts).forEach(k => _severityCounts[k] = 0);
       updateSeverityChart();
@@ -11520,9 +11517,11 @@
       Object.keys(_categoryCounts).forEach(k => delete _categoryCounts[k]);
       const topVulns = document.getElementById('top-vulns-body');
       if (topVulns) topVulns.innerHTML = '<div style="text-align:center;padding:24px 0;color:var(--zerok-text-dim);font-size:12px;opacity:0.6">No vulnerability data yet.</div>';
-      // Reset KPI
+      // Reset KPIs
       const kpiFindings = document.getElementById('kpi-findings');
       if (kpiFindings) kpiFindings.textContent = '0';
+      const kpiCriticals = document.getElementById('kpi-criticals');
+      if (kpiCriticals) kpiCriticals.textContent = '0';
       // Reset nav badges
       const findingsBadge = document.getElementById('nav-badge-findings');
       if (findingsBadge) findingsBadge.style.display = 'none';
@@ -11539,6 +11538,10 @@
       // Reset Intelligence badge (CEI data persists cross-engagement, only badge resets)
       const intelBadge = document.getElementById('nav-badge-intelligence');
       if (intelBadge) { intelBadge.textContent = '0'; intelBadge.style.display = 'none'; }
+
+      // Reset Attack Graph badge
+      const graphBadgeReset = document.getElementById('nav-badge-attack-graph');
+      if (graphBadgeReset) { graphBadgeReset.textContent = '0'; graphBadgeReset.style.display = 'none'; }
 
       // ── Reset Agent Status chips to idle ──
       document.querySelectorAll('.agent-chip').forEach(chip => {
@@ -11564,6 +11567,12 @@
       // ── Clear skipped agent styling ──
       agentGrid.querySelectorAll('.layer-cell.skipped').forEach(function(c) { c.classList.remove('skipped'); });
 
+      // ── Reset PTES Methodology Coverage matrix ──
+      document.querySelectorAll('[data-ptes]').forEach(function(cell) {
+        cell.classList.remove('covered', 'partial');
+        cell.classList.add('none');
+      });
+
       // ── Reset dedup sets for new engagement ──
       _renderedResponseIds.clear();
       _renderedToolIds.clear();
@@ -11588,10 +11597,6 @@
       // ── Reset Hosts Discovered KPI ──
       const kpiHosts = document.getElementById('kpi-hosts');
       if (kpiHosts) kpiHosts.textContent = '0';
-
-      // ── Reset Confirmed Exploits KPI ──
-      const kpiCriticals = document.getElementById('kpi-criticals');
-      if (kpiCriticals) kpiCriticals.textContent = '0';
 
       // ── Reset AI Timeline ──
       const timeline = document.getElementById('aiTimeline');
