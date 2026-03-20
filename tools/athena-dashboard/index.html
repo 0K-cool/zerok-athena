@@ -11319,22 +11319,55 @@
     function startEngage() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (!currentEngagementId) { showToast('error', 'Error', 'No engagement selected'); return; }
-      const eid = currentEngagementId;
-      const backendOverride = 'external';  // Force external for Antsle bridge targets
+      var eid = currentEngagementId;
+
+      // Check if engagement has existing data — offer to clear first
+      var findingsCount = parseInt((document.getElementById('kpi-findings') || {}).textContent || '0') || 0;
+      var scansCount = parseInt((document.getElementById('nav-badge-scans') || {}).textContent || '0') || 0;
+      var existingData = findingsCount > 0 || scansCount > 0;
+
+      if (existingData) {
+        showConfirmModal({
+          title: 'Clear & Re-engage',
+          message: 'This engagement has existing data (<strong>' + findingsCount + ' findings</strong>, <strong>' + scansCount + ' scans</strong>).<br>Clear all data and start fresh?',
+          actionLabel: 'Clear & Start',
+          variant: 'warning'
+        }).then(function(confirmed) {
+          if (!confirmed) return;
+          showToast('info', 'Clearing', 'Wiping existing engagement data...');
+          fetch('/api/engagements/' + eid + '/clear', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (data.ok) {
+                showToast('success', 'Cleared', 'Engagement data wiped');
+                resetDashboardFindingWidgets();
+                _doStartEngage(eid);
+              } else {
+                showToast('error', 'Error', 'Failed to clear engagement data');
+              }
+            })
+            .catch(function() { showToast('error', 'Error', 'Failed to clear engagement data'); });
+        });
+      } else {
+        _doStartEngage(eid);
+      }
+    }
+
+    function _doStartEngage(eid) {
+      var backendOverride = 'external';  // Force external for Antsle bridge targets
       window._summaryGenerated = false;  // BUG-020: Reset summary guard for new engagement
       setCtrlState('preparing');  // Show "Preparing..." immediately, WebSocket upgrades to "running"
 
-      fetch(`/api/engagement/${eid}/start-ai?backend=${backendOverride}`, { method: 'POST' })
-        .then(r => r.json())
-        .then(data => {
+      fetch('/api/engagement/' + eid + '/start-ai?backend=' + backendOverride, { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
           if (!data.ok) { console.error(data); showToast('error', 'Error', data.error || 'Failed to start AI mode'); setCtrlState('idle'); }
           else {
             showToast('success', 'AI Mode', 'Claude Code Agent Teams launched');
-            // Dim skipped agent cells in the grid
             applySkippedAgents(data.skip_agents || []);
           }
         })
-        .catch(() => { showToast('error', 'Error', 'Failed to start AI engagement'); setCtrlState('idle'); });
+        .catch(function() { showToast('error', 'Error', 'Failed to start AI engagement'); setCtrlState('idle'); });
     }
 
     function pauseEngage() {

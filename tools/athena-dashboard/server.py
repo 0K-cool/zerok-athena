@@ -5293,6 +5293,87 @@ async def get_engagement_filters():
     return {"clients": sorted(clients), "targets": sorted(targets)}
 
 
+@app.post("/api/engagements/{eid}/clear")
+async def clear_engagement_data(eid: str):
+    """Clear all data for an engagement (findings, scans, evidence, graph, events, budgets)
+    but KEEP the Engagement node itself. Used for re-engaging on the same target."""
+    if not re.fullmatch(r'eng-[a-f0-9]{6}', eid):
+        return JSONResponse(status_code=400, content={"error": "Invalid engagement ID format"})
+
+    cleared = {"findings": 0, "events": 0, "graph": 0}
+
+    if neo4j_available and neo4j_driver:
+        def _clear_scoped(eid: str) -> dict:
+            result = {}
+            try:
+                with neo4j_driver.session() as session:
+                    r = session.run("""
+                        MATCH (n)
+                        WHERE n.engagement_id = $eid AND NOT n:Engagement
+                        DETACH DELETE n
+                        RETURN count(*) AS deleted
+                    """, eid=eid)
+                    result["graph"] = r.single()["deleted"]
+                    session.run("""
+                        MATCH (e:Engagement {id: $eid})
+                        REMOVE e.engagement_cost, e.phase, e.findings_count
+                    """, eid=eid)
+                    r2 = session.run("""
+                        MATCH (ev:Event)
+                        WHERE ev.engagement_id = $eid
+                        DETACH DELETE ev
+                        RETURN count(*) AS deleted
+                    """, eid=eid)
+                    result["events"] = r2.single()["deleted"]
+            except Exception as e:
+                logger.warning("Clear engagement data error: %s", str(e)[:200])
+            return result
+        cleared = await neo4j_exec(lambda: _clear_scoped(eid))
+
+    global _agent_budgets, _engagement_cost, _engagement_cost_eid
+    _agent_budgets = {}
+    _engagement_cost = 0.0
+    _engagement_cost_eid = ""
+    if hasattr(state, '_engagement_cap_warned'):
+        state._engagement_cap_warned = False
+
+    state.findings = [f for f in state.findings if f.engagement != eid]
+    state.scans = [s for s in state.scans if s.get("engagement_id") != eid]
+    state._reports = [r for r in state._reports if r.get("engagement_id") != eid]
+    state._credentials.pop(eid, None)
+
+    for code in state.agent_statuses:
+        state.agent_statuses[code] = AgentStatus.IDLE
+    state.agent_tasks.clear()
+
+    try:
+        ev_dir = athena_dir / "engagements" / "active" / eid / "08-evidence"
+        if ev_dir.exists():
+            import shutil
+            shutil.rmtree(ev_dir, ignore_errors=True)
+            ev_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    try:
+        reports_dir = Path("reports")
+        if reports_dir.exists():
+            for f in reports_dir.glob(f"*{eid}*"):
+                f.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    logger.info("[CLEAR] Engagement %s data cleared: %s", eid, cleared)
+
+    await state.broadcast({
+        "type": "engagement_cleared",
+        "engagement_id": eid,
+        "timestamp": time.time(),
+    })
+
+    return {"ok": True, "cleared": cleared}
+
+
 @app.delete("/api/engagements/{eid}")
 async def delete_engagement(eid: str, purge_cei: bool = False):
     """Delete an engagement and ALL related data permanently.
