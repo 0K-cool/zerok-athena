@@ -6457,9 +6457,19 @@
         <div class="widget-grid" style="grid-template-columns: 1fr 1fr 1fr;">
           <!-- Area Chart with Gradient -->
           <div class="widget">
-            <div class="widget-header">
+            <div class="widget-header" style="flex-wrap: wrap; gap: 6px;">
               <span class="widget-title">Findings Over Time</span>
-              <span style="font-size: 11px; color: var(--zerok-text-dim);">Last 30 days</span>
+              <div style="display: flex; align-items: center; gap: 6px; margin-left: auto;">
+                <select id="trendScope" onchange="onTrendScopeChange()" style="font-size: 11px; padding: 2px 6px; background: var(--zerok-surface); color: var(--zerok-text); border: 1px solid var(--zerok-border); border-radius: 4px; cursor: pointer;">
+                  <option value="engagement">This Engagement</option>
+                  <option value="client">By Client</option>
+                  <option value="target">By Target</option>
+                  <option value="all">All Engagements</option>
+                </select>
+                <select id="trendClientFilter" onchange="loadTrendChart()" style="display:none; font-size: 11px; padding: 2px 6px; background: var(--zerok-surface); color: var(--zerok-text); border: 1px solid var(--zerok-border); border-radius: 4px; cursor: pointer; max-width: 140px;"></select>
+                <select id="trendTargetFilter" onchange="loadTrendChart()" style="display:none; font-size: 11px; padding: 2px 6px; background: var(--zerok-surface); color: var(--zerok-text); border: 1px solid var(--zerok-border); border-radius: 4px; cursor: pointer; max-width: 140px;"></select>
+                <span id="trendEngCount" style="font-size: 10px; color: var(--zerok-text-dim); display: none;"></span>
+              </div>
             </div>
             <div class="widget-body">
               <canvas id="areaChart" height="145"></canvas>
@@ -11593,6 +11603,106 @@
       setCtrlState('idle');
     }
 
+    // ── Findings Trends (cross-engagement area chart) ──
+    let _trendFiltersLoaded = false;
+
+    async function loadTrendFilters() {
+      if (_trendFiltersLoaded) return;
+      try {
+        const res = await fetch('/api/engagements/filters');
+        const data = await res.json();
+        const clientSel = document.getElementById('trendClientFilter');
+        const targetSel = document.getElementById('trendTargetFilter');
+        if (clientSel && data.clients) {
+          // Populate with server-validated client names (escaped for safety)
+          clientSel.textContent = '';
+          data.clients.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.textContent = c;
+            clientSel.appendChild(opt);
+          });
+        }
+        if (targetSel && data.targets) {
+          targetSel.textContent = '';
+          data.targets.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            targetSel.appendChild(opt);
+          });
+        }
+        _trendFiltersLoaded = true;
+      } catch (e) {
+        console.error('Failed to load trend filters:', e);
+      }
+    }
+
+    function onTrendScopeChange() {
+      const scope = document.getElementById('trendScope').value;
+      const clientSel = document.getElementById('trendClientFilter');
+      const targetSel = document.getElementById('trendTargetFilter');
+      const engCount = document.getElementById('trendEngCount');
+
+      clientSel.style.display = scope === 'client' ? '' : 'none';
+      targetSel.style.display = scope === 'target' ? '' : 'none';
+      engCount.style.display = scope !== 'engagement' ? '' : 'none';
+
+      if (scope !== 'engagement' && !_trendFiltersLoaded) {
+        loadTrendFilters().then(() => loadTrendChart());
+      } else {
+        loadTrendChart();
+      }
+    }
+
+    async function loadTrendChart() {
+      if (!areaChart) return;
+      const scope = document.getElementById('trendScope').value;
+      let url = `/api/findings/trends?scope=${encodeURIComponent(scope)}`;
+
+      if (scope === 'engagement') {
+        if (!currentEngagementId) return;
+        url += `&engagement_id=${encodeURIComponent(currentEngagementId)}`;
+      } else if (scope === 'client') {
+        const client = document.getElementById('trendClientFilter').value;
+        if (client) url += `&client=${encodeURIComponent(client)}`;
+      } else if (scope === 'target') {
+        const target = document.getElementById('trendTargetFilter').value;
+        if (target) url += `&target=${encodeURIComponent(target)}`;
+      }
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const labels = data.labels || [];
+        const ds = data.datasets || {};
+
+        if (labels.length > 0) {
+          areaChart.data.labels = labels;
+          // Map 5-severity API response to the 3 chart datasets
+          areaChart.data.datasets[0].data = labels.map((_, i) => (ds.critical?.[i] || 0) + (ds.high?.[i] || 0));
+          areaChart.data.datasets[0].label = 'Critical/High';
+          areaChart.data.datasets[1].data = labels.map((_, i) => ds.medium?.[i] || 0);
+          areaChart.data.datasets[1].label = 'Medium';
+          areaChart.data.datasets[2].data = labels.map((_, i) => (ds.low?.[i] || 0) + (ds.info?.[i] || 0));
+          areaChart.data.datasets[2].label = 'Low/Info';
+        } else {
+          areaChart.data.labels = [];
+          areaChart.data.datasets.forEach(d => d.data = []);
+        }
+        areaChart.update('none');
+
+        // Update engagement count badge
+        const engCount = document.getElementById('trendEngCount');
+        if (engCount && scope !== 'engagement') {
+          const n = data.engagements_included || 0;
+          engCount.textContent = `${n} engagement${n !== 1 ? 's' : ''}`;
+        }
+      } catch (e) {
+        console.error('Failed to load trend chart:', e);
+      }
+    }
+
     async function refreshActiveEngagementsKPI() {
       const kpiEng = document.getElementById('kpi-engagements');
       if (!kpiEng) return;
@@ -11673,38 +11783,8 @@
           updateTopVulnCategories(f);
         });
 
-        // Populate Findings Over Time (area chart)
-        if (areaChart) {
-          const byDate = {};
-          const bySevDate = { critical: {}, high: {}, other: {} };
-          findings.forEach(f => {
-            // Use timestamp (epoch seconds) or current date
-            const ts = f.timestamp || f.cvss_timestamp || 0;
-            const d = ts > 0
-              ? new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-              : 'Today';
-            byDate[d] = (byDate[d] || 0) + 1;
-            const sev = (f.severity || 'info').toLowerCase();
-            if (sev === 'critical' || sev === 'high') {
-              bySevDate.critical[d] = (bySevDate.critical[d] || 0) + 1;
-            } else if (sev === 'medium') {
-              bySevDate.high[d] = (bySevDate.high[d] || 0) + 1;
-            } else {
-              bySevDate.other[d] = (bySevDate.other[d] || 0) + 1;
-            }
-          });
-          const labels = Object.keys(byDate);
-          if (labels.length > 0) {
-            areaChart.data.labels = labels;
-            areaChart.data.datasets[0].data = labels.map(l => bySevDate.critical[l] || 0);
-            areaChart.data.datasets[0].label = 'Critical/High';
-            areaChart.data.datasets[1].data = labels.map(l => bySevDate.high[l] || 0);
-            areaChart.data.datasets[1].label = 'Medium';
-            areaChart.data.datasets[2].data = labels.map(l => bySevDate.other[l] || 0);
-            areaChart.data.datasets[2].label = 'Low/Info';
-            areaChart.update('none');
-          }
-        }
+        // Populate Findings Over Time (area chart) via trend API
+        loadTrendChart();
 
         // ── Kill Chain Depth (derived from findings) ──
         window._dashFindingsAccum = findings.slice();
@@ -11788,11 +11868,14 @@
         }
       } catch (e) { /* ignore */ }
 
-      // Restore Intelligence badge from CEI techniques API
+      // Restore Intelligence badge from CEI techniques API (scoped to current engagement)
       try {
         const ceiRes = await fetch('/api/cei/techniques');
         const ceiData = await ceiRes.json();
-        const ceiCount = (ceiData.techniques || []).length;
+        const techniques = ceiData.techniques || [];
+        const ceiCount = currentEngagementId
+          ? techniques.filter(function(t) { return (t.engagement_ids || []).indexOf(currentEngagementId) !== -1; }).length
+          : techniques.length;
         const intelBadge = document.getElementById('nav-badge-intelligence');
         if (intelBadge) {
           intelBadge.textContent = ceiCount;
@@ -12221,12 +12304,9 @@
         const gData = await gRes.json();
         const totalNodes = gData.nodes ? gData.nodes.length : 0;
         const graphBadge = document.getElementById('nav-badge-attack-graph');
-        // Don't hide badge during active engagement if it was previously showing
         if (graphBadge) {
-          const curGraphCount = parseInt(graphBadge.textContent) || 0;
-          const newGraphCount = Math.max(totalNodes, currentEngagementId ? curGraphCount : 0);
-          graphBadge.textContent = newGraphCount;
-          graphBadge.style.display = newGraphCount > 0 ? '' : 'none';
+          graphBadge.textContent = totalNodes;
+          graphBadge.style.display = totalNodes > 0 ? '' : 'none';
         }
         // Evidence badge
         if (currentEngagementId) {
@@ -12423,9 +12503,13 @@
           const curExploitsVal = parseInt(kpiCriticals.textContent) || 0;
           if (summaryExploits >= curExploitsVal) kpiCriticals.textContent = summaryExploits;
         }
-        // Update MTTE if available
-        if (kpiMtte && summary.mtte !== undefined) {
-          kpiMtte.textContent = summary.mtte > 0 ? summary.mtte + 'm' : '—';
+        // Update MTTE from exploit-stats (summary never includes mtte)
+        if (kpiMtte) {
+          try {
+            const esRes = await fetch(`/api/engagements/${eid}/exploit-stats`);
+            const es = await esRes.json();
+            kpiMtte.textContent = es.mtte_display || '—';
+          } catch (e) { /* non-fatal */ }
         }
 
         // Update severity breakdown if available
@@ -12502,7 +12586,7 @@
       }
     }
 
-    function selectEngagement(eid, triggerBtn) {
+    async function selectEngagement(eid, triggerBtn) {
       currentEngagementId = eid;
       document.getElementById('engagementSelect').value = eid;
 
@@ -12516,8 +12600,24 @@
         row.classList.toggle('active-engagement-row', row.dataset.engId === eid);
       });
 
-      // BUG-046 Fix 1: Button state feedback on "Select as Active" click
+      // BUG-046 Fix 1 + activation bug fix: PATCH status to Neo4j on explicit "Select as Active" click
       if (triggerBtn) {
+        try {
+          const patchRes = await fetch(`/api/engagements/${encodeURIComponent(eid)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'active' }),
+          });
+          if (!patchRes.ok) {
+            const err = await patchRes.json().catch(() => ({}));
+            showToast('error', 'Activation Failed', err.error || 'Could not activate engagement');
+            return;
+          }
+        } catch (e) {
+          showToast('error', 'Activation Failed', 'Network error: ' + e.message);
+          return;
+        }
+
         // Reset all other "Select as Active" buttons first
         document.querySelectorAll('#engagementsTableBody .modal-btn-primary').forEach(btn => {
           if (btn !== triggerBtn) {
@@ -12528,10 +12628,14 @@
         triggerBtn.textContent = '✓ Active';
         triggerBtn.disabled = true;
 
+        // Refresh sidebar + KPI to reflect the activation in Neo4j
+        loadEngagements();
+        refreshActiveEngagementsKPI();
+
         // BUG-046 Fix 1: Toast confirmation
         const eng = allEngagementsData.find(e => e.id === eid);
         const engName = eng ? eng.name : eid;
-        showToast('success', 'Engagement Selected', engName + ' is now active');
+        showToast('success', 'Engagement Activated', engName + ' is now active');
       }
 
       // Clear AI timeline and LED badges to prevent cross-engagement data leak

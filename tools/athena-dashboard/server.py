@@ -5127,6 +5127,135 @@ async def update_engagement(eid: str, payload: UpdateEngagementPayload):
     return {"ok": True}
 
 
+@app.get("/api/findings/trends")
+async def get_findings_trends(
+    scope: str = "engagement",
+    engagement_id: str = "",
+    client: str = "",
+    target: str = "",
+):
+    """Return findings trend data for area chart.
+
+    Scopes:
+    - engagement: findings grouped by date within a single engagement
+    - client: findings per engagement start_date, filtered by client name
+    - target: findings per engagement start_date, filtered by target
+    - all: findings per engagement start_date across all engagements
+    """
+    labels = []
+    datasets = {"critical": [], "high": [], "medium": [], "low": [], "info": []}
+    engagements_included = 0
+
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                if scope == "engagement" and engagement_id:
+                    # Single engagement: group findings by their timestamp date
+                    result = session.run("""
+                        MATCH (f:Finding {engagement_id: $eid})
+                        WITH f,
+                             CASE WHEN f.timestamp > 0
+                                  THEN date(datetime({epochSeconds: toInteger(f.timestamp)}))
+                                  ELSE date()
+                             END AS d
+                        WITH d, toLower(f.severity) AS sev, count(f) AS cnt
+                        RETURN toString(d) AS date, sev, cnt
+                        ORDER BY d
+                    """, eid=engagement_id)
+                    engagements_included = 1
+
+                    date_sev = {}
+                    for record in result:
+                        d = record["date"]
+                        sev = record["sev"] or "info"
+                        if d not in date_sev:
+                            date_sev[d] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+                        bucket = sev if sev in date_sev[d] else "info"
+                        date_sev[d][bucket] = record["cnt"]
+
+                    labels = sorted(date_sev.keys())
+                    for sev_key in datasets:
+                        datasets[sev_key] = [date_sev[d].get(sev_key, 0) for d in labels]
+
+                else:
+                    # Cross-engagement: group by engagement start_date
+                    where_clause = ""
+                    params = {}
+                    if scope == "client" and client:
+                        where_clause = "WHERE e.client = $client"
+                        params["client"] = client
+                    elif scope == "target" and target:
+                        where_clause = "WHERE e.target CONTAINS $target"
+                        params["target"] = target
+                    # scope == "all" → no WHERE clause
+
+                    result = session.run(f"""
+                        MATCH (e:Engagement)
+                        {where_clause}
+                        OPTIONAL MATCH (f:Finding {{engagement_id: e.id}})
+                        WITH e.start_date AS start_date, e.name AS eng_name, e.id AS eng_id,
+                             toLower(f.severity) AS sev, count(f) AS cnt
+                        RETURN start_date, eng_name, eng_id, sev, cnt
+                        ORDER BY start_date
+                    """, **params)
+
+                    # Aggregate by date (multiple engagements on same date get summed)
+                    date_sev = {}
+                    eng_ids = set()
+                    for record in result:
+                        sd = record["start_date"] or "Unknown"
+                        sev = record["sev"] or "info"
+                        if record["eng_id"]:
+                            eng_ids.add(record["eng_id"])
+                        if sd not in date_sev:
+                            date_sev[sd] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+                        bucket = sev if sev in date_sev[sd] else "info"
+                        date_sev[sd][bucket] += record["cnt"]
+
+                    engagements_included = len(eng_ids)
+                    labels = sorted(date_sev.keys())
+                    for sev_key in datasets:
+                        datasets[sev_key] = [date_sev[d].get(sev_key, 0) for d in labels]
+
+            return {"labels": labels, "datasets": datasets, "engagements_included": engagements_included}
+        except Exception as e:
+            print(f"Neo4j trends query error: {e}")
+
+    # Fallback: return empty trend data
+    return {"labels": labels, "datasets": datasets, "engagements_included": engagements_included}
+
+
+@app.get("/api/engagements/filters")
+async def get_engagement_filters():
+    """Return distinct client names and targets for trend filter dropdowns."""
+    clients = set()
+    targets = set()
+
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (e:Engagement)
+                    RETURN collect(DISTINCT e.client) AS clients,
+                           collect(DISTINCT e.target) AS targets
+                """)
+                record = result.single()
+                if record:
+                    clients = {c for c in (record["clients"] or []) if c}
+                    targets = {t for t in (record["targets"] or []) if t}
+            return {"clients": sorted(clients), "targets": sorted(targets)}
+        except Exception as e:
+            print(f"Neo4j filters query error: {e}")
+
+    # Fallback: extract from mock data
+    for eng in state.engagements:
+        if hasattr(eng, 'client') and eng.client:
+            clients.add(eng.client)
+        if hasattr(eng, 'target') and eng.target:
+            targets.add(eng.target)
+    return {"clients": sorted(clients), "targets": sorted(targets)}
+
+
 @app.delete("/api/engagements/{eid}")
 async def delete_engagement(eid: str, purge_cei: bool = False):
     """Delete an engagement and ALL related data permanently.
@@ -5630,8 +5759,8 @@ async def get_vuln_severity(eid: str):
         try:
             with neo4j_driver.session() as session:
                 result = session.run("""
-                    MATCH (v:Vulnerability {engagement_id: $eid})
-                    RETURN toLower(v.severity) AS severity, count(DISTINCT v) AS cnt
+                    MATCH (f:Finding {engagement_id: $eid})
+                    RETURN toLower(f.severity) AS severity, count(DISTINCT f) AS cnt
                 """, eid=eid)
                 for record in result:
                     sev = (record["severity"] or "info").lower()
@@ -5811,7 +5940,7 @@ async def get_exploit_stats(eid: str):
                     MATCH (f:Finding {engagement_id: $eid})
                     WHERE f.timestamp IS NOT NULL
                     RETURN f.title AS title, f.timestamp AS ts, f.category AS category,
-                           f.evidence AS evidence
+                           f.evidence AS evidence, f.severity AS severity
                     ORDER BY f.timestamp ASC
                 """, eid=eid)
                 all_ts = []
@@ -5819,8 +5948,10 @@ async def get_exploit_stats(eid: str):
                 for record in result:
                     all_ts.append(record["ts"])
                     cat = (record["category"] or "").lower()
+                    sev = (record.get("severity") or "").lower()
                     if (any(ec in cat for ec in exploit_cats_mtte)
-                            or record.get("evidence")):
+                            or record.get("evidence")
+                            or sev in ("critical", "high")):
                         neo4j_exploit_findings.append({"title": record["title"], "ts": record["ts"]})
                 if all_ts and neo4j_exploit_findings:
                     start_ts = all_ts[0]
