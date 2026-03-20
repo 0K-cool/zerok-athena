@@ -11981,10 +11981,12 @@
         // Set Confirmed Exploits KPI from authoritative server count
         const kpiExploitsEl = document.getElementById('kpi-criticals');
         // Don't decrease Confirmed Exploits during active engagement (prevent flicker)
-        if (kpiExploitsEl && es.confirmed_exploits !== undefined) {
-          const newExploits = parseInt(es.confirmed_exploits) || 0;
+        // BUG-050: Use total_exploited (confirmed + likely) not just confirmed_exploits
+        const totalExploited = es.total_exploited !== undefined ? es.total_exploited : es.confirmed_exploits;
+        if (kpiExploitsEl && totalExploited !== undefined) {
+          const newExploits = parseInt(totalExploited) || 0;
           const curExploits = parseInt(kpiExploitsEl.textContent) || 0;
-          if (newExploits >= curExploits) kpiExploitsEl.textContent = es.confirmed_exploits;
+          if (newExploits >= curExploits) kpiExploitsEl.textContent = totalExploited;
         }
         // Update MTTE KPI card
         const mtteEl = document.getElementById('kpi-mtte');
@@ -12276,24 +12278,26 @@
             } catch (e) { /* ignore */ }
           }
           // Update phase badge and restore _completedPhases for Scan Coverage
-          const phaseEvents = events.filter(e => e.type === 'phase_change');
+          const phaseEvents = events.filter(function(e) { return e.type === 'phase_update' || e.type === 'phase_change'; });
           if (phaseEvents.length > 0) {
             // Restore all completed phases for scan coverage calculation
-            phaseEvents.forEach(pe => {
-              const phase = pe.metadata && pe.metadata.phase;
-              if (phase && phase !== 'COMPLETE' && phase !== 'STOPPED') {
-                _completedPhases.add(phase);
+            phaseEvents.forEach(function(pe) {
+              var phase = (pe.metadata && pe.metadata.phase) || pe.content;
+              if (phase && phase !== 'COMPLETE' && phase !== 'STOPPED'
+                  && _allPhases.indexOf(phase.toUpperCase()) !== -1) {
+                _completedPhases.add(phase.toUpperCase());
               }
             });
             const last = phaseEvents[phaseEvents.length - 1];
             const badge = document.getElementById('phaseBadge');
             const badgeRow = document.getElementById('phaseBadgeRow');
-            if (badge && last.metadata && last.metadata.phase) {
-              badge.textContent = last.metadata.phase;
-              badge.className = 'phase-badge' + (last.metadata.phase === 'COMPLETE' ? ' complete' : '');
+            var lastPhase = (last.metadata && last.metadata.phase) || last.content;
+            if (badge && lastPhase) {
+              badge.textContent = lastPhase;
+              badge.className = 'phase-badge' + (lastPhase === 'COMPLETE' ? ' complete' : '');
               if (badgeRow) badgeRow.style.display = '';
               // If engagement completed, show 100% scan coverage (only if findings exist)
-              if (last.metadata.phase === 'COMPLETE' && _loadedFindingsCount > 0) {
+              if (lastPhase === 'COMPLETE' && _loadedFindingsCount > 0) {
                 updateScanCoverage(100);
               } else if (_loadedFindingsCount > 0) {
                 updateScanCoverage();

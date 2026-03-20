@@ -388,7 +388,12 @@ class DashboardState:
                         })
                     """, id=event.id, type=event.type, agent=event.agent,
                          content=event.content, timestamp=event.timestamp,
-                         engagement_id=event.metadata.get("engagement", "") if event.metadata else "",
+                         engagement_id=(
+                             (event.metadata or {}).get("engagement", "")
+                             or (event.metadata or {}).get("engagement_id", "")
+                             or state.active_engagement_id
+                             or ""
+                         ),
                          metadata_json=json.dumps(event.metadata) if event.metadata else "{}")
             try:
                 await neo4j_exec(_write_event)
@@ -618,7 +623,8 @@ async def lifespan(app: FastAPI):
                         WHERE f.verified = true AND NOT (f)-[:EXPLOITS]->()
                         OPTIONAL MATCH (f)-[:AFFECTS|FOUND_ON]->(h:Host)-[:HAS_SERVICE]->(s:Service)
                         OPTIONAL MATCH (f)-[:AFFECTS]->(s2:Service)
-                        WITH f, COALESCE(s2, s, h) AS target
+                        OPTIONAL MATCH (h2:Host {engagement_id: f.engagement_id})
+                        WITH f, COALESCE(s2, s, h, h2) AS target
                         WHERE target IS NOT NULL
                         MERGE (f)-[:EXPLOITS]->(target)
                         RETURN count(*) AS created
@@ -1342,10 +1348,11 @@ async def update_target_status(ip: str, payload: dict = Body(...)):
             def _update():
                 with neo4j_driver.session() as session:
                     session.run("""
-                        MERGE (h:Host {ip: $ip})
+                        MERGE (h:Host {ip: $ip, engagement_id: $eid})
                         SET h.state = $status, h.state_reason = $reason,
                             h.state_updated = datetime()
-                    """, ip=ip, status=status, reason=reason)
+                    """, ip=ip, status=status, reason=reason,
+                         eid=state.active_engagement_id or "")
             await asyncio.to_thread(_update)
         except Exception as e:
             logger.warning("Failed to update target status in Neo4j: %s", e)
@@ -2674,12 +2681,25 @@ async def submit_verification_result(verification_id: str, result: VerificationR
                         if r2.single()["c"] == 0:
                             # Path 3: BUG-039 — fallback to Host when no Service exists
                             # Mirrors startup backfill COALESCE(s2, s, h) pattern
-                            session.run("""
+                            r3 = session.run("""
                                 MATCH (f:Finding {id: $fid})-[:FOUND_ON]->(h:Host)
                                 WITH f, head(collect(h)) AS host
                                 WHERE host IS NOT NULL
                                 MERGE (f)-[:EXPLOITS]->(host)
+                                RETURN count(*) AS created
                             """, fid=result.finding_id)
+                            if r3.single()["created"] == 0:
+                                # Path 4: Last resort — link to any Host in the same engagement
+                                session.run("""
+                                    MATCH (f:Finding {id: $fid})
+                                    WHERE NOT (f)-[:EXPLOITS]->()
+                                      AND f.engagement_id IS NOT NULL
+                                    MATCH (h:Host {engagement_id: f.engagement_id})
+                                    WITH f, head(collect(h)) AS host
+                                    WHERE host IS NOT NULL
+                                    MERGE (f)-[:EXPLOITS]->(host)
+                                    RETURN count(*) AS created
+                                """, fid=result.finding_id)
             try:
                 await neo4j_exec(_create_exploits_edge)
             except Exception as e:
@@ -5426,7 +5446,8 @@ async def get_engagement_summary(eid: str):
                            count(DISTINCT CASE WHEN f.severity = 'low' THEN f END) AS sev_low,
                            count(DISTINCT CASE WHEN
                                f.verified = true OR
-                               f.verification_status = 'confirmed'
+                               f.verification_status = 'confirmed' OR
+                               f.verification_status = 'likely'
                            THEN f END) AS exploits
                 """, eid=eid)
                 record = result.single()
@@ -5487,7 +5508,7 @@ async def get_engagement_summary(eid: str):
                                 mem_sev[s] += 1
                             has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
                             verification = getattr(f, 'verification_status', '') or ''
-                            if has_confirmed_ts or verification == 'confirmed':
+                            if has_confirmed_ts or verification in ('confirmed', 'likely'):
                                 mem_exploits += 1
                         # BUG-039 FIX: Monotonic increase for services/ports during active engagement.
                         # Use a high-water mark so the KPI never decreases during a pentest.
@@ -5561,7 +5582,7 @@ async def get_engagement_summary(eid: str):
             sev_counts[s] += 1
         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
         verification = getattr(f, 'verification_status', '') or ''
-        is_confirmed = has_confirmed_ts or verification == 'confirmed'
+        is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
         if is_confirmed:
             exploits += 1
 
@@ -5848,11 +5869,13 @@ async def get_exploit_stats(eid: str):
                     RETURN size(all_findings) AS total_findings,
                            size([x IN all_findings WHERE
                                x.verified = true OR
-                               x.verification_status = 'confirmed'
+                               x.verification_status = 'confirmed' OR
+                               x.verification_status = 'likely'
                            ]) AS exploit_count,
                            [x IN all_findings WHERE
                                x.verified = true OR
-                               x.verification_status = 'confirmed' |
+                               x.verification_status = 'confirmed' OR
+                               x.verification_status = 'likely' |
                                {title: x.title, severity: x.severity, timestamp: x.timestamp}] AS exploit_details
                 """, eid=eid)
                 record = result.single()
@@ -5878,7 +5901,7 @@ async def get_exploit_stats(eid: str):
         sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
         verification = getattr(f, 'verification_status', '') or ''
-        is_confirmed = has_confirmed_ts or verification == 'confirmed'
+        is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
         if is_confirmed:
             mem_confirmed += 1
             if sev in mem_by_severity:
@@ -5900,7 +5923,7 @@ async def get_exploit_stats(eid: str):
                     MATCH (f:Finding {engagement_id: $eid})
                     WHERE f.evidence IS NOT NULL AND f.evidence <> ''
                       AND (f.verified IS NULL OR f.verified = false)
-                      AND (f.verification_status IS NULL OR f.verification_status <> 'confirmed')
+                      AND (f.verification_status IS NULL OR (f.verification_status <> 'confirmed' AND f.verification_status <> 'likely'))
                     RETURN count(f) AS cnt
                 """, eid=eid)
                 rec = result.single()
@@ -5914,7 +5937,7 @@ async def get_exploit_stats(eid: str):
         has_evidence = bool(f.evidence)
         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
         verification = getattr(f, 'verification_status', '') or ''
-        is_confirmed = has_confirmed_ts or verification == 'confirmed'
+        is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
         if has_evidence and not is_confirmed:
             mem_exploited_unverified += 1
     if mem_exploited_unverified > exploited_unverified:
@@ -8453,7 +8476,33 @@ async def get_attack_graph(engagement: Optional[str] = None):
                 # Post-process: auto-connect orphaned findings/vulns to hosts
                 nodes, edges = _connect_orphaned_nodes(nodes, edges)
 
-                return {"nodes": nodes, "edges": edges, "attack_paths": [], "source": "neo4j"}
+                # Compute attack paths from EXPLOITS edges
+                attack_paths_computed = []
+                try:
+                    ap_result = session.run("""
+                        MATCH (f:Finding)-[:EXPLOITS]->(target)
+                        WHERE f.engagement_id = $eid
+                        OPTIONAL MATCH (f)-[:FOUND_ON|AFFECTS]->(entry)
+                        OPTIONAL MATCH (entry)<-[:HAS_SERVICE]-(entry_host:Host)
+                        RETURN f.id AS fid, f.title AS title, f.severity AS severity,
+                               coalesce(entry_host.ip, f.target, '') AS entry,
+                               coalesce(target.ip, target.name, '') AS pivot,
+                               labels(target) AS target_labels
+                        LIMIT 50
+                    """, eid=eid)
+                    for r in ap_result:
+                        attack_paths_computed.append({
+                            "finding_id": r["fid"],
+                            "title": r["title"],
+                            "severity": r["severity"],
+                            "entry": r["entry"],
+                            "pivot": r["pivot"],
+                            "target_type": (r["target_labels"] or ["Unknown"])[0],
+                        })
+                except Exception as _ap_err:
+                    logger.warning("Attack path query error: %s", _ap_err)
+
+                return {"nodes": nodes, "edges": edges, "attack_paths": attack_paths_computed, "source": "neo4j"}
         except Exception as e:
             print(f"Neo4j attack graph query error: {e}")
 
