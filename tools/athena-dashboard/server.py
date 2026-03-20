@@ -5126,19 +5126,45 @@ async def create_engagement(payload: CreateEngagementPayload):
 
 
 class UpdateEngagementPayload(BaseModel):
-    status: str  # "active", "archived", "completed"
+    status: str | None = None
+    name: str | None = None
+    target: str | None = None
+    scope: str | None = None
+    type: str | None = None
+    client: str | None = None
+    authorization: str | None = None
 
 
 @app.patch("/api/engagements/{eid}")
 async def update_engagement(eid: str, payload: UpdateEngagementPayload):
-    """Update engagement status (archive, complete, reactivate)."""
+    """Update engagement fields (status, name, target, scope, type, client, authorization)."""
+    # Build dynamic SET clause from non-None fields
+    updates = {}
+    if payload.status is not None:
+        updates["status"] = payload.status
+    if payload.name is not None:
+        updates["name"] = payload.name
+    if payload.target is not None:
+        updates["target"] = payload.target
+        updates["scope"] = payload.target  # scope mirrors target
+    if payload.scope is not None:
+        updates["scope"] = payload.scope
+    if payload.type is not None:
+        updates["type"] = payload.type
+    if payload.client is not None:
+        updates["client"] = payload.client
+    if payload.authorization is not None:
+        updates["authorization"] = payload.authorization
+
+    if not updates:
+        return JSONResponse(status_code=400, content={"error": "No fields to update"})
+
     if neo4j_available and neo4j_driver:
         try:
+            set_clauses = ", ".join(f"e.{k} = ${k}" for k in updates)
+            cypher = f"MATCH (e:Engagement {{id: $id}}) SET {set_clauses}"
             with neo4j_driver.session() as session:
-                session.run(
-                    "MATCH (e:Engagement {id: $id}) SET e.status = $status",
-                    id=eid, status=payload.status,
-                )
+                session.run(cypher, id=eid, **updates)
             await state.broadcast({
                 "type": "engagement_changed",
                 "engagement_id": eid,
@@ -5151,7 +5177,9 @@ async def update_engagement(eid: str, payload: UpdateEngagementPayload):
     # Fallback: update mock data
     for eng in state.engagements:
         if eng.id == eid:
-            eng.status = payload.status
+            for k, v in updates.items():
+                if hasattr(eng, k):
+                    setattr(eng, k, v)
             break
     else:
         return JSONResponse(status_code=404, content={"error": "Engagement not found"})
