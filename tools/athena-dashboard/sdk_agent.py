@@ -1511,7 +1511,7 @@ class AthenaAgentSession:
         """Translate assistant messages to dashboard events."""
         for block in msg.content:
             if isinstance(block, ThinkingBlock):
-                thought = block.thinking[:2000]
+                thought = block.thinking
                 # ST thinking → strategy_thinking (lights up blue bar)
                 event_type = ("strategy_thinking"
                               if self._current_agent == "ST"
