@@ -2615,6 +2615,23 @@
       background: rgba(251, 191, 36, 0.1);
     }
 
+    .eng-edit-input {
+      background: var(--zerok-surface);
+      border: 1px solid var(--zerok-border);
+      border-radius: 4px;
+      color: var(--zerok-text);
+      padding: 6px 10px;
+      font-size: 12px;
+      width: 100%;
+      outline: none;
+    }
+    .eng-edit-input:focus {
+      border-color: var(--zerok-primary);
+    }
+    select.eng-edit-input {
+      cursor: pointer;
+    }
+
     /* BUG-046: Active engagement row highlight in Engagements table */
     tr.active-engagement-row > td:first-child {
       border-left: 3px solid var(--zerok-primary);
@@ -12964,6 +12981,57 @@
       }
     }
 
+    function editEngagement(eid) {
+      // Expand the detail row if collapsed
+      var detailRow = document.querySelector('.eng-detail-row[data-eng-id="' + eid + '"]');
+      if (detailRow) detailRow.style.display = '';
+      // Toggle view/edit modes
+      var viewEl = document.getElementById('eng-view-' + eid);
+      var editEl = document.getElementById('eng-edit-' + eid);
+      if (viewEl) viewEl.style.display = 'none';
+      if (editEl) editEl.style.display = '';
+    }
+
+    function cancelEditEngagement(eid) {
+      var viewEl = document.getElementById('eng-view-' + eid);
+      var editEl = document.getElementById('eng-edit-' + eid);
+      if (viewEl) viewEl.style.display = '';
+      if (editEl) editEl.style.display = 'none';
+    }
+
+    function saveEngagement(eid) {
+      var nameVal = (document.getElementById('eng-edit-name-' + eid) || {}).value;
+      var targetVal = (document.getElementById('eng-edit-target-' + eid) || {}).value;
+      var typeVal = (document.getElementById('eng-edit-type-' + eid) || {}).value;
+      var clientVal = (document.getElementById('eng-edit-client-' + eid) || {}).value;
+      var authVal = (document.getElementById('eng-edit-auth-' + eid) || {}).value;
+
+      var body = {};
+      if (nameVal) body.name = nameVal;
+      if (targetVal) body.target = targetVal;
+      if (typeVal) body.type = typeVal;
+      if (clientVal) body.client = clientVal;
+      if (authVal) body.authorization = authVal;
+
+      fetch('/api/engagements/' + eid, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.ok) {
+            showToast('success', 'Updated', 'Engagement updated successfully');
+            cancelEditEngagement(eid);
+            loadEngagementsView();
+            loadEngagementsSidebar();
+          } else {
+            showToast('error', 'Error', data.error || 'Failed to update engagement');
+          }
+        })
+        .catch(function() { showToast('error', 'Error', 'Failed to update engagement'); });
+    }
+
     async function archiveEngagement(eid, name) {
       const confirmed = await showConfirmModal({
         title: 'Archive Engagement',
@@ -13216,6 +13284,10 @@
           <td style="font-size: 12px; color: var(--zerok-text-muted);">${e.start_date || '—'}</td>
           <td style="text-align: right;" onclick="event.stopPropagation();">
             <div style="display: inline-flex; gap: 4px;">
+              <button class="btn-action-sm" onclick="event.stopPropagation(); editEngagement('${e.id}')" title="Edit engagement">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 2.5l2 2M2 11l-0.5 3.5 3.5-0.5 8.5-8.5-3-3-8.5 8.5z"/></svg>
+                Edit
+              </button>
               <button class="btn-action-sm" onclick="archiveEngagement('${e.id}', '${escHtml(e.name)}')" title="Archive engagement">
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M3 4v9a1 1 0 001 1h8a1 1 0 001-1V4M6 7h4"/></svg>
                 Archive
@@ -13230,28 +13302,70 @@
         <tr class="eng-detail-row" data-eng-id="${e.id}" style="display: none;">
           <td colspan="8" style="padding: 0;">
             <div class="finding-details" id="eng-details-${e.id}" style="padding: 16px 24px;">
-              <div class="finding-details-grid">
-                <div class="finding-detail-section">
-                  <div class="finding-detail-label">Scope</div>
-                  <div class="finding-detail-value" style="font-family: var(--zerok-font-mono);">${escHtml(e.target)}</div>
+              <!-- View mode -->
+              <div class="eng-view-mode" id="eng-view-${e.id}">
+                <div class="finding-details-grid">
+                  <div class="finding-detail-section">
+                    <div class="finding-detail-label">Scope</div>
+                    <div class="finding-detail-value" style="font-family: var(--zerok-font-mono);">${escHtml(e.target)}</div>
+                  </div>
+                  <div class="finding-detail-section">
+                    <div class="finding-detail-label">Authorization</div>
+                    <div class="finding-detail-value">${escHtml(e.authorization || 'documented')}</div>
+                  </div>
+                  <div class="finding-detail-section">
+                    <div class="finding-detail-label">Active Agents</div>
+                    <div class="finding-detail-value">${e.agents_active || 0}</div>
+                  </div>
+                  <div class="finding-detail-section">
+                    <div class="finding-detail-label">Phase</div>
+                    <div class="finding-detail-value">${escHtml(e.phase || '—')}</div>
+                  </div>
                 </div>
-                <div class="finding-detail-section">
-                  <div class="finding-detail-label">Authorization</div>
-                  <div class="finding-detail-value">${escHtml(e.authorization || 'documented')}</div>
-                </div>
-                <div class="finding-detail-section">
-                  <div class="finding-detail-label">Active Agents</div>
-                  <div class="finding-detail-value">${e.agents_active || 0}</div>
-                </div>
-                <div class="finding-detail-section">
-                  <div class="finding-detail-label">Phase</div>
-                  <div class="finding-detail-value">${escHtml(e.phase || '—')}</div>
+                <div style="margin-top: 12px;">
+                  <button class="modal-btn modal-btn-primary" onclick="event.stopPropagation(); selectEngagement('${e.id}', this); switchView('dashboard');" style="font-size: 12px;">
+                    Select as Active
+                  </button>
                 </div>
               </div>
-              <div style="margin-top: 12px;">
-                <button class="modal-btn modal-btn-primary" onclick="event.stopPropagation(); selectEngagement('${e.id}', this); switchView('dashboard');" style="font-size: 12px;">
-                  Select as Active
-                </button>
+              <!-- Edit mode -->
+              <div class="eng-edit-mode" id="eng-edit-${e.id}" style="display: none;">
+                <div class="finding-details-grid" style="gap: 12px;">
+                  <div class="finding-detail-section">
+                    <div class="finding-detail-label">Name</div>
+                    <input class="eng-edit-input" id="eng-edit-name-${e.id}" value="${escHtml(e.name)}" />
+                  </div>
+                  <div class="finding-detail-section">
+                    <div class="finding-detail-label">Target / Scope</div>
+                    <input class="eng-edit-input" id="eng-edit-target-${e.id}" value="${escHtml(e.target)}" style="font-family: var(--zerok-font-mono);" />
+                  </div>
+                  <div class="finding-detail-section">
+                    <div class="finding-detail-label">Type</div>
+                    <select class="eng-edit-input" id="eng-edit-type-${e.id}">
+                      <option value="external" ${(e.type||'').includes('external') ? 'selected' : ''}>External</option>
+                      <option value="external,webapp" ${(e.type||'').includes('webapp') ? 'selected' : ''}>External + Webapp</option>
+                      <option value="internal" ${(e.type||'').includes('internal') ? 'selected' : ''}>Internal</option>
+                      <option value="wireless" ${(e.type||'') === 'wireless' ? 'selected' : ''}>Wireless</option>
+                      <option value="social" ${(e.type||'') === 'social' ? 'selected' : ''}>Social Engineering</option>
+                    </select>
+                  </div>
+                  <div class="finding-detail-section">
+                    <div class="finding-detail-label">Client</div>
+                    <input class="eng-edit-input" id="eng-edit-client-${e.id}" value="${escHtml(e.client || '')}" />
+                  </div>
+                  <div class="finding-detail-section">
+                    <div class="finding-detail-label">Authorization</div>
+                    <select class="eng-edit-input" id="eng-edit-auth-${e.id}">
+                      <option value="documented" ${(e.authorization||'documented') === 'documented' ? 'selected' : ''}>Documented</option>
+                      <option value="verbal" ${(e.authorization||'') === 'verbal' ? 'selected' : ''}>Verbal</option>
+                      <option value="pending" ${(e.authorization||'') === 'pending' ? 'selected' : ''}>Pending</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="margin-top: 12px; display: flex; gap: 8px;">
+                  <button class="modal-btn modal-btn-primary" onclick="event.stopPropagation(); saveEngagement('${e.id}')" style="font-size: 12px;">Save</button>
+                  <button class="modal-btn" onclick="event.stopPropagation(); cancelEditEngagement('${e.id}')" style="font-size: 12px; background: var(--zerok-surface); border: 1px solid var(--zerok-border);">Cancel</button>
+                </div>
               </div>
             </div>
           </td>
