@@ -4838,7 +4838,7 @@
       display: flex;
       gap: 6px;
       align-items: center;
-      padding: 4px 12px 0 12px;
+      padding: 4px 12px 0 7px;
       font-size: 11px;
     }
 
@@ -9222,7 +9222,7 @@
         var c = confirmed || 0;
         var t = total || 0;
         if (eu > 0) {
-          subEl.textContent = c + ' confirmed + ' + eu + ' unverified / ' + (c + eu) + ' exploited';
+          subEl.textContent = c + ' confirmed + ' + eu + ' unverified / ' + (c + eu);
         } else {
           subEl.textContent = c + '/' + t + ' confirmed by VF';
         }
