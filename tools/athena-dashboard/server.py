@@ -3617,6 +3617,7 @@ OPUS_AGENTS = {"ST", "EX", "RP"}  # Agents that use Opus
 # In-memory budget tracking: agent_code → {tool_calls, estimated_cost, findings}
 _agent_budgets: dict[str, dict] = {}
 _engagement_cost: float = 0.0
+_engagement_cost_eid: str = ""  # Which engagement _engagement_cost belongs to
 _engagement_types: list[str] = ["external"]  # BUG-006: Current engagement types for agent gating
 _skip_agents: set[str] = set()  # Agents excluded from current engagement (e.g. {"PR"} to skip OSINT)
 
@@ -3765,7 +3766,7 @@ async def report_actual_cost(agent: str, cost_usd: float):
     to the server, so engagement cost was ~6x underreported.
     Called by sdk_agent after each ResultMessage with cumulative cost.
     """
-    global _engagement_cost
+    global _engagement_cost, _engagement_cost_eid
 
     budget = _get_agent_budget(agent)
 
@@ -3774,6 +3775,10 @@ async def report_actual_cost(agent: str, cost_usd: float):
     # _engagement_cost is now the authoritative sum of all agents' latest
     # actual costs. No delta math — recalculate from scratch to avoid drift.
     budget["actual_cost"] = cost_usd
+
+    # Track which engagement this cost belongs to (BUG-049)
+    if state.active_engagement_id:
+        _engagement_cost_eid = state.active_engagement_id
 
     # Recompute engagement total as sum of all per-agent actual costs.
     # Agents that have no actual_cost yet contribute 0 (not their estimate).
@@ -3804,11 +3809,13 @@ async def report_actual_cost(agent: str, cost_usd: float):
         response["engagement_cap_exceeded"] = True
 
     # Persist engagement cost to Neo4j so it survives server restarts
-    if neo4j_available and neo4j_driver and _engagement_cost > 0:
+    # BUG-049: Target ONLY the specific engagement, not all active ones
+    if neo4j_available and neo4j_driver and _engagement_cost > 0 and _engagement_cost_eid:
         try:
             with neo4j_driver.session() as session:
                 session.run(
-                    "MATCH (e:Engagement {status: 'active'}) SET e.engagement_cost = $cost",
+                    "MATCH (e:Engagement {id: $eid}) SET e.engagement_cost = $cost",
+                    eid=_engagement_cost_eid,
                     cost=round(_engagement_cost, 4),
                 )
         except Exception as e:
@@ -3961,15 +3968,23 @@ async def get_budgets():
 @app.get("/api/budget/engagement")
 async def get_engagement_budget(engagement_id: str = ""):
     """Get engagement-level cost summary with efficiency metrics."""
-    global _engagement_cost
+    global _engagement_cost, _engagement_cost_eid
     active = {k: v for k, v in _agent_budgets.items() if v["tool_calls"] > 0}
     # BUG-027: Use actual costs only. _engagement_cost is kept in sync as the
     # sum of per-agent actual costs (updated in report_actual_cost). Agents
     # that haven't reported an actual cost yet contribute 0 — not their
     # estimates — so the total can only monotonically increase.
-    agent_sum = sum(b.get("actual_cost", 0.0) for b in active.values())
-    total_cost = max(_engagement_cost, agent_sum)
-    # Restore from Neo4j if in-memory is zero (server restart scenario)
+    #
+    # BUG-049: _engagement_cost is a global that belongs to whichever engagement
+    # last ran agents. When the frontend queries cost for a DIFFERENT engagement,
+    # we must NOT return the in-memory value — go straight to Neo4j instead.
+    is_current_engagement = (not engagement_id) or (engagement_id == _engagement_cost_eid)
+    if is_current_engagement:
+        agent_sum = sum(b.get("actual_cost", 0.0) for b in active.values())
+        total_cost = max(_engagement_cost, agent_sum)
+    else:
+        total_cost = 0.0  # Not the in-memory engagement — must look up in Neo4j
+    # Restore from Neo4j if in-memory is zero (server restart scenario or different engagement)
     # BUG-028: Only restore cost for the SPECIFIC engagement requested.
     # Previous fallback query grabbed the highest cost from ANY engagement,
     # causing deleted engagements' costs to "leak" into new sessions.
@@ -3983,7 +3998,9 @@ async def get_engagement_budget(engagement_id: str = ""):
                 ).single()
                 if rec and rec["cost"]:
                     total_cost = float(rec["cost"])
-                    _engagement_cost = total_cost
+                    # Only update in-memory if this is the current engagement
+                    if is_current_engagement:
+                        _engagement_cost = total_cost
         except Exception as e:
             logger.warning("Neo4j cost recovery failed: %s", str(e)[:200])
     total_tools = sum(b["tool_calls"] for b in active.values())
