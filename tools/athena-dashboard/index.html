@@ -9577,6 +9577,7 @@
       var directive = document.getElementById('strategyDirective');
       var toggle = document.getElementById('strategyToggle');
       var panel = document.getElementById('strategyPanel');
+      if (!directive || !toggle || !panel) return;  // Guard: elements not in DOM yet
       var raw = (msg.metadata && msg.metadata.summary) || msg.content || '';
       if (!raw) { return; }
       var firstLine = raw.split('\n').filter(function(l){ return l.trim(); })[0] || raw;

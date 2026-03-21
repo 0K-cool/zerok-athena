@@ -9683,6 +9683,14 @@ async def _auto_queue_verification(finding_id: str, finding_severity: str, engag
     # Skip if already queued
     if finding_id in _finding_verifications:
         return
+    # Dedup: skip if any existing verification for this finding is already confirmed
+    existing_vids = _finding_verifications.get(finding_id, [])
+    if any(
+        _verifications[vid]["final_status"] == VerificationStatus.CONFIRMED.value
+        for vid in existing_vids
+        if vid in _verifications
+    ):
+        return  # Already confirmed — do not re-queue
     # Find the finding in state
     finding = next((f for f in state.findings if f.id == finding_id), None)
     if not finding:
@@ -9725,29 +9733,20 @@ async def _auto_queue_verification(finding_id: str, finding_severity: str, engag
         "priority": verification["priority"],
     })
 
-    # BUG-010 fix: Immediately notify VF per-exploit — don't wait for EX to finish
+    # Route verification through ST — all agent coordination flows through ST
     if _active_session_manager and _active_session_manager.is_running:
-        vf_session = _active_session_manager.agents.get("VF")
-        verify_prompt = (
-            f"Verify finding: {finding.title} ({finding_severity}) on {finding.target} — "
-            f"use different tools than {finding.agent}. "
+        st_session = _active_session_manager.agents.get("ST")
+        notify_msg = (
+            f"New finding requires independent verification: {finding.title} "
+            f"({finding_severity.upper()}) on {finding.target}. "
+            f"Assign VF to verify using different tools than {finding.agent}. "
+            f"Methods: {', '.join(methods)}. "
             f"Verification ID: {verification_id}"
         )
-        if vf_session and vf_session.is_running:
-            # VF already running — send new verification as urgent command
-            await vf_session.send_command(
-                f"\n{'='*60}\n"
-                f"NEW VERIFICATION REQUEST — {finding_severity.upper()} priority\n"
-                f"{'='*60}\n"
-                f"{verify_prompt}\n"
-                f"Methods: {', '.join(methods)}\n"
-                f"Alt tools: {', '.join(alt_tools)}\n"
-                f"{'='*60}\n"
-                f"Start verifying this exploit immediately.\n"
-            )
+        if st_session and st_session.is_running:
+            await st_session.send_command(notify_msg)
         else:
-            # VF not running — spawn it
-            _active_session_manager.request_agent("VF", verify_prompt, priority="high")
+            _active_session_manager.request_agent("ST", notify_msg, priority="high")
 
 
 async def _scan_for_flags(text: str, eid: str, agent_code: str = ""):

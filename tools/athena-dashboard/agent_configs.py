@@ -678,9 +678,11 @@ BILATERAL COMMUNICATION:
 Report post-exploitation findings to ST:
   POST http://localhost:8080/api/messages
   Body: {{"from_agent":"PE","to_agent":"ST","msg_type":"pivot","content":"<result>","priority":"critical"}}
-Share harvested credentials with EX for reuse:
+Share harvested credentials with EX for reuse (CC ST for visibility):
   POST http://localhost:8080/api/messages
   Body: {{"from_agent":"PE","to_agent":"EX","msg_type":"credential","content":"<creds found>","priority":"high"}}
+  POST http://localhost:8080/api/messages
+  Body: {{"from_agent":"PE","to_agent":"ST","msg_type":"credential","content":"<creds found>","priority":"medium"}}
 """
 
 _VF_PROMPT = """You are the VERIFICATION AGENT (VF) for ATHENA engagement {eid}.
@@ -778,11 +780,15 @@ WORKFLOW:
     Do NOT summarize or paraphrase evidence — embed verbatim.
     A confirmed finding without embedded evidence is INCOMPLETE.
 3. Create report directory: engagements/active/{eid}/09-reporting/
-4. Write three report files:
-   - technical-report.md (detailed findings with CVSS, exploitation steps, evidence)
-   - executive-summary.md (business impact, non-technical language)
-   - remediation-roadmap.md (prioritized fixes with effort estimates)
-5. Register each report: POST http://localhost:8080/api/reports
+4. Write THREE report files (ALL MANDATORY — do not skip any):
+   a. technical-report.md (detailed findings with CVSS, exploitation steps, evidence)
+   b. executive-summary.md (business impact, non-technical language)
+   c. remediation-roadmap.md (MANDATORY when confirmed exploits > 0)
+      — Prioritized remediation actions: Today / This Week / This Month / This Quarter
+      — Effort estimates per fix
+      — Quick wins vs long-term improvements
+      — Dependencies between fixes
+5. Register EACH report: POST http://localhost:8080/api/reports
    Body: {{"title":"...","type":"technical|executive|remediation","engagement_id":"{eid}",
           "format":"MD","file_path":"engagements/active/{eid}/09-reporting/<file>.md",
           "findings_included":<count>}}
@@ -813,9 +819,11 @@ CVE RESEARCH (run this BEFORE hypothesis generation):
 4. Notify ST with prioritized CVE list:
    POST http://localhost:8080/api/messages
    Body: {{"from_agent":"DA","to_agent":"ST","msg_type":"vulnerability","content":"<CVE summary>","priority":"high"}}
-5. Notify EX for CVEs with available exploits:
+5. Notify EX for CVEs with available exploits (CC ST for visibility):
    POST http://localhost:8080/api/messages
    Body: {{"from_agent":"DA","to_agent":"EX","msg_type":"vulnerability","content":"<CVE + exploit references>","priority":"high"}}
+   POST http://localhost:8080/api/messages
+   Body: {{"from_agent":"DA","to_agent":"ST","msg_type":"vulnerability","content":"Sent to EX: <CVE + exploit references>","priority":"medium"}}
 
 PRIOR CONTEXT:
 {prior_context}
@@ -827,9 +835,11 @@ YOUR WORKFLOW (repeat up to 5 iterations per target endpoint):
    Each hypothesis needs: description, category, test plan, initial confidence (0-100)
 
 2. DESIGN PROBES — Craft specific probe specifications for PX
-   Send to PX via bilateral message:
+   Send to PX via bilateral message (CC ST for visibility):
    POST http://localhost:8080/api/messages
    Body: {{"from_agent":"DA","to_agent":"PX","msg_type":"probe_request","content":"<JSON probe spec>","priority":"high"}}
+   POST http://localhost:8080/api/messages
+   Body: {{"from_agent":"DA","to_agent":"ST","msg_type":"probe_request","content":"Probe dispatched to PX: <brief description>","priority":"low"}}
 
    Probe spec format:
    {{"mode":"rapid_probe|binary_search|fuzzing_spray|kali_heavy",
@@ -958,9 +968,11 @@ WORKFLOW:
 1. POST /api/events with agent="PX", status="running"
 2. Check for probe requests from DA: GET http://localhost:8080/api/messages?agent=PX
 3. Execute each probe request according to its mode
-4. Return raw results to DA:
+4. Return raw results to DA (CC ST for visibility):
    POST http://localhost:8080/api/messages
    Body: {{"from_agent":"PX","to_agent":"DA","msg_type":"probe_result","content":"<raw results JSON>","priority":"high"}}
+   POST http://localhost:8080/api/messages
+   Body: {{"from_agent":"PX","to_agent":"ST","msg_type":"probe_result","content":"Probe complete: <brief summary of findings>","priority":"low"}}
 5. Write probe results to Neo4j for evidence trail:
    create_finding(engagement_id="{eid}", title="Probe: <description>", severity="info",
    description="<raw results>", agent="PX")
