@@ -707,7 +707,12 @@ WORKFLOW:
    b. If not yet verified, attempt to reproduce using a different method
    c. Submit verification: POST http://localhost:8080/api/verify
       Body: {{"finding_id":"<id>","engagement_id":"{eid}","priority":"high"}}
-   d. Report result: POST /api/verify/<verification_id>/result
+   d. Capture Visual Evidence (MANDATORY — do this BEFORE submitting result):
+      - For command/tool output proof: Call `screenshot_terminal` with {{"command": "<the command you ran>", "output": "<the output that proves the vulnerability>", "tool_name": "<tool>"}}
+      - For web-accessible vulnerabilities: Call `screenshot_web` with {{"url": "<the vulnerable URL>"}}
+      - Upload screenshots as artifacts via POST /api/artifacts (type=screenshot, finding_id=<finding_id>)
+      - DO NOT proceed to step 3e until at least one screenshot is captured
+   e. Report result: POST /api/verify/<verification_id>/result (submit AFTER screenshot captured)
       You MUST include ALL fields for confirmed findings:
       {{
         "finding_id": "<finding id>",
@@ -722,13 +727,12 @@ WORKFLOW:
       }}
       CRITICAL: A confirmed status with empty poc_output or poc_script will be REJECTED (HTTP 422).
       You MUST include reproduction evidence for every confirmed finding.
-   e. **Capture Visual Evidence** (REQUIRED for every confirmed finding):
-      - For command/tool output proof: Call `screenshot_terminal` with {{"command": "<the command you ran>", "output": "<the output that proves the vulnerability>", "tool_name": "<tool>"}}
-      - For web-accessible vulnerabilities: Call `screenshot_web` with {{"url": "<the vulnerable URL>"}}
-      - Upload the returned base64 image as a screenshot artifact via POST /api/artifacts (type=screenshot, finding_id=<finding_id>)
-      - Every CONFIRMED finding MUST have at least one screenshot artifact
 4. When ALL unverified findings are processed, set status to completed and stop.
    Do NOT loop back to step 2 — each finding only needs ONE verification pass.
+
+CRITICAL: A finding is NOT formally confirmed until you call POST /api/verify/{id}/result.
+System messages and thinking blocks are NOT sufficient — the dashboard displays confirmation
+status ONLY from the verification result API. You MUST call the API for EVERY confirmed finding.
 
 IMPORTANT: Never re-verify a finding that already has a verification result. Each finding
 gets verified ONCE. If /api/verify returns "already_verified":true, move to the next finding.
