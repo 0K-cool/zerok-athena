@@ -9075,7 +9075,7 @@ async def get_feature_config():
     await kali_client.health_check_all()
     kali_backends = {}
     for name, backend in kali_client.backends.items():
-        kali_backends[name] = {"available": backend.available, "url": backend.base_url}
+        kali_backends[name] = {"available": backend.available, "url": backend.base_url, "tools": len(backend.tools)}
 
     # Read .env to show configured (not just active) values
     env_data = _read_env_file()
