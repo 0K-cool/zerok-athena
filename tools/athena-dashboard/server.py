@@ -2540,9 +2540,10 @@ async def submit_verification(req: VerificationRequest):
         "priority": req.priority,
     })
 
-    # Update VF agent status
-    await state.update_agent_status("VF", AgentStatus.RUNNING,
-        f"Verifying: {finding.title}")
+    # Update VF agent status — IDLE not RUNNING: actual RUNNING set by _spawn_agent
+    # after the SDK session starts. Premature RUNNING masks the silent-session bug.
+    await state.update_agent_status("VF", AgentStatus.IDLE,
+        f"Verification queued: {finding.title}")
 
     return {
         "ok": True,

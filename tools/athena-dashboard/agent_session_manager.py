@@ -616,6 +616,12 @@ class AgentSessionManager:
         """
         self.is_running = True
 
+        if not self._event_callback:
+            logger.error(
+                "AgentSessionManager starting without event callback — "
+                "all agent events will be silently dropped"
+            )
+
         # H3: Create root Langfuse trace for this engagement
         if langfuse_enabled():
             self._langfuse_trace_ctx = trace_engagement(
@@ -1395,11 +1401,19 @@ class AgentSessionManager:
             return
 
         if code in self.agents and self.agents[code].is_running:
-            logger.warning("Agent %s already running, skipping spawn", code)
-            await self._emit("system", "OR",
-                f"Agent {code} is already running.",
-                {"warning": True})
-            return
+            existing = self.agents[code]
+            task = self._agent_tasks.get(code)
+            if task and not task.done():
+                logger.warning("Agent %s already running (live task), skipping spawn", code)
+                await self._emit("system", "OR",
+                    f"Agent {code} is already running.",
+                    {"warning": True})
+                return
+            else:
+                logger.warning(
+                    "Agent %s shows is_running=True but task is done/missing — "
+                    "replacing stale session", code
+                )
 
         role = get_role(code)
 
@@ -1443,6 +1457,11 @@ class AgentSessionManager:
         # Wire event callback (same pipeline as single-agent mode)
         if self._event_callback:
             session.set_event_callback(self._event_callback)
+        else:
+            logger.error(
+                "CRITICAL: Spawning agent %s with no event callback — "
+                "events will be silently dropped.", code
+            )
 
         # BUG-013: Suppress per-agent engagement_ended — manager owns that event.
         # Without this, each agent's finally block emits engagement_ended,
