@@ -2083,6 +2083,21 @@ async def create_finding(payload: FindingPayload):
     )
     await state.add_finding(finding)
 
+    # Fix 3: for new VF findings confirmed at creation, write confirmed_at to Neo4j
+    if vf_confirmed_at is not None and neo4j_available and neo4j_driver:
+        _fid_confirm = finding_id
+        _ts_confirm = vf_confirmed_at
+        def _confirm_new_vf_finding():
+            with neo4j_driver.session() as session:
+                session.run("""
+                    MATCH (f:Finding {id: $id})
+                    SET f.status = 'confirmed', f.confirmed_at = $confirmed_at
+                """, id=_fid_confirm, confirmed_at=_ts_confirm)
+        try:
+            await neo4j_exec(_confirm_new_vf_finding)
+        except Exception as e:
+            print(f"Neo4j VF confirm write error: {e}")
+
     # H1: Feed finding into Graphiti for cross-session memory
     from graphiti_integration import ingest_episode, is_enabled as graphiti_enabled
     if graphiti_enabled():
@@ -2175,7 +2190,7 @@ async def get_mtte(engagement: Optional[str] = None):
             pass
     # Fall back to in-memory findings
     if not deltas:
-        findings_scope = [f for f in state.findings if not engagement or getattr(f, "engagement_id", None) == engagement]
+        findings_scope = [f for f in state.findings if not engagement or f.engagement == engagement]
         for f in findings_scope:
             d = getattr(f, "discovered_at", None)
             c = getattr(f, "confirmed_at", None)
@@ -2804,6 +2819,13 @@ async def report_canary_callback(verification_id: str, callback: dict):
     v["final_status"] = VerificationStatus.CONFIRMED.value
     v["final_confidence"] = 0.95
 
+    # Fix 2: propagate confirmed_at into in-memory Finding
+    _canary_confirmed_ts = time.time()
+    for f in state.findings:
+        if f.id == v["finding_id"] and not f.confirmed_at:
+            f.confirmed_at = _canary_confirmed_ts
+            break
+
     # Update Neo4j
     if neo4j_available and neo4j_driver:
         _finding_id = v["finding_id"]
@@ -2817,9 +2839,11 @@ async def report_canary_callback(verification_id: str, callback: dict):
                         f.confidence = 0.95,
                         f.canary_callback = true,
                         f.impact_demonstrated = $impact,
-                        f.verified_at = datetime()
+                        f.verified_at = datetime(),
+                        f.confirmed_at = $confirmed_at
                 """, finding_id=_finding_id,
-                     impact=_impact)
+                     impact=_impact,
+                     confirmed_at=time.time())
         try:
             await neo4j_exec(_update_canary)
         except Exception as e:
@@ -9579,7 +9603,8 @@ async def _sync_neo4j_findings(eid: str):
                        f.category AS category, f.target AS target,
                        f.agent AS agent, f.description AS description,
                        f.cvss AS cvss, f.cve AS cve, f.evidence AS evidence,
-                       f.timestamp AS timestamp
+                       f.timestamp AS timestamp,
+                       f.discovered_at AS discovered_at, f.confirmed_at AS confirmed_at
                 ORDER BY f.timestamp DESC
             """, eid=eid)
 
@@ -9605,6 +9630,15 @@ async def _sync_neo4j_findings(eid: str):
                 except ValueError:
                     sev = Severity.INFO
                 # Handle timestamp: could be float epoch, Neo4j DateTime, or None
+                def _neo4j_ts_to_epoch(val):
+                    if val is None:
+                        return None
+                    if hasattr(val, "to_native"):
+                        return val.to_native().timestamp()
+                    if isinstance(val, (int, float)):
+                        return float(val)
+                    return None
+
                 ts = rec.get("timestamp")
                 if ts is None:
                     ts = time.time()
@@ -9626,6 +9660,8 @@ async def _sync_neo4j_findings(eid: str):
                     evidence=rec.get("evidence"),
                     timestamp=ts,
                     engagement=eid,
+                    discovered_at=_neo4j_ts_to_epoch(rec.get("discovered_at")),
+                    confirmed_at=_neo4j_ts_to_epoch(rec.get("confirmed_at")),
                 )
                 await state.add_finding(finding)
 
