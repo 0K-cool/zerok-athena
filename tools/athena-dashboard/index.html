@@ -11384,6 +11384,7 @@
     function _doStartEngage(eid) {
       var backendOverride = 'external';  // Force external for Antsle bridge targets
       window._summaryGenerated = false;  // BUG-020: Reset summary guard for new engagement
+      resetAgentChips();  // Clear completed state from previous engagement so chips can pulse on re-engage
       setCtrlState('preparing');  // Show "Preparing..." immediately, WebSocket upgrades to "running"
 
       fetch('/api/engagement/' + eid + '/start-ai?backend=' + backendOverride, { method: 'POST' })
