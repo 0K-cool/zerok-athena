@@ -9221,11 +9221,7 @@
         var eu = exploitedUnverified || 0;
         var c = confirmed || 0;
         var t = total || 0;
-        if (eu > 0) {
-          subEl.textContent = c + ' confirmed + ' + eu + ' unverified / ' + (c + eu);
-        } else {
-          subEl.textContent = c + '/' + t + ' confirmed by VF';
-        }
+        subEl.textContent = c + ' confirmed + ' + eu + ' unverified / ' + (c + eu);
       }
     }
 
@@ -11536,6 +11532,11 @@
       if (costEl) costEl.textContent = '$0.00';
       // Reset agent cost high-water marks (prevents stale maxCost across engagement switches)
       document.querySelectorAll('.budget-badge').forEach(function(b) { b.dataset.maxCost = '0'; });
+      // Reset all nav badges on engagement switch/re-engage
+      ['scans', 'findings', 'vulnerabilities', 'evidence', 'attack-graph', 'reports', 'intelligence'].forEach(function(name) {
+          var badge = document.getElementById('nav-badge-' + name);
+          if (badge) { badge.textContent = '0'; badge.style.display = 'none'; }
+      });
       // Reset severity counts
       Object.keys(_severityCounts).forEach(k => _severityCounts[k] = 0);
       updateSeverityChart();
