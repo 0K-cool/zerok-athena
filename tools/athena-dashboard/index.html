@@ -11291,7 +11291,10 @@
           loadDashboardFromAPI();
           // BUG-025: Update intelligence badge without full reload
           fetch('/api/cei/techniques').then(r => r.json()).then(d => {
-            const count = (d.techniques || []).length;
+            const techniques = d.techniques || [];
+            const count = currentEngagementId
+              ? techniques.filter(function(t) { return (t.engagement_ids || []).indexOf(currentEngagementId) !== -1; }).length
+              : techniques.length;
             const badge = document.getElementById('nav-badge-intelligence');
             if (badge) { badge.textContent = count; badge.style.display = count > 0 ? '' : 'none'; }
           }).catch(() => {});
@@ -11418,12 +11421,32 @@
     }
 
     function stopEngage() {
-      const eid = currentEngagementId || 'dryrun-ms2';
-      setCtrlState('idle'); resetAgentChips();  // Optimistic UI — instant feedback
-      fetch(`/api/engagement/${eid}/stop`, { method: 'POST' })
-        .then(r => r.json())
-        .then(data => { if (!data.ok) setCtrlState('running'); })  // Revert on failure
-        .catch(() => {});  // Keep idle — stop should succeed even on network error
+      var eid = currentEngagementId || 'dryrun-ms2';
+      // Disable Stop buttons immediately to prevent double-click
+      document.querySelectorAll('.btn-stop').forEach(function(btn) {
+        btn.disabled = true;
+        btn.textContent = 'Stopping...';
+      });
+      fetch('/api/engagement/' + eid + '/stop', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.ok) {
+            setCtrlState('idle');
+            resetAgentChips();
+          } else {
+            document.querySelectorAll('.btn-stop').forEach(function(btn) {
+              btn.disabled = false;
+              btn.textContent = 'Stop';
+            });
+            setCtrlState('running');
+            showToast('error', 'Stop Failed', data.message || 'Could not stop engagement');
+          }
+        })
+        .catch(function() {
+          setCtrlState('idle');
+          resetAgentChips();
+          showToast('warning', 'Stop Sent', 'Network error — engagement marked stopped locally');
+        });
     }
 
     function resetAgentChips() {
@@ -11964,8 +11987,10 @@
           : techniques.length;
         const intelBadge = document.getElementById('nav-badge-intelligence');
         if (intelBadge) {
-          intelBadge.textContent = ceiCount;
-          intelBadge.style.display = ceiCount > 0 ? '' : 'none';
+          var currentVal = parseInt(intelBadge.textContent) || 0;
+          var safeCount = Math.max(ceiCount, currentVal);
+          intelBadge.textContent = safeCount;
+          intelBadge.style.display = safeCount > 0 ? '' : 'none';
         }
       } catch (e) { /* ignore */ }
 
@@ -15063,6 +15088,7 @@
     async function loadSettingsView() {
       try {
         const res = await fetch('/api/config/features');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const cfg = await res.json();
         const ed = cfg.editable || {};
         _lastEditable = ed;
@@ -15164,6 +15190,7 @@
 
       } catch (e) {
         console.error('Settings: failed to load config', e);
+        showToast('error', 'Settings Load Failed', 'Could not reach config API: ' + (e.message || 'unknown error'));
       }
     }
 
