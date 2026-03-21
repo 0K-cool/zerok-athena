@@ -1169,6 +1169,14 @@ async def update_agent_status(payload: AgentStatusPayload):
             status_code=400,
             content={"error": f"Invalid status: {payload.status}. Valid: {[s.value for s in AgentStatus]}"}
         )
+    # Guard: don't allow RUNNING unless a real session exists (prevents P0 replay)
+    if status == AgentStatus.RUNNING and _active_session_manager:
+        session = _active_session_manager.agents.get(payload.agent)
+        if not session or not session.is_running:
+            return JSONResponse(status_code=409, content={
+                "error": f"Agent {payload.agent} has no active session. "
+                         "Cannot set RUNNING — agents are spawned via engagement start."
+            })
     await state.update_agent_status(payload.agent, status, payload.task or "")
     return {"ok": True}
 
