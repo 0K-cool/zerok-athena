@@ -453,21 +453,29 @@ class KaliClient:
     async def kill_all(self) -> dict:
         """Kill all active processes on all available backends.
 
-        Calls /api/kill-all on each backend. Returns per-backend results.
+        Calls /api/kill-all on each backend IN PARALLEL with 3s timeout.
         """
-        results = {}
         client = await self._get_client()
-        for name, backend in self.backends.items():
+
+        async def _kill_backend(name: str, backend) -> tuple:
             if not backend.available:
-                results[name] = {"skipped": True, "reason": "backend unavailable"}
-                continue
+                return name, {"skipped": True, "reason": "backend unavailable"}
             try:
                 resp = await client.post(
                     f"{backend.base_url}/api/kill-all",
                     headers=backend.headers(),
-                    timeout=10,
+                    timeout=3,
                 )
-                results[name] = resp.json()
+                return name, resp.json()
             except Exception as e:
-                results[name] = {"error": str(e)}
+                return name, {"error": str(e)}
+
+        import asyncio
+        tasks = [_kill_backend(n, b) for n, b in self.backends.items()]
+        pairs = await asyncio.gather(*tasks, return_exceptions=True)
+        results = {}
+        for pair in pairs:
+            if isinstance(pair, Exception):
+                continue
+            results[pair[0]] = pair[1]
         return results

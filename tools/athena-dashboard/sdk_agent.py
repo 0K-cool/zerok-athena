@@ -1347,14 +1347,11 @@ class AthenaAgentSession:
 
     async def pause(self):
         """Pause the engagement by cancelling the current query.
-        Fire-and-forget cancel — do NOT await the task (blocks 30-40s under load).
-        The task will clean up asynchronously via its finally block."""
+        Fire-and-forget cancel — do NOT await the task.
+        Manager emits the authoritative pause event — no per-agent emit needed."""
         self.is_paused = True
         if self._query_task and not self._query_task.done():
             self._query_task.cancel()
-            # Do NOT await — the cancelled task cleans up in background
-        await self._emit("system", "OR", "Engagement paused by operator.",
-            {"control": "engagement_paused"})
 
     async def resume(
         self,
