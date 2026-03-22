@@ -2031,7 +2031,7 @@ async def create_finding(payload: FindingPayload):
                     svc_name = "http" if svc_port in (80, 443) else f"port-{svc_port}"
                     session.run("""
                         MERGE (h:Host {ip: $host_ip, engagement_id: $engagement})
-                        MERGE (s:Service {host_ip: $host_ip, port: $port})
+                        MERGE (s:Service {host_ip: $host_ip, port: $port, engagement_id: $engagement})
                         ON CREATE SET s.name = $svc_name,
                                       s.protocol = $protocol,
                                       s.engagement_id = $engagement,
@@ -6664,6 +6664,43 @@ async def create_engagement_finding(eid: str, payload: FindingPayload):
     """
     payload.engagement = eid
     return await create_finding(payload)
+
+
+@app.patch("/api/engagements/{eid}/findings/{fid}")
+async def patch_finding(eid: str, fid: str, request: Request):
+    """Allow agents to update status and evidence on existing findings."""
+    payload = await request.json()
+    allowed = {"status", "evidence", "verification_status", "confirmed_at", "exploited_by"}
+    updates = {k: v for k, v in payload.items() if k in allowed}
+    if not updates:
+        return JSONResponse(status_code=400, content={"error": "No valid fields to update"})
+
+    # Update in-memory state
+    for f in state.findings:
+        if f.id == fid and f.engagement == eid:
+            for k, v in updates.items():
+                setattr(f, k, v)
+            # Set confirmed_at if status becoming confirmed
+            if updates.get("status") == "confirmed" and not f.confirmed_at:
+                import time as _t
+                f.confirmed_at = _t.time()
+            break
+
+    # Update Neo4j
+    if neo4j_available and neo4j_driver and updates:
+        def _patch_neo4j():
+            set_clauses = ", ".join(f"f.{k} = ${k}" for k in updates)
+            with neo4j_driver.session() as session:
+                session.run(
+                    f"MATCH (f:Finding {{id: $id, engagement_id: $eid}}) SET {set_clauses}",
+                    id=fid, eid=eid, **updates
+                )
+        try:
+            await neo4j_exec(_patch_neo4j)
+        except Exception as e:
+            logger.warning("Finding PATCH Neo4j error: %s", str(e)[:100])
+
+    return {"ok": True, "updated": fid, "fields": list(updates.keys())}
 
 
 @app.delete("/api/engagements/{eid}/findings")

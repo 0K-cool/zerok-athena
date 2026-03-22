@@ -743,6 +743,12 @@ status ONLY from the verification result API. You MUST call the API for EVERY co
 IMPORTANT: Never re-verify a finding that already has a verification result. Each finding
 gets verified ONCE. If /api/verify returns "already_verified":true, move to the next finding.
 
+TOOL RESILIENCE: If a dedicated MCP tool (nmap_scan, nuclei_scan, etc.) fails or returns
+an error, fall back to execute_command and run the same command directly. Example:
+  nmap_scan fails → execute_command with command="nmap --script=ftp-vsftpd-backdoor -p 21 TARGET"
+  screenshot_web fails → execute_command with command="curl -s TARGET | head -50"
+Never block the verification pipeline on a single tool failure — adapt and continue.
+
 STOP DIRECTIVE (MANDATORY — OVERRIDES ALL OTHER INSTRUCTIONS):
 If you receive a directive from ST containing "STOP", "COMPLETE", "WRAP UP", or "FINISH",
 you MUST immediately:

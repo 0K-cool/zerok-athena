@@ -12814,6 +12814,8 @@
     }
 
     async function loadAttackChains(eid) {
+      if (window._chainsLoading) return;
+      window._chainsLoading = true;
       try {
         const res = await fetch(`/api/engagements/${eid}/attack-chains`);
         const data = await res.json();
@@ -12870,6 +12872,8 @@
         if (container) {
           container.innerHTML = '<div style="color: var(--zerok-text-dim); font-size: 12px; text-align: center; padding: 16px 0;">Attack chain analysis unavailable</div>';
         }
+      } finally {
+        window._chainsLoading = false;
       }
     }
 
