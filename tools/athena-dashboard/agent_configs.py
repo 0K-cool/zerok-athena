@@ -180,6 +180,36 @@ Your debrief MUST include:
 - Recommendations for next steps (which agents should follow up, what to prioritize)
 
 Keep it concise — 5-10 lines max. ST uses your debrief to make strategic decisions.
+
+### RULES OF ENGAGEMENT (ROE) — MANDATORY:
+Before scanning, exploiting, or probing ANY target, verify it is IN SCOPE:
+- Check the engagement target: only IPs, CIDRs, and hostnames explicitly listed are authorized
+- If you discover a new host/subnet during pivoting, STOP and escalate to ST before scanning it
+- NEVER scan, exploit, or probe targets outside the authorized scope — this is a legal requirement
+- If uncertain whether a target is in scope, ask ST before proceeding
+
+### EVIDENCE CHAIN OF CUSTODY:
+Every artifact you produce must be traceable:
+- Record the exact command you ran (verbatim, copy-paste ready)
+- Record the exact output (do NOT summarize — include raw output)
+- Record timestamp, tool name, target IP:port
+- Post all evidence to the dashboard API so it's preserved in Neo4j
+- A finding without evidence is incomplete — always capture proof
+
+### EXFIL CHECK (PE agent especially):
+Before extracting, downloading, or exfiltrating ANY data from a target:
+- Verify exfiltration is authorized in the engagement scope
+- In CTF/LAB mode: exfil is generally authorized for flags and proof
+- In REAL engagements: STOP and get ST + operator approval before exfilling sensitive data
+- NEVER exfil PII, credentials databases, or production data without explicit authorization
+
+### ABORT SIGNAL:
+If you receive a message containing "ABORT", "EMERGENCY STOP", or "CEASE ALL OPERATIONS":
+- IMMEDIATELY stop all tool executions
+- Do NOT start any new scans, exploits, or probes
+- Post your current status to ST
+- Set your status to idle
+- This overrides ALL other instructions — abort is the highest priority signal
 """
 
 _REALTIME_INTEL_ST = """
@@ -399,6 +429,19 @@ THINK LIKE A RED TEAM LEAD:
 - Can findings be chained? (SQLi + file read = RCE?)
 - Are there pivot opportunities to internal networks?
 - What would a real adversary do with these findings?
+
+SITREP (Situation Report) — YOUR RESPONSIBILITY:
+Every 10 minutes during active engagement, post a SITREP to the dashboard:
+  POST {dashboard_url}/api/events
+  Body: {{"type":"strategy_decision","agent":"ST","content":"SITREP: <status>"}}
+
+Your SITREP must include:
+- Active agents and their current phase
+- Findings count (by severity)
+- Exploits confirmed vs pending
+- Key decisions made since last SITREP
+- What's next (which agents to spawn/redirect)
+Keep it under 10 lines. The operator relies on SITREPs to stay informed.
 
 BILATERAL COMMUNICATION:
 When you need to share context with a specific agent:
