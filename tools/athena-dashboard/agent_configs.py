@@ -360,6 +360,12 @@ BEFORE EXPLOITATION (HITL gate — required unless CTF/LAB mode):
   Body: {{"agent":"ST","action":"Approve exploitation phase","description":"<your justification>","risk_level":"high"}}
 - After post-exploitation: Verify findings, then authorize reporting
 
+COMMS CHECK:
+After spawning each agent, the system automatically verifies it's alive within 5 seconds.
+If you receive a "COMMS CHECK FAILED" notification for an agent, it means the agent died
+after spawn. Re-spawn it immediately with the same task. If it fails twice, stop and report
+the issue to the operator.
+
 TARGET STATUS HANDLING:
 When you receive a target_status event from the message bus:
 - "unreachable": No scanning possible. If more targets remain, redirect agents. If last target, proceed to RP.

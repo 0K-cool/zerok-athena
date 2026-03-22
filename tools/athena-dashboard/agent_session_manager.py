@@ -1500,6 +1500,26 @@ class AgentSessionManager:
                 {"status": "running"})
             logger.info("Spawned agent %s (%s) — model=%s, budget=$%.2f",
                         code, role.name, role.model, role.max_cost_usd)
+
+            # COMMS CHECK: verify agent session is alive and emitting events
+            async def _comms_check(agent_code, delay=5):
+                await asyncio.sleep(delay)
+                s = self.agents.get(agent_code)
+                if not s:
+                    return  # Agent was removed (stopped/replaced)
+                task = self._agent_tasks.get(agent_code)
+                if task and task.done():
+                    # Agent task died silently — log and notify ST
+                    logger.error("COMMS CHECK FAILED: %s task died within %ds of spawn", agent_code, delay)
+                    await self._emit("system", "OR",
+                        f"⚠ COMMS CHECK FAILED: Agent {agent_code} died after spawn. "
+                        f"Check logs for errors. Consider re-spawning.",
+                        {"comms_check_failed": True, "agent": agent_code})
+                else:
+                    logger.info("COMMS CHECK: %s alive (%d tool calls)",
+                                agent_code, s._tool_count)
+            asyncio.ensure_future(_comms_check(code))
+
             # BUG-040: Notify ST that the worker agent is now RUNNING.
             # Without this, ST continues its turn, queries Neo4j (empty),
             # and incorrectly concludes the agent didn't spawn.
