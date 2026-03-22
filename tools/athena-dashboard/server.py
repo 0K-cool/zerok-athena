@@ -10752,20 +10752,48 @@ async def stop_engagement(eid: str):
     state.engagement_stopped = True
     state.engagement_pause_event.set()  # Unblock if paused so task can exit
 
-    # 0. Kill active processes on Kali FIRST — unblocks subprocess stdout reads
-    kill_results = await kali_client.kill_all()
-
-    # 1. Stop multi-agent session manager (fast now that Kali tools are killed)
+    # 0. Stop manager (instant — sets flags + cancel signals)
+    import subprocess as _sp
+    eid_for_kill = ""
     if _active_session_manager and _active_session_manager.is_running:
-        await _active_session_manager.stop()
+        eid_for_kill = _active_session_manager.engagement_id or ""
+        _active_session_manager.is_running = False
+        # Cancel all agent tasks directly
+        for code, session in _active_session_manager.agents.items():
+            if session.is_running:
+                session.is_running = False
+                if session._query_task and not session._query_task.done():
+                    session._query_task.cancel()
+        # Cancel manager task
+        if _active_session_manager._manager_task and not _active_session_manager._manager_task.done():
+            _active_session_manager._manager_task.cancel()
         _active_session_manager = None
 
-    # 2. Unblock any waiting HITL approvals so the task can exit
+    # 1. SIGTERM claude subprocesses (graceful)
+    if eid_for_kill:
+        _sp.run(["pkill", "-15", "-f", f"ATHENA engagement {eid_for_kill}"],
+                capture_output=True, timeout=2)
+
+    # 2. Background: SIGKILL survivors after 3s + Kali kill
+    async def _stop_cleanup():
+        await asyncio.sleep(3)
+        if eid_for_kill:
+            _sp.run(["pkill", "-9", "-f", f"ATHENA engagement {eid_for_kill}"],
+                    capture_output=True, timeout=2)
+        if kali_client:
+            try:
+                await kali_client.kill_all()
+            except Exception:
+                pass
+    asyncio.ensure_future(_stop_cleanup())
+    kill_results = {"status": "stop_sent"}
+
+    # 3. Unblock any waiting HITL approvals so the task can exit
     for evt_data in state.approval_events.values():
         evt_data["approved"] = False
         evt_data["event"].set()
 
-    # 3. Cancel the engagement asyncio task (cancels in-flight requests)
+    # 4. Cancel the engagement asyncio task (cancels in-flight requests)
     if state.engagement_task and not state.engagement_task.done():
         state.engagement_task.cancel()
 
