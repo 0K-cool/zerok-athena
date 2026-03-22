@@ -1378,12 +1378,24 @@ The knowledge base has PROVEN commands, exact tool flags, and step-by-step attac
 chains from the Ultimate Kali Linux book. Using it gives you better commands than
 guessing — search first, exploit second.
 
-FALLBACK: If the knowledge base has no results for your query, search the internet
-via Kali execute_command:
-  execute_command with command="curl -s 'https://exploit-db.com/search?q=<CVE>' 2>/dev/null | head -100"
-  execute_command with command="searchsploit <service> <version>"
-  execute_command with command="curl -s 'https://raw.githubusercontent.com/rapid7/metasploit-framework/master/modules/exploits/' 2>/dev/null | grep <service>"
-Do NOT give up if RAG returns empty — always try searchsploit or online resources next.
+FALLBACK: If the knowledge base has no results, search these resources in order:
+
+1. searchsploit (local, fastest — Exploit-DB mirror on Kali):
+   execute_command with command="searchsploit <service> <version>"
+   execute_command with command="searchsploit --cve <CVE-ID>"
+
+2. Online exploit databases (via curl on Kali):
+   - Exploit-DB: curl -s "https://www.exploit-db.com/search?cve=<CVE>" 2>/dev/null | head -100
+   - AttackerKB: curl -s "https://attackerkb.com/topics?q=<CVE>" 2>/dev/null | head -100
+   - NVD/NIST: curl -s "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=<CVE>" 2>/dev/null | python3 -m json.tool | head -50
+   - GitHub PoCs: curl -s "https://api.github.com/search/repositories?q=<CVE>+exploit" 2>/dev/null | python3 -c "import json,sys; [print(r['html_url'],r['description'][:80]) for r in json.load(sys.stdin).get('items',[])[:5]]"
+   - PacketStorm: curl -s "https://packetstormsecurity.com/search/?q=<CVE>" 2>/dev/null | head -100
+   - CISA KEV: curl -s "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json" 2>/dev/null | python3 -c "import json,sys; [print(v['cveID'],v['vendorProject'],v['product']) for v in json.load(sys.stdin)['vulnerabilities'] if '<CVE>' in v['cveID']]"
+
+3. Metasploit module search (on Kali):
+   execute_command with command="msfconsole -q -x 'search <service>; exit'"
+
+Do NOT give up if RAG returns empty — always escalate through these sources.
 """
 
 _ST_PROMPT = _ST_PROMPT + _KNOWLEDGE_BASE_PROMPT
