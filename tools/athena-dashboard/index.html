@@ -12257,12 +12257,21 @@
         }
       } catch (e) { console.warn('exploit-stats:', e.message); }
 
-      // ── MTTE KPI (Bug-A fix: use Neo4j-persisted endpoint, survives reload) ──
+      // ── MTTE KPI: try Neo4j endpoint first, fall back to exploit-stats ──
       try {
         const mtteRes = await fetch(`/api/kpi/mtte?engagement=${currentEngagementId}`);
         const mtteData = await mtteRes.json();
         const mtteEl = document.getElementById('kpi-mtte');
-        if (mtteEl) mtteEl.textContent = mtteData.mtte_display || '—';
+        if (mtteEl) {
+          if (mtteData.mtte_display && mtteData.mtte_display !== '\u2014') {
+            mtteEl.textContent = mtteData.mtte_display;
+          } else if (es && es.mtte_display) {
+            // Fallback: use exploit-stats in-memory MTTE when Neo4j has no confirmed_at
+            mtteEl.textContent = es.mtte_display;
+          } else {
+            mtteEl.textContent = '—';
+          }
+        }
       } catch (e) { console.warn('kpi/mtte:', e.message); }
 
       // ── Open Ports KPI + Attack Surface Radar ──
