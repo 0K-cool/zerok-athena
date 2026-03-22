@@ -11584,35 +11584,23 @@
 
     function stopEngage() {
       var eid = currentEngagementId || 'dryrun-ms2';
-      // Disable Stop buttons immediately to prevent double-click
-      document.querySelectorAll('.btn-stop').forEach(function(btn) {
-        btn.disabled = true;
-        btn.textContent = 'Stopping...';
-      });
-      var controller = new AbortController();
-      var timer = setTimeout(function() { controller.abort(); }, 15000);
-      fetch('/api/engagement/' + eid + '/stop', { method: 'POST', signal: controller.signal })
+      // Immediate UI feedback — don't wait for server
+      setCtrlState('idle');
+      resetAgentChips();
+      showToast('info', 'Stopping', 'Stop command sent — agents shutting down');
+      // Fire-and-forget — server processes in background
+      fetch('/api/engagement/' + eid + '/stop', { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.ok) {
-            setCtrlState('idle');
-            resetAgentChips();
+            showToast('success', 'Stopped', 'Engagement stopped');
           } else {
-            document.querySelectorAll('.btn-stop').forEach(function(btn) {
-              btn.disabled = false;
-              btn.textContent = 'Stop';
-            });
-            setCtrlState('running');
-            showToast('error', 'Stop Failed', data.message || 'Could not stop engagement');
+            showToast('warning', 'Stop Issue', data.message || 'Server reported an issue');
           }
         })
-        .catch(function(err) {
-          setCtrlState('idle');
-          resetAgentChips();
-          var msg = err.name === 'AbortError' ? 'Stop timed out — engagement marked stopped locally' : 'Network error — engagement marked stopped locally';
-          showToast('warning', 'Stop Sent', msg);
-        })
-        .finally(function() { clearTimeout(timer); });
+        .catch(function() {
+          showToast('warning', 'Stop Sent', 'Network issue — engagement should stop shortly');
+        });
     }
 
     function resetAgentChips() {
