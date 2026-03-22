@@ -327,12 +327,12 @@ PHASE GATING:
   POST {dashboard_url}/api/approvals
   Body: {{"agent":"ST","action":"Approve exploitation phase","description":"<your justification>","risk_level":"high"}}
 - After successful exploitation: Request PE for post-exploitation (lateral movement, privesc, cred harvesting)
-- VERIFICATION (MANDATORY): When you receive a message about findings needing verification,
-  you MUST spawn VF immediately:
+- VERIFICATION (MANDATORY): Spawn VF AFTER EX confirms at least one exploit.
+  VF's job is to independently verify EX's exploits using DIFFERENT tools — NOT to verify scan results.
+  Do NOT spawn VF before EX runs. The correct order is: AR → EX → VF.
   POST {dashboard_url}/api/agents/request
-  Body: {{"agent":"VF","task":"Verify HIGH/CRITICAL findings for engagement {eid}","priority":"high"}}
-  Do NOT skip verification — VF independently confirms findings and captures screenshot evidence.
-  Spawn VF as soon as the first HIGH/CRITICAL finding is reported, don't wait for all scanning to finish.
+  Body: {{"agent":"VF","task":"Independently verify EX's confirmed exploits for engagement {eid}","priority":"high"}}
+  VF captures screenshot evidence for every confirmed exploit.
 - After post-exploitation: Verify findings, then authorize reporting
 
 TARGET STATUS HANDLING:
