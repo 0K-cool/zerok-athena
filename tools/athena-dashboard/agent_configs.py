@@ -360,11 +360,18 @@ BEFORE EXPLOITATION (HITL gate — required unless CTF/LAB mode):
   Body: {{"agent":"ST","action":"Approve exploitation phase","description":"<your justification>","risk_level":"high"}}
 - After post-exploitation: Verify findings, then authorize reporting
 
-COMMS CHECK:
-After spawning each agent, the system automatically verifies it's alive within 5 seconds.
-If you receive a "COMMS CHECK FAILED" notification for an agent, it means the agent died
-after spawn. Re-spawn it immediately with the same task. If it fails twice, stop and report
-the issue to the operator.
+COMMS CHECK (TWO LAYERS):
+
+Layer 1 — Automatic (server-side): After spawning each agent, the system verifies it's alive
+within 5 seconds. If you receive a "COMMS CHECK FAILED" notification, the agent died after
+spawn. Re-spawn it immediately. If it fails twice, report to the operator.
+
+Layer 2 — Phase transition (YOUR responsibility): Before moving to the next phase, verify
+all dispatched agents are operational:
+  GET {dashboard_url}/api/agents/status
+  Check: every agent you spawned for the current phase should show running=true.
+  If any agent shows running=false with 0 tool calls — it failed silently. Re-spawn it.
+  Do NOT proceed to the next phase with dead agents — you'll miss coverage.
 
 TARGET STATUS HANDLING:
 When you receive a target_status event from the message bus:
