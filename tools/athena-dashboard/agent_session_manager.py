@@ -685,13 +685,10 @@ class AgentSessionManager:
         """Stop all agents and clean up."""
         self.is_running = False
 
-        # Cancel manager loop
+        # Cancel manager loop — fire-and-forget (do NOT block)
         if self._manager_task and not self._manager_task.done():
             self._manager_task.cancel()
-            try:
-                await self._manager_task
-            except (asyncio.CancelledError, RuntimeError):
-                pass
+            # Do NOT await — manager task cleans up in background
 
         # Unregister all agents from the bus before stopping sessions
         for code in list(self.agents.keys()):

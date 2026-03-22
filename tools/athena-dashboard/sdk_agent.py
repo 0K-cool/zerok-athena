@@ -1346,14 +1346,13 @@ class AthenaAgentSession:
             return "Command queued — waiting for session to initialize."
 
     async def pause(self):
-        """Pause the engagement by cancelling the current query."""
+        """Pause the engagement by cancelling the current query.
+        Fire-and-forget cancel — do NOT await the task (blocks 30-40s under load).
+        The task will clean up asynchronously via its finally block."""
         self.is_paused = True
         if self._query_task and not self._query_task.done():
             self._query_task.cancel()
-            try:
-                await asyncio.wait_for(self._query_task, timeout=3.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
+            # Do NOT await — the cancelled task cleans up in background
         await self._emit("system", "OR", "Engagement paused by operator.",
             {"control": "engagement_paused"})
 
@@ -1475,19 +1474,14 @@ class AthenaAgentSession:
                 await self._cleanup_orphan_scans()
 
     async def stop(self):
-        """Stop the engagement and clean up."""
+        """Stop the engagement and clean up.
+        Fire-and-forget cancel — do NOT block awaiting the task."""
         self.is_running = False
         self.is_paused = False
 
         if self._query_task and not self._query_task.done():
             self._query_task.cancel()
-            try:
-                await self._query_task
-            except (asyncio.CancelledError, RuntimeError):
-                # RuntimeError: "Attempted to exit cancel scope in a different task"
-                # This is a known anyio/SDK issue when cancelling process_query
-                # from a different task context. Safe to suppress.
-                pass
+            # Do NOT await — the cancelled task cleans up in background
             self._query_task = None
 
         # Drain the command queue
