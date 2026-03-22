@@ -650,6 +650,26 @@
       50% { opacity: 0.7; }
     }
 
+    /* ── Engagement Running Clock ── */
+    .engagement-clock {
+      display: none;
+      font-family: var(--zerok-font-mono);
+      font-size: 13px;
+      color: var(--zerok-text-muted);
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: color-mix(in srgb, var(--zerok-text) 8%, transparent);
+      white-space: nowrap;
+    }
+    .engagement-clock.active {
+      display: inline-block;
+      color: var(--zerok-low);
+    }
+    .engagement-clock.completed {
+      display: inline-block;
+      color: var(--zerok-text-dim);
+    }
+
     /* Internet Outage Banner */
     .network-banner {
       background: linear-gradient(90deg, rgba(234, 179, 8, 0.15), rgba(234, 179, 8, 0.08));
@@ -6141,6 +6161,7 @@
             <span class="eng-dot"></span>
             <span>Pentest Running</span>
           </span>
+          <span class="engagement-clock" id="engagementClock"></span>
           <button class="icon-btn" id="searchBtn" title="Search">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="8" cy="8" r="5"/>
@@ -9113,6 +9134,10 @@
       // Sync engagement control state from server
       if (msg.engagement_active) {
         setCtrlState(msg.engagement_paused ? 'paused' : 'running');
+        // Restore running clock on page reload if engagement is active
+        if (!msg.engagement_paused) {
+          restoreEngagementClock(msg.started_at || msg.engagement_started_at);
+        }
         // Auto-select the active engagement if provided
         if (msg.active_engagement_id && msg.active_engagement_id !== currentEngagementId) {
           selectEngagement(msg.active_engagement_id);
@@ -11301,6 +11326,72 @@
       if (_kpiPollInterval) { clearInterval(_kpiPollInterval); _kpiPollInterval = null; }
     }
 
+    // ── Engagement Clock ──
+    var _clockInterval = null;
+    var _clockStartTime = null;
+
+    function startEngagementClock() {
+      _clockStartTime = Date.now();
+      var clockEl = document.getElementById('engagementClock');
+      if (!clockEl) return;
+      clockEl.className = 'engagement-clock active';
+      // Clear any existing interval
+      if (_clockInterval) clearInterval(_clockInterval);
+      _clockInterval = setInterval(function() {
+        var elapsed = Math.floor((Date.now() - _clockStartTime) / 1000);
+        clockEl.textContent = formatClockTime(elapsed);
+      }, 1000);
+    }
+
+    function stopEngagementClock() {
+      if (_clockInterval) {
+        clearInterval(_clockInterval);
+        _clockInterval = null;
+      }
+      var clockEl = document.getElementById('engagementClock');
+      if (clockEl && _clockStartTime) {
+        var elapsed = Math.floor((Date.now() - _clockStartTime) / 1000);
+        clockEl.textContent = formatClockTime(elapsed);
+        clockEl.className = 'engagement-clock completed';
+      }
+    }
+
+    function resetEngagementClock() {
+      if (_clockInterval) {
+        clearInterval(_clockInterval);
+        _clockInterval = null;
+      }
+      _clockStartTime = null;
+      var clockEl = document.getElementById('engagementClock');
+      if (clockEl) {
+        clockEl.textContent = '';
+        clockEl.className = 'engagement-clock';
+      }
+    }
+
+    function restoreEngagementClock(startedAtEpoch) {
+      if (!startedAtEpoch) return;
+      _clockStartTime = startedAtEpoch * 1000; // Convert epoch seconds to ms
+      var clockEl = document.getElementById('engagementClock');
+      if (!clockEl) return;
+      clockEl.className = 'engagement-clock active';
+      if (_clockInterval) clearInterval(_clockInterval);
+      _clockInterval = setInterval(function() {
+        var elapsed = Math.floor((Date.now() - _clockStartTime) / 1000);
+        clockEl.textContent = formatClockTime(elapsed);
+      }, 1000);
+    }
+
+    function formatClockTime(totalSeconds) {
+      var hours = Math.floor(totalSeconds / 3600);
+      var mins = Math.floor((totalSeconds % 3600) / 60);
+      var secs = totalSeconds % 60;
+      if (hours > 0) {
+        return hours + 'h ' + (mins < 10 ? '0' : '') + mins + 'm ' + (secs < 10 ? '0' : '') + secs + 's';
+      }
+      return mins + 'm ' + (secs < 10 ? '0' : '') + secs + 's';
+    }
+
     function setCtrlState(state) {
       // state: 'idle' | 'preparing' | 'running' | 'paused'
       _currentCtrlState = state;
@@ -11332,6 +11423,11 @@
       if (state === 'idle') {
         const hitlOverlay = document.getElementById('hitlOverlay');
         if (hitlOverlay) hitlOverlay.classList.remove('visible');
+        stopEngagementClock();
+      }
+      // Start clock when engagement becomes active (only if not already running)
+      if (state === 'running' || state === 'preparing') {
+        if (!_clockInterval) startEngagementClock();
       }
       // Update sidebar engagement LED color
       const activeItem = document.querySelector('.engagement-list-item.active .engagement-status-dot');
@@ -11384,6 +11480,7 @@
       var backendOverride = 'external';  // Force external for Antsle bridge targets
       window._summaryGenerated = false;  // BUG-020: Reset summary guard for new engagement
       resetAgentChips();  // Clear completed state from previous engagement so chips can pulse on re-engage
+      resetEngagementClock();  // Clear any previous clock state before starting fresh
       setCtrlState('preparing');  // Show "Preparing..." immediately, WebSocket upgrades to "running"
 
       fetch('/api/engagement/' + eid + '/start-ai?backend=' + backendOverride, { method: 'POST' })
@@ -11710,6 +11807,7 @@
       if (empty && timeline) { empty.style.display = ''; timeline.appendChild(empty); }
 
       // ── Reset engagement controls ──
+      resetEngagementClock();
       setCtrlState('idle');
     }
 
@@ -12977,6 +13075,10 @@
           closeCreateEngagementModal();
           loadEngagements();
           showToast('success', 'Success', 'Engagement created');
+          // Auto-select the new engagement and navigate to dashboard
+          if (result.engagement_id || result.id) {
+            if (typeof selectEngagement === 'function') selectEngagement(result.engagement_id || result.id);
+          }
         } else {
           showToast('error', 'Error', 'Failed to create engagement');
         }
