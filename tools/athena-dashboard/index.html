@@ -4843,6 +4843,11 @@
       color: var(--zerok-primary);
     }
 
+    .tool-status-badge.paused {
+      background: color-mix(in srgb, var(--zerok-primary) 12%, transparent);
+      color: var(--zerok-primary);
+    }
+
     .tool-name-badge {
       display: inline-block;
       font-size: 10px;
@@ -11463,6 +11468,14 @@
         const hitlOverlay = document.getElementById('hitlOverlay');
         if (hitlOverlay) hitlOverlay.classList.remove('visible');
         stopEngagementClock();
+      }
+      // Mark running tool cards as "Paused" when engagement pauses
+      if (state === 'paused') {
+        document.querySelectorAll('.tool-status-badge.running').forEach(function(badge) {
+          badge.textContent = 'Paused';
+          badge.className = 'tool-status-badge paused';
+        });
+        document.querySelectorAll('.tool-timer.running').forEach(function(t) { t.classList.remove('running'); });
       }
       // Clock lifecycle: start/pause/resume based on engagement state
       if (state === 'paused') {
