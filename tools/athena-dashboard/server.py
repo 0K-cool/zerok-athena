@@ -10744,22 +10744,22 @@ async def stop_engagement(eid: str):
     state.engagement_stopped = True
     state.engagement_pause_event.set()  # Unblock if paused so task can exit
 
-    # 0. Stop multi-agent session manager if running (Phase F1a)
+    # 0. Kill active processes on Kali FIRST — unblocks subprocess stdout reads
+    kill_results = await kali_client.kill_all()
+
+    # 1. Stop multi-agent session manager (fast now that Kali tools are killed)
     if _active_session_manager and _active_session_manager.is_running:
         await _active_session_manager.stop()
         _active_session_manager = None
 
-    # 1. Unblock any waiting HITL approvals so the task can exit
+    # 2. Unblock any waiting HITL approvals so the task can exit
     for evt_data in state.approval_events.values():
         evt_data["approved"] = False
         evt_data["event"].set()
 
-    # 2. Cancel the engagement asyncio task (cancels in-flight requests)
+    # 3. Cancel the engagement asyncio task (cancels in-flight requests)
     if state.engagement_task and not state.engagement_task.done():
         state.engagement_task.cancel()
-
-    # 3. Kill active processes on all Kali backends
-    kill_results = await kali_client.kill_all()
 
     # 4. Cancel in-flight scans — broadcast tool_complete with cancelled status
     cancelled_scans = []

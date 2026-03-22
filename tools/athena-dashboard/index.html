@@ -11567,7 +11567,9 @@
         btn.disabled = true;
         btn.textContent = 'Stopping...';
       });
-      fetch('/api/engagement/' + eid + '/stop', { method: 'POST' })
+      var controller = new AbortController();
+      var timer = setTimeout(function() { controller.abort(); }, 15000);
+      fetch('/api/engagement/' + eid + '/stop', { method: 'POST', signal: controller.signal })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.ok) {
@@ -11582,11 +11584,13 @@
             showToast('error', 'Stop Failed', data.message || 'Could not stop engagement');
           }
         })
-        .catch(function() {
+        .catch(function(err) {
           setCtrlState('idle');
           resetAgentChips();
-          showToast('warning', 'Stop Sent', 'Network error — engagement marked stopped locally');
-        });
+          var msg = err.name === 'AbortError' ? 'Stop timed out — engagement marked stopped locally' : 'Network error — engagement marked stopped locally';
+          showToast('warning', 'Stop Sent', msg);
+        })
+        .finally(function() { clearTimeout(timer); });
     }
 
     function resetAgentChips() {
