@@ -694,6 +694,16 @@ class AgentSessionManager:
         for code in list(self.agents.keys()):
             self.bus.unregister(code)
 
+        # Pre-gather pkill — catches any processes spawned before is_running=False propagated
+        try:
+            import subprocess
+            eid = getattr(self, 'engagement_id', '')
+            if eid:
+                subprocess.run(["pkill", "-15", "-f", f"ATHENA engagement {eid}"],
+                               capture_output=True, timeout=3)
+        except Exception:
+            pass
+
         # Stop all active agent sessions
         stop_tasks = []
         for code, session in self.agents.items():

@@ -8,15 +8,17 @@
 
   "nmap_scan": {
     "display_name": "Nmap Port Scanner",
-    "endpoint": "/api/tools/nmap",
+    "endpoint": "/api/command",
+    "command_template": "nmap {scan_type} {target}",
+    "flag_notes": "Pass NSE scripts via additional_args, e.g. '--script=vuln' or '--script=http-headers,smb-os-discovery'. Ports go in additional_args too: '-p 80,443'.",
     "timeout": 300,
     "backends": ["external", "internal"],
     "category": "recon",
     "params": {
       "target": {"type": "string", "required": true, "description": "Target IP/CIDR/hostname"},
-      "scan_type": {"type": "string", "required": false, "default": "-sV", "description": "Nmap scan type flags"},
+      "scan_type": {"type": "string", "required": false, "default": "-sV", "description": "Nmap scan type flags (e.g. -sV, -sS, -A)"},
       "ports": {"type": "string", "required": false, "default": "", "description": "Port specification (e.g. 1-1000, 80,443)"},
-      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra nmap flags"}
+      "additional_args": {"type": "string", "required": false, "default": "", "description": "Extra nmap flags including NSE scripts (e.g. --script=vuln, --script=http-headers)"}
     }
   },
 
