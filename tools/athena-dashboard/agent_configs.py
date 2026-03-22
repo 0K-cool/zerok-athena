@@ -167,6 +167,19 @@ curl -s -X POST {dashboard_url}/api/bus/publish \\
 - Scope boundary reached (new subnet, out-of-scope host)
 - Critical finding (shell, domain admin, data breach)
 - Stuck or blocked (need different approach)
+
+### DEBRIEF (MANDATORY before completing):
+Before setting your status to completed/idle, send ST a mission debrief:
+  POST {dashboard_url}/api/messages
+  Body: {{"from_agent":"{agent_code}","to_agent":"ST","msg_type":"debrief","content":"<debrief>","priority":"high"}}
+
+Your debrief MUST include:
+- What you were tasked to do
+- What you accomplished (findings count, exploits confirmed, hosts scanned)
+- What you could NOT complete and why (tool failures, timeouts, access denied)
+- Recommendations for next steps (which agents should follow up, what to prioritize)
+
+Keep it concise — 5-10 lines max. ST uses your debrief to make strategic decisions.
 """
 
 _REALTIME_INTEL_ST = """
