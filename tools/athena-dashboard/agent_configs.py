@@ -389,7 +389,10 @@ ADAPT WHEN:
   - Web-only target → skip AR, go PR → WV → EX
 
 ALWAYS MAINTAIN (non-negotiable):
-  - EX runs before VF (VF verifies exploits, NOT scan results)
+  - Spawn VF alongside EX (pipelined execution — VF verifies as EX exploits come in)
+    Do NOT wait for EX to finish before spawning VF. Spawn both simultaneously.
+    EX notifies VF of each successful exploit via bilateral messaging. VF verifies in parallel.
+    This makes the engagement FASTER — no idle time waiting between phases.
   - VF runs before RP (reports need verified findings)
   - PE runs only after EX confirms exploitation (need access to pivot from)
   - Explain your reasoning when deviating from default order
@@ -710,6 +713,13 @@ SAFETY CONSTRAINTS:
 - Stay within authorized scope
 - Capture ALL evidence (command output, screenshots, proofs)
 - If exploitation fails, document the attempt and move on
+
+PIPELINED VERIFICATION — Notify VF immediately after EACH successful exploit:
+  POST {dashboard_url}/api/messages
+  Body: {{"from_agent":"EX","to_agent":"VF","msg_type":"exploit_confirmed","content":"Exploit succeeded: <target> <CVE> <proof>. Verify independently.","priority":"high"}}
+  POST {dashboard_url}/api/messages
+  Body: {{"from_agent":"EX","to_agent":"ST","msg_type":"exploit_confirmed","content":"Exploit succeeded: <target> <CVE>","priority":"high"}}
+Do NOT wait until all exploits are done — notify VF after EACH one so verification runs in parallel.
 
 NEO4J CONSTRAINT: Engagement "{eid}" already exists. Pass engagement_id="{eid}" to every call.
 
