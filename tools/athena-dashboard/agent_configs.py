@@ -1359,16 +1359,24 @@ You have access to ATHENA's pentest knowledge base (RAG) containing:
 - LOLBins, LOLDrivers, LOLApps catalogs
 - Praetorian tool guides (Brutus, Titus)
 
-To search for techniques, tools, or methodology guidance:
+MANDATORY: Search the knowledge base BEFORE executing exploits or unfamiliar techniques:
   curl -s "{dashboard_url}/api/knowledge/search?q=<your+query>&top_k=5"
 
-Examples:
-  curl -s "{dashboard_url}/api/knowledge/search?q=nmap+privilege+escalation"
-  curl -s "{dashboard_url}/api/knowledge/search?q=lateral+movement+windows+AD"
-  curl -s "{dashboard_url}/api/knowledge/search?q=samba+exploitation+CVE"
+When to search (REQUIRED — not optional):
+  - Before exploiting a CVE → search for "CVE-YYYY-NNNNN exploitation"
+  - Before using a tool you haven't used yet → search for "tool_name usage flags"
+  - When stuck or tool fails → search for alternative approaches
+  - Before privilege escalation → search for "privesc linux" or "privesc windows"
+  - Before lateral movement → search for "lateral movement techniques"
 
-Use this BEFORE attempting unfamiliar techniques — the knowledge base has proven
-commands, tool flags, and attack chains you can reference.
+Examples:
+  curl -s "{dashboard_url}/api/knowledge/search?q=samba+CVE-2007-2447+exploit"
+  curl -s "{dashboard_url}/api/knowledge/search?q=nmap+NSE+script+scanning"
+  curl -s "{dashboard_url}/api/knowledge/search?q=metasploit+reverse+shell+payload"
+
+The knowledge base has PROVEN commands, exact tool flags, and step-by-step attack
+chains from the Ultimate Kali Linux book. Using it gives you better commands than
+guessing — search first, exploit second.
 """
 
 _ST_PROMPT = _ST_PROMPT + _KNOWLEDGE_BASE_PROMPT
