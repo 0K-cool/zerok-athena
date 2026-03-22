@@ -11543,17 +11543,21 @@
     function pauseEngage() {
       var eid = currentEngagementId || 'dryrun-ms2';
       setCtrlState('paused');
-      var controller = new AbortController();
-      var timer = setTimeout(function() { controller.abort(); }, 10000);
-      fetch('/api/engagement/' + eid + '/pause', { method: 'POST', signal: controller.signal })
+      showToast('info', 'Pausing', 'Sending pause command — agents will stop after current tool call');
+      fetch('/api/engagement/' + eid + '/pause', { method: 'POST' })
         .then(function(r) { return r.json(); })
-        .then(function(data) { if (!data.ok) { setCtrlState('running'); showToast('error', 'Pause Failed', data.error || 'Server error'); } })
-        .catch(function(err) {
-          setCtrlState('running');
-          var msg = err.name === 'AbortError' ? 'Pause timed out — retrying may help' : 'Pause request failed';
-          showToast('error', 'Pause Failed', msg);
+        .then(function(data) {
+          if (data.ok) {
+            showToast('success', 'Paused', 'Engagement paused');
+          } else {
+            setCtrlState('running');
+            showToast('error', 'Pause Failed', data.error || 'Server error');
+          }
         })
-        .finally(function() { clearTimeout(timer); });
+        .catch(function() {
+          // Keep paused state — server may still be processing
+          showToast('warning', 'Pause Sent', 'Server is still processing — engagement should pause shortly');
+        });
     }
 
     function resumeEngage() {

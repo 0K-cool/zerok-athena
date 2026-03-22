@@ -10914,21 +10914,25 @@ async def pause_engagement(eid: str):
     # User-initiated pause clears network_paused flag so auto-resume doesn't
     # override the user's intent.
     _network_paused = False
-    # Kill running processes on Kali backends FIRST so long-running tools (Nuclei, Nmap)
-    # actually stop instead of continuing for minutes until completion.
-    # This unblocks subprocess stdout, allowing the session manager's cancel() to deliver quickly.
+    import time as _time
+    _t0 = _time.monotonic()
+    # Kill running processes on Kali backends FIRST
     kill_results = {}
     if kali_client:
         try:
             kill_results = await kali_client.kill_all()
         except Exception:
             pass
+    _t1 = _time.monotonic()
+    print(f"[PAUSE TIMING] kali_kill: {_t1 - _t0:.2f}s")
 
-    state.engagement_pause_event.clear()  # Block at next checkpoint
+    state.engagement_pause_event.clear()
 
-    # Pause multi-agent session manager AFTER killing Kali tools so cancel() isn't blocked
+    # Pause multi-agent session manager
     if _active_session_manager and _active_session_manager.is_running:
         await _active_session_manager.pause()
+    _t2 = _time.monotonic()
+    print(f"[PAUSE TIMING] manager_pause: {_t2 - _t1:.2f}s")
 
     # Mark running scans as paused
     for scan in state.scans:
