@@ -1351,8 +1351,8 @@ class AthenaAgentSession:
         if self._query_task and not self._query_task.done():
             self._query_task.cancel()
             try:
-                await self._query_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(asyncio.shield(self._query_task), timeout=3.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
         await self._emit("system", "OR", "Engagement paused by operator.",
             {"control": "engagement_paused"})

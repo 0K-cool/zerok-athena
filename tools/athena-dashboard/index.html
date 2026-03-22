@@ -11329,6 +11329,7 @@
     // ── Engagement Clock ──
     var _clockInterval = null;
     var _clockStartTime = null;
+    var _clockPausedElapsed = null;
 
     function startEngagementClock() {
       _clockStartTime = Date.now();
@@ -11356,16 +11357,49 @@
       }
     }
 
+    function pauseEngagementClock() {
+      if (_clockInterval) {
+        clearInterval(_clockInterval);
+        _clockInterval = null;
+      }
+      if (_clockStartTime) {
+        _clockPausedElapsed = Math.floor((Date.now() - _clockStartTime) / 1000);
+      }
+      var clockEl = document.getElementById('engagementClock');
+      if (clockEl) {
+        clockEl.className = 'engagement-clock active';
+        clockEl.style.opacity = '0.5';
+      }
+    }
+
+    function resumeEngagementClock() {
+      if (_clockPausedElapsed != null) {
+        _clockStartTime = Date.now() - (_clockPausedElapsed * 1000);
+        _clockPausedElapsed = null;
+      }
+      var clockEl = document.getElementById('engagementClock');
+      if (!clockEl) return;
+      clockEl.className = 'engagement-clock active';
+      clockEl.style.opacity = '';
+      if (_clockInterval) clearInterval(_clockInterval);
+      _clockInterval = setInterval(function() {
+        var elapsed = Math.floor((Date.now() - _clockStartTime) / 1000);
+        clockEl.textContent = formatClockTime(elapsed);
+      }, 1000);
+    }
+
     function resetEngagementClock() {
       if (_clockInterval) {
         clearInterval(_clockInterval);
         _clockInterval = null;
       }
       _clockStartTime = null;
+      _clockPausedElapsed = null;
       var clockEl = document.getElementById('engagementClock');
       if (clockEl) {
         clockEl.textContent = '';
         clockEl.className = 'engagement-clock';
+        clockEl.style.opacity = '';
       }
     }
 
@@ -11425,9 +11459,15 @@
         if (hitlOverlay) hitlOverlay.classList.remove('visible');
         stopEngagementClock();
       }
-      // Start clock when engagement becomes active (only if not already running)
-      if (state === 'running' || state === 'preparing') {
-        if (!_clockInterval) startEngagementClock();
+      // Clock lifecycle: start/pause/resume based on engagement state
+      if (state === 'paused') {
+        pauseEngagementClock();
+      } else if (state === 'running' || state === 'preparing') {
+        if (_clockPausedElapsed != null) {
+          resumeEngagementClock();
+        } else if (!_clockInterval) {
+          startEngagementClock();
+        }
       }
       // Update sidebar engagement LED color
       const activeItem = document.querySelector('.engagement-list-item.active .engagement-status-dot');
@@ -11496,12 +11536,19 @@
     }
 
     function pauseEngage() {
-      const eid = currentEngagementId || 'dryrun-ms2';
-      setCtrlState('paused');  // Optimistic UI — instant feedback
-      fetch(`/api/engagement/${eid}/pause`, { method: 'POST' })
-        .then(r => r.json())
-        .then(data => { if (!data.ok) setCtrlState('running'); })  // Revert on failure
-        .catch(() => setCtrlState('running'));
+      var eid = currentEngagementId || 'dryrun-ms2';
+      setCtrlState('paused');
+      var controller = new AbortController();
+      var timer = setTimeout(function() { controller.abort(); }, 10000);
+      fetch('/api/engagement/' + eid + '/pause', { method: 'POST', signal: controller.signal })
+        .then(function(r) { return r.json(); })
+        .then(function(data) { if (!data.ok) { setCtrlState('running'); showToast('error', 'Pause Failed', data.error || 'Server error'); } })
+        .catch(function(err) {
+          setCtrlState('running');
+          var msg = err.name === 'AbortError' ? 'Pause timed out — retrying may help' : 'Pause request failed';
+          showToast('error', 'Pause Failed', msg);
+        })
+        .finally(function() { clearTimeout(timer); });
     }
 
     function resumeEngage() {

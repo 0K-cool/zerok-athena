@@ -801,11 +801,15 @@ class AgentSessionManager:
         logger.info("Multi-agent engagement stopped: %s", self.engagement_id)
 
     async def pause(self):
-        """Pause all running agents."""
+        """Pause all running agents in parallel to avoid sequential blocking."""
         self._paused = True  # BUG-029: Block re-spawns while paused
-        for code, session in self.agents.items():
-            if session.is_running and not session.is_paused:
-                await session.pause()
+        pause_tasks = [
+            session.pause()
+            for code, session in self.agents.items()
+            if session.is_running and not session.is_paused
+        ]
+        if pause_tasks:
+            await asyncio.gather(*pause_tasks, return_exceptions=True)
         await self._emit("system", "OR", "All agents paused.",
             {"control": "engagement_paused"})
 
