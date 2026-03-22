@@ -1377,6 +1377,13 @@ Examples:
 The knowledge base has PROVEN commands, exact tool flags, and step-by-step attack
 chains from the Ultimate Kali Linux book. Using it gives you better commands than
 guessing — search first, exploit second.
+
+FALLBACK: If the knowledge base has no results for your query, search the internet
+via Kali execute_command:
+  execute_command with command="curl -s 'https://exploit-db.com/search?q=<CVE>' 2>/dev/null | head -100"
+  execute_command with command="searchsploit <service> <version>"
+  execute_command with command="curl -s 'https://raw.githubusercontent.com/rapid7/metasploit-framework/master/modules/exploits/' 2>/dev/null | grep <service>"
+Do NOT give up if RAG returns empty — always try searchsploit or online resources next.
 """
 
 _ST_PROMPT = _ST_PROMPT + _KNOWLEDGE_BASE_PROMPT
