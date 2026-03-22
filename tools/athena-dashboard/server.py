@@ -2631,6 +2631,56 @@ async def submit_verification_result(verification_id: str, result: VerificationR
                 f.confirmed_at = confirmed_ts
                 break
 
+    # Auto-capture screenshot for confirmed findings (fire-and-forget)
+    if result.status == "confirmed":
+        _finding_target = None
+        for f in state.findings:
+            if f.id == result.finding_id:
+                _finding_target = getattr(f, 'target', None)
+                break
+        if _finding_target and kali_client:
+            async def _auto_screenshot():
+                try:
+                    import base64
+                    import io as _io
+                    url = _finding_target if _finding_target.startswith(('http://', 'https://')) else f'http://{_finding_target}'
+                    client = await kali_client._get_client()
+                    # Try each available backend until one succeeds
+                    for name, backend in kali_client.backends.items():
+                        if not backend.available:
+                            continue
+                        try:
+                            resp = await client.post(
+                                f"{backend.base_url}/api/tools/screenshot",
+                                json={"url": url},
+                                timeout=15,
+                            )
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                image_b64 = data.get("image_b64") or data.get("image") or data.get("screenshot")
+                                if image_b64:
+                                    image_bytes = base64.b64decode(image_b64)
+                                    dashboard_base = _DASHBOARD_URL if '_DASHBOARD_URL' in globals() and _DASHBOARD_URL else "http://localhost:8080"
+                                    upload_resp = await client.post(
+                                        f"{dashboard_base}/api/artifacts",
+                                        data={
+                                            "finding_id": result.finding_id,
+                                            "engagement_id": v.get("engagement_id", ""),
+                                            "type": "screenshot",
+                                            "caption": f"Auto-captured VF confirmation — {_finding_target}",
+                                            "agent": "VF",
+                                            "capture_mode": "exploitable",
+                                        },
+                                        files={"file": (f"vf-{result.finding_id[:8]}.png", _io.BytesIO(image_bytes), "image/png")},
+                                    )
+                                    logger.info("Auto-screenshot captured for finding %s", result.finding_id)
+                                    break
+                        except Exception as e:
+                            logger.warning("Screenshot from backend %s failed: %s", name, str(e)[:100])
+                except Exception as e:
+                    logger.warning("Auto-screenshot task failed: %s", str(e)[:100])
+            asyncio.ensure_future(_auto_screenshot())
+
     # Update Neo4j Finding node with verification data
     if neo4j_available and neo4j_driver and result.status in ("confirmed", "likely"):
         confirmed_at_val = confirmed_ts if result.status == "confirmed" else None

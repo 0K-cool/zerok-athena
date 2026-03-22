@@ -759,6 +759,14 @@ class AthenaAgentSession:
         'shell>', 'meterpreter>', 'reverse shell',      # Shell access
         'uploaded successfully', 'webshell',             # File upload
         'password:', 'credentials found',                # Credential access
+        # Expanded indicators (Fix 1b)
+        'uid=0', 'root:', 'www-data',                   # Privilege confirmation
+        'session 1 opened', 'command shell session', 'meterpreter session',  # Metasploit sessions
+        'exploit completed', 'payload executed',         # Exploit lifecycle
+        'shell spawned', 'shell opened',                 # Shell events
+        'hash:', 'ntlm:',                                # Credential hashes
+        'whoami', '/bin/bash', '/bin/sh',               # Shell interaction artifacts
+        'msf6>', 'msf5>',                               # MSF prompts in output
     ]
 
     @staticmethod
@@ -885,12 +893,23 @@ class AthenaAgentSession:
             return True
         return False
 
+    _EXPLOIT_TOOLS = {
+        'bash', 'execute_command', 'run_command',
+        'metasploit_run', 'hydra_attack', 'john_crack', 'crackmapexec_scan',
+        'mcp__kali_external__bash', 'mcp__kali_internal__bash',
+        'mcp__kali_external__execute_command',
+        'mcp__kali_internal__execute_command',
+    }
+
     def _is_exploitation_result(self, tool_name: str, output: str) -> bool:
         """Detect if a tool result indicates successful exploitation."""
-        if tool_name not in ('bash', 'execute_command', 'run_command',
-                             'mcp__kali_external__bash', 'mcp__kali_internal__bash',
-                             'mcp__kali_external__execute_command',
-                             'mcp__kali_internal__execute_command'):
+        # Accept explicit tool names OR any kali backend tool dynamically
+        is_kali_tool = (
+            tool_name in self._EXPLOIT_TOOLS or
+            'kali_external' in tool_name or
+            'kali_internal' in tool_name
+        )
+        if not is_kali_tool:
             return False
         output_lower = output.lower()
         return any(indicator in output_lower for indicator in self.EXPLOIT_INDICATORS)
