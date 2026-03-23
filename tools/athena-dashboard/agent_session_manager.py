@@ -669,15 +669,10 @@ class AgentSessionManager:
         # Start ST first — it's the coordinator
         await self._spawn_agent("ST", task_prompt=st_context)
 
-        # Spawn CR (Command Router) alongside ST — handles operator commands instantly via Haiku.
-        # CR is invisible: no chip, no timeline events, no budget display.
-        await self._spawn_agent(
-            "CR",
-            task_prompt=(
-                "You are the Command Router (CR). Stand by to receive and route "
-                "operator commands for this engagement. Await instructions."
-            ),
-        )
+        # CR (Command Router) removed — replaced by deterministic code routing.
+        # Operator commands are forwarded to ST via _handle_multi_agent_operator_command()
+        # in server.py, which provides instant acknowledgment + direct ST routing.
+        # No LLM needed for a relay — faster, free, and reliable.
 
         # Notify user that ST is planning (takes ~30-60s)
         await self._emit("system", "ST",
@@ -875,14 +870,7 @@ class AgentSessionManager:
         _engagement_loop and caused ST to over-react/end engagements on harmless
         suggestions.
         """
-        # Route through CR first when it's available — it handles instant queries
-        # and forwards strategy commands to ST internally.
-        cr = self.agents.get("CR")
-        cr_task = self._agent_tasks.get("CR")
-        if cr and (cr.is_running or (cr_task and not cr_task.done())):
-            logger.info("Routing operator command through CR: %s", command[:80])
-            return await cr.send_command(command)
-
+        # Route directly to ST — CR LLM agent removed, code-based routing handles ack.
         st = self.agents.get("ST")
         st_task = self._agent_tasks.get("ST")
         # BUG-H4: Also check task.done() — is_running goes False in finally before task completes
