@@ -5366,7 +5366,7 @@ async def get_findings_trends(
         try:
             with neo4j_driver.session() as session:
                 if scope == "engagement" and engagement_id:
-                    # Single engagement: group findings by their timestamp date
+                    # Single engagement: first try daily grouping
                     result = session.run("""
                         MATCH (f:Finding {engagement_id: $eid})
                         WITH f,
@@ -5380,7 +5380,7 @@ async def get_findings_trends(
                     """, eid=engagement_id)
                     engagements_included = 1
 
-                    date_sev = {}
+                    date_sev: dict = {}
                     for record in result:
                         d = record["date"]
                         sev = record["sev"] or "info"
@@ -5389,9 +5389,40 @@ async def get_findings_trends(
                         bucket = sev if sev in date_sev[d] else "info"
                         date_sev[d][bucket] = record["cnt"]
 
-                    labels = sorted(date_sev.keys())
-                    for sev_key in datasets:
-                        datasets[sev_key] = [date_sev[d].get(sev_key, 0) for d in labels]
+                    # Same-day engagement: switch to hourly buckets for meaningful chart
+                    if len(date_sev) <= 1:
+                        hourly_result = session.run("""
+                            MATCH (f:Finding {engagement_id: $eid})
+                            WHERE f.timestamp > 0
+                            WITH f,
+                                 datetime({epochSeconds: toInteger(f.timestamp)}) AS dt
+                            WITH toString(dt.hour) + ':00' AS hour_label,
+                                 dt.hour AS hour_num,
+                                 toLower(f.severity) AS sev,
+                                 count(f) AS cnt
+                            RETURN hour_label, hour_num, sev, cnt
+                            ORDER BY hour_num
+                        """, eid=engagement_id)
+                        hour_sev: dict = {}
+                        for record in hourly_result:
+                            h = record["hour_label"]
+                            sev = record["sev"] or "info"
+                            if h not in hour_sev:
+                                hour_sev[h] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+                            bucket = sev if sev in hour_sev[h] else "info"
+                            hour_sev[h][bucket] = record["cnt"]
+                        if hour_sev:
+                            labels = sorted(hour_sev.keys(), key=lambda x: int(x.split(':')[0]))
+                            for sev_key in datasets:
+                                datasets[sev_key] = [hour_sev[h].get(sev_key, 0) for h in labels]
+                        else:
+                            labels = sorted(date_sev.keys())
+                            for sev_key in datasets:
+                                datasets[sev_key] = [date_sev[d].get(sev_key, 0) for d in labels]
+                    else:
+                        labels = sorted(date_sev.keys())
+                        for sev_key in datasets:
+                            datasets[sev_key] = [date_sev[d].get(sev_key, 0) for d in labels]
 
                 else:
                     # Cross-engagement: group by engagement start_date
@@ -7422,11 +7453,19 @@ async def list_artifacts(
                 result = session.run(query, **params)
                 artifacts = []
                 for record in result:
+                    art_type = record.get("type")
+                    file_path = record.get("file_path")
+                    content_text = ""
+                    if art_type == "command_output" and file_path and Path(file_path).exists():
+                        try:
+                            content_text = Path(file_path).read_text(errors="replace")[:4000]
+                        except Exception:
+                            pass
                     artifacts.append({
                         "id": record["id"],
-                        "type": record.get("type"),
+                        "type": art_type,
                         "timestamp": record.get("timestamp"),
-                        "file_path": record.get("file_path"),
+                        "file_path": file_path,
                         "file_hash": record.get("file_hash"),
                         "file_size": record.get("file_size"),
                         "mime_type": record.get("mime_type"),
@@ -7440,6 +7479,7 @@ async def list_artifacts(
                         "finding_severity": record.get("finding_severity"),
                         "file_url": f"/api/artifacts/{record['id']}/file",
                         "thumbnail_url": f"/api/artifacts/{record['id']}/thumbnail" if record.get("thumbnail_path") else None,
+                        "content": content_text,
                     })
                 # BUG-M2: Get true total count (not just page size)
                 count_query = f"MATCH (a:Artifact) {where_clause} RETURN count(a) AS total"
