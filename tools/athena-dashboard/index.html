@@ -8686,6 +8686,7 @@
 
     // ── WebSocket Connection ──
     function connectWebSocket() {
+      if (ws) { try { ws.close(); } catch(e) {} ws = null; }
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = protocol + '//' + location.host + '/ws';
 
@@ -8710,6 +8711,8 @@
 
       ws.onerror = function() {
         setConnectionStatus(false);
+        if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+        scheduleReconnect();
       };
 
       ws.onmessage = function(evt) {
@@ -9264,10 +9267,14 @@
       }
       // Sync engagement control state from server
       if (msg.engagement_active && !window._stopRequested) {
-        setCtrlState(msg.engagement_paused ? 'paused' : 'running');
-        // Restore running clock on page reload if engagement is active
-        if (!msg.engagement_paused) {
+        // Restore clock BEFORE setCtrlState so startEngagementClock() is not called with Date.now()
+        if (!msg.engagement_paused && (msg.started_at || msg.engagement_started_at)) {
           restoreEngagementClock(msg.started_at || msg.engagement_started_at);
+        }
+        if (msg.engagement_paused) {
+          setCtrlState('paused');
+        } else {
+          setCtrlState('running');
         }
         // Auto-select the active engagement if provided
         if (msg.active_engagement_id && msg.active_engagement_id !== currentEngagementId) {
@@ -13111,6 +13118,7 @@
       resetAgentChips();
 
       // Reset dashboard widgets then reload for selected engagement
+      stopKpiPolling();  // Stop old engagement's poll before resetting
       resetDashboardFindingWidgets();
       loadDashboardFromAPI();
       loadEngagementSummary(eid);
