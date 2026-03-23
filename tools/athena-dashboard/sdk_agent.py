@@ -1214,7 +1214,7 @@ class AthenaAgentSession:
         """
         try:
             await self._emit("system", "OR",
-                "Starting AI engagement via Agent SDK...")
+                f"Starting {self._role_config.code} ({self._role_config.name}) via Agent SDK...")
 
             prompt = initial_prompt
             resume_id = None
