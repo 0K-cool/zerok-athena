@@ -11159,6 +11159,7 @@
       if (control === 'engagement_paused') setCtrlState('paused');
       else if (control === 'engagement_resumed') setCtrlState('running');
       else if (control === 'engagement_ended' || control === 'engagement_stopped') {
+        window._stopRequested = false;
         setCtrlState('idle');
         // BUG-001: Reset Active Engagements KPI
         const kpiActive = document.getElementById('kpi-engagements');
@@ -11746,10 +11747,11 @@
       fetch('/api/engagement/' + eid + '/stop', { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          window._stopRequested = false;
           if (data.ok) {
             showToast('success', 'Stopped', 'Engagement stopped');
+            // _stopRequested remains true — cleared by WebSocket engagement_stopped signal
           } else {
+            window._stopRequested = false;
             showToast('warning', 'Stop Issue', data.message || 'Server reported an issue');
           }
         })

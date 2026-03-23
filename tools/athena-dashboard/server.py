@@ -9585,7 +9585,7 @@ async def search_knowledge_base(q: str, top_k: int = 5, agent: str = ""):
         "import sys, os; "
         f"sys.path.insert(0, {vex_rag_path!r}); "
         "from mcp_server.vex_kb_server import search_kb; "
-        "import json; print(json.dumps(search_kb(sys.argv[1], top_k=int(sys.argv[2]))))"
+        "import json; raw = search_kb(sys.argv[1], top_k=int(sys.argv[2])); print(raw if isinstance(raw, str) else json.dumps(raw))"
     )
 
     agent_label = agent.upper() if agent else "AGENT"
