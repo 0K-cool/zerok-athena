@@ -298,6 +298,8 @@ _BLOCKING_COMMAND_KEYWORDS = frozenset([
     # BUG-042: Critical operational alerts must interrupt immediately
     "down", "unreachable", "offline", "dead", "crashed",
     "host is down", "target is down", "target down",
+    # FLASH priority — operator requests that need immediate ST response
+    "status", "sitrep", "report", "how copy", "radio check",
 ])
 
 def _is_blocking_command(command: str) -> bool:
