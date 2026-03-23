@@ -9759,14 +9759,19 @@
           .then(function(data) {
             var c = (data.chains || []).length;
             var p = (data.pivots || []).length;
-            document.getElementById('strategyChains').textContent = c + ' chain' + (c !== 1 ? 's' : '');
-            document.getElementById('strategyPivots').textContent = p + ' pivot' + (p !== 1 ? 's' : '');
+            var elChains = document.getElementById('strategyChains');
+            var elPivots = document.getElementById('strategyPivots');
+            if (elChains) elChains.textContent = c + ' chain' + (c !== 1 ? 's' : '');
+            if (elPivots) elPivots.textContent = p + ' pivot' + (p !== 1 ? 's' : '');
           }).catch(function() {});
       } else {
-        document.getElementById('strategyChains').textContent = chains + ' chain' + (chains !== 1 ? 's' : '');
-        document.getElementById('strategyPivots').textContent = pivots + ' pivot' + (pivots !== 1 ? 's' : '');
+        var elChains = document.getElementById('strategyChains');
+        var elPivots = document.getElementById('strategyPivots');
+        if (elChains) elChains.textContent = chains + ' chain' + (chains !== 1 ? 's' : '');
+        if (elPivots) elPivots.textContent = pivots + ' pivot' + (pivots !== 1 ? 's' : '');
       }
-      document.getElementById('strategyUpdated').textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      var elUpdated = document.getElementById('strategyUpdated');
+      if (elUpdated) elUpdated.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 
       // Pulse the toggle button to indicate new intel
       toggle.classList.add('has-decision');
@@ -11786,6 +11791,10 @@
       }).catch(() => {});
       // Load engagements list, then populate dashboard from API + sync engagement state
       loadEngagements().then(() => {
+        // BUG-005: Reset stale scan coverage and widgets when no engagement is active on load
+        if (!currentEngagementId) {
+          resetDashboardFindingWidgets();
+        }
         loadDashboardFromAPI();
         // BUG-020: Sync ctrl state from API on page reload (before WebSocket connects)
         // Check both engagement status AND agent activity — engagement may say "active"
@@ -11937,6 +11946,9 @@
       if (kpiFindings) kpiFindings.textContent = '0';
       const kpiCriticals = document.getElementById('kpi-criticals');
       if (kpiCriticals) kpiCriticals.textContent = '0';
+      // BUG-003: Reset active engagements KPI so it shows 0 when no engagement is active
+      const kpiEngReset = document.getElementById('kpi-engagements');
+      if (kpiEngReset) kpiEngReset.textContent = '0';
       // Reset nav badges
       const findingsBadge = document.getElementById('nav-badge-findings');
       if (findingsBadge) findingsBadge.style.display = 'none';
