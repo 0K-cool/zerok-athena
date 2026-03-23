@@ -6967,7 +6967,7 @@
               <tbody id="findingsTableBody">
                 <tr>
                   <td colspan="6" style="text-align: center; padding: 40px; color: var(--zerok-text-dim);">
-                    Loading findings...
+                    Select an engagement to view findings.
                   </td>
                 </tr>
               </tbody>
@@ -7013,7 +7013,7 @@
 
           <div id="vuln-categories-container">
             <div style="text-align: center; padding: 48px 0; color: var(--zerok-text-dim); font-size: 12px; opacity: 0.6;">
-              No vulnerability data yet. Start an engagement to discover vulnerabilities.
+              Select an engagement to view vulnerabilities.
             </div>
           </div>
         </div><!-- /#vulnerabilitiesView -->
@@ -11810,6 +11810,10 @@
           resetDashboardFindingWidgets();
         }
         loadDashboardFromAPI();
+        if (currentEngagementId) {
+          loadFindings();
+          loadVulnerabilities();
+        }
         // BUG-020: Sync ctrl state from API on page reload (before WebSocket connects)
         // Check both engagement status AND agent activity — engagement may say "active"
         // in Neo4j but all agents are idle after a server restart.
@@ -11859,6 +11863,7 @@
     });
 
     function resetDashboardFindingWidgets() {
+      if (typeof _completedPhases !== 'undefined' && _completedPhases) _completedPhases.clear();
       // Reset Engagement Cost KPI — always zero on reset, loadDashboardFromAPI
       // will populate the correct cost value for the new engagement.
       const costEl = document.getElementById('kpi-cost');
@@ -12548,7 +12553,7 @@
         const completedCount = agentEntries.filter(a => a.status === 'completed').length;
         const runningCount = agentEntries.filter(a => a.status === 'running').length;
         if (_loadedFindingsCount > 0) {
-          if (completedCount > 0 && runningCount === 0) {
+          if (completedCount > 0 && runningCount === 0 && _currentCtrlState !== 'idle') {
             // All done and findings exist — engagement complete
             updateScanCoverage(100);
             const badge = document.getElementById('phaseBadge');

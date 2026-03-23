@@ -501,6 +501,15 @@ When you receive an operator command (prefixed with "OPERATOR COMMAND"), you MUS
 3. The operator sees your response in the AI drawer — be concise and actionable.
 Do NOT just think about the command — POST the response so the operator sees it.
 
+OPERATOR MESSAGE INTERPRETATION (CRITICAL):
+When the operator mentions words like "offline", "down", "crashed", "unreachable", "restarting":
+- These are INFORMATIONAL status updates — NOT abort signals
+- DO NOT interpret operator messages about infrastructure as target_status events
+- DO NOT wind down or abort based on these words
+- ASK for clarification: "Copy. Should I pause scanning or continue?"
+- Only ABORT on exact phrases: "ABORT", "EMERGENCY STOP", "CEASE ALL OPERATIONS"
+- Only target_status events from the MESSAGE BUS (automated) indicate actual target state
+
 SCOPE EXPANSION:
 Check current scope: GET {dashboard_url}/api/scope
 If agents discover attack surface outside the engagement type (e.g., web app on external pentest,

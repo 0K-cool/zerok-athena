@@ -6303,7 +6303,7 @@ async def get_exploit_stats(eid: str):
         exploited_unverified = mem_exploited_unverified
 
     total_exploited = confirmed + exploited_unverified
-    success_rate = round((total_exploited / max(discovered, 1)) * 100, 1)
+    success_rate = round((confirmed / max(discovered, 1)) * 100, 1)
 
     # MTTE: estimate from timestamp spread of findings (simplified)
     mem_findings = [f for f in state.findings if f.engagement == eid]
@@ -6323,11 +6323,19 @@ async def get_exploit_stats(eid: str):
             or (f.severity.value if hasattr(f.severity, 'value')
                 else str(f.severity).lower()) in ('critical', 'high'))
     ]
-    if timestamps and exploit_findings:
-        start_ts = timestamps[0]
+    # Use engagement start time for MTTE, not first finding time
+    eng_start_ts = None
+    for eng in state.engagements:
+        if eng.id == eid and hasattr(eng, 'started_at') and eng.started_at:
+            eng_start_ts = eng.started_at
+            break
+    if eng_start_ts is None and timestamps:
+        eng_start_ts = timestamps[0]  # fallback to first finding
+
+    if eng_start_ts and exploit_findings:
         for ef in exploit_findings:
-            delta = int(ef.timestamp - start_ts)
-            per_finding_times.append({"title": ef.title, "time_s": max(0, delta)})
+            delta = int(ef.timestamp - eng_start_ts)
+            per_finding_times.append({"title": ef.title[:80], "time_s": max(0, delta)})
         if per_finding_times:
             mtte_seconds = int(sum(t["time_s"] for t in per_finding_times) / len(per_finding_times))
 
@@ -6353,9 +6361,9 @@ async def get_exploit_stats(eid: str):
                             or sev in ("critical", "high")):
                         neo4j_exploit_findings.append({"title": record["title"], "ts": record["ts"]})
                 if all_ts and neo4j_exploit_findings:
-                    start_ts = all_ts[0]
+                    neo4j_start_ts = eng_start_ts if eng_start_ts is not None else all_ts[0]
                     for ef in neo4j_exploit_findings:
-                        delta = int(ef["ts"] - start_ts)
+                        delta = int(ef["ts"] - neo4j_start_ts)
                         per_finding_times.append({"title": ef["title"], "time_s": max(0, delta)})
                     mtte_seconds = int(sum(t["time_s"] for t in per_finding_times) / len(per_finding_times))
         except Exception as e:
@@ -8732,7 +8740,7 @@ async def get_events(limit: int = 50, agent: Optional[str] = None, engagement: O
 
     eid = engagement or state.active_engagement_id
     if neo4j_available and neo4j_driver:
-        try:
+        def _query_events():
             with neo4j_driver.session() as session:
                 query = "MATCH (ev:Event) "
                 params: dict = {}
@@ -8742,16 +8750,23 @@ async def get_events(limit: int = 50, agent: Optional[str] = None, engagement: O
                 query += "RETURN ev ORDER BY ev.timestamp DESC LIMIT $limit"
                 params["limit"] = limit
                 result = session.run(query, **params)
+                rows = []
                 for record in result:
                     ev = record["ev"]
                     if ev["id"] not in seen_ids:
-                        metadata = json.loads(ev.get("metadata_json", "{}")) if ev.get("metadata_json") else {}
-                        results.append(AgentEvent(
-                            id=ev["id"], type=ev["type"], agent=ev["agent"],
-                            content=ev["content"], timestamp=ev["timestamp"],
-                            metadata=metadata
-                        ))
-                        seen_ids.add(ev["id"])
+                        rows.append(ev)
+                return rows
+        try:
+            neo4j_rows = await neo4j_exec(_query_events)
+            for ev in neo4j_rows:
+                if ev["id"] not in seen_ids:
+                    metadata = json.loads(ev.get("metadata_json", "{}")) if ev.get("metadata_json") else {}
+                    results.append(AgentEvent(
+                        id=ev["id"], type=ev["type"], agent=ev["agent"],
+                        content=ev["content"], timestamp=ev["timestamp"],
+                        metadata=metadata
+                    ))
+                    seen_ids.add(ev["id"])
         except Exception as e:
             print(f"Neo4j events query error: {e}")
 
