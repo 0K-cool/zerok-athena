@@ -8397,6 +8397,13 @@
     // Initialize charts after DOM ready
     document.addEventListener('DOMContentLoaded', initCharts);
 
+    // Save static PTES tool descriptions so reset can restore them after dynamic tracking
+    document.addEventListener('DOMContentLoaded', function() {
+      document.querySelectorAll('[data-ptes] .technique-count').forEach(function(span) {
+        span.dataset.ptesStatic = span.textContent;
+      });
+    });
+
     // Re-initialize charts when accent changes (override setAccent)
     const originalSetAccent = setAccent;
     setAccent = function(color) {
@@ -8976,6 +8983,12 @@
             var countEl = matrixCell.querySelector('.technique-count');
             if (countEl) countEl.textContent = 'Scanning...';
           }
+          // Track tools used per agent for dynamic PTES display
+          if (msg.agent) {
+            if (!_agentToolsUsed[msg.agent]) _agentToolsUsed[msg.agent] = new Set();
+            _agentToolsUsed[msg.agent].add(toolStartName);
+            updatePtesToolList(msg.agent);
+          }
         }
         return;
       }
@@ -8987,6 +9000,13 @@
           addTimelineEvent(msg);
         }
         bumpAgentCount(msg.agent);
+        // Track tools used per agent for dynamic PTES display
+        var toolCompleteName = msg.tool_name || (msg.metadata && msg.metadata.tool_name) || (msg.metadata && msg.metadata.tool);
+        if (toolCompleteName && msg.agent) {
+          if (!_agentToolsUsed[msg.agent]) _agentToolsUsed[msg.agent] = new Set();
+          _agentToolsUsed[msg.agent].add(toolCompleteName);
+          updatePtesToolList(msg.agent);
+        }
         return;
       }
 
@@ -10701,6 +10721,25 @@
       });
     }
 
+    // Dynamic tool tracking: which tools each agent has used this engagement
+    var _agentToolsUsed = {};  // { "AR": Set(["naabu_scan", "nmap_scan"]), ... }
+
+    function updatePtesToolList(agent) {
+      var tools = _agentToolsUsed[agent];
+      if (!tools || tools.size === 0) return;
+      var cells = document.querySelectorAll('[data-ptes="' + agent + '"]');
+      cells.forEach(function(cell) {
+        var toolSpan = cell.querySelector('.technique-count');
+        if (toolSpan) {
+          // Strip mcp__kali_external__ / mcp__kali_internal__ prefix for brevity
+          var shortNames = Array.from(tools).map(function(t) {
+            return t.replace(/^mcp__kali_(external|internal)__/, '');
+          });
+          toolSpan.textContent = shortNames.join(', ');
+        }
+      });
+    }
+
     function stripAnsi(s) {
       // Strip ANSI escape codes — both real escape chars and literal \u001b strings
       return (s || '')
@@ -11836,9 +11875,15 @@
       agentGrid.querySelectorAll('.layer-cell.skipped').forEach(function(c) { c.classList.remove('skipped'); });
 
       // ── Reset PTES Methodology Coverage matrix ──
+      _agentToolsUsed = {};
       document.querySelectorAll('[data-ptes]').forEach(function(cell) {
         cell.classList.remove('covered', 'partial');
         cell.classList.add('none');
+        // Restore static tool descriptions saved at page load
+        var toolSpan = cell.querySelector('.technique-count');
+        if (toolSpan && toolSpan.dataset.ptesStatic) {
+          toolSpan.textContent = toolSpan.dataset.ptesStatic;
+        }
       });
 
       // ── Reset dedup sets for new engagement ──

@@ -1441,6 +1441,35 @@ _PX_PROMPT = _PX_PROMPT + _KNOWLEDGE_BASE_PROMPT
 _RP_PROMPT = _RP_PROMPT + _KNOWLEDGE_BASE_PROMPT
 
 # ──────────────────────────────────────────────
+# Command Router prompt (CR) — infrastructure agent, not a pentest agent
+# ──────────────────────────────────────────────
+
+_CR_PROMPT = """You are the COMMAND ROUTER (CR) — an invisible infrastructure agent.
+You handle operator commands instantly. You are NOT a pentest agent.
+
+YOUR ROLE: Receive operator commands and either:
+1. EXECUTE immediately (status checks, agent queries, simple actions)
+2. ROUTE to ST for strategic decisions (redirect agents, change priorities)
+
+COMMANDS YOU HANDLE DIRECTLY:
+- "status" / "sitrep" → GET {dashboard_url}/api/agents/status + /api/engagements/{eid}/summary
+- "findings" → GET {dashboard_url}/api/engagements/{eid}/findings
+- "cost" → GET {dashboard_url}/api/budget/engagement
+- "help" → List available commands
+
+COMMANDS YOU ROUTE TO ST:
+- Strategy changes ("focus on port 445", "skip DA", "stop EX")
+- Agent management ("spawn DA", "stop VF")
+- Anything requiring strategic judgment
+
+RULES:
+- Respond in 1-3 sentences max — be instant
+- You are INVISIBLE — no chip, no timeline events, no budget display
+- Forward to ST via: POST {dashboard_url}/api/messages
+  Body: {{"from_agent":"CR","to_agent":"ST","msg_type":"operator_command","content":"<command>","priority":"high"}}
+"""
+
+# ──────────────────────────────────────────────
 # F1a MVP: Agent role registry
 # ──────────────────────────────────────────────
 
@@ -1612,6 +1641,21 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
         disallowed_tools=(),
         system_prompt_template=_PX_PROMPT,
         ctf_prompt_template=_PX_CTF_PROMPT,
+        playbooks=(),
+        rag_queries=(),
+    ),
+    "CR": AgentRoleConfig(
+        code="CR",
+        name="Command Router",
+        model=AgentModel.HAIKU,   # Fast + cheap — handles instant operator commands
+        ptes_phase=0,             # Not a PTES phase
+        max_tool_calls=1000,      # High — handles many commands across engagement lifetime
+        max_cost_usd=3.00,        # Haiku is cheap; 3x safety margin over $1.00 server limit
+        max_turns_per_chunk=5,
+        allowed_tools=_BASE_TOOLS + _NEO4J_READ_ONLY,  # Read-only, no Kali
+        disallowed_tools=_kali_tools(),                 # Explicitly no offensive tools
+        system_prompt_template=_CR_PROMPT,
+        ctf_prompt_template=_CR_PROMPT,
         playbooks=(),
         rag_queries=(),
     ),
