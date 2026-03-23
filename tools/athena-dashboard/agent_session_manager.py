@@ -669,6 +669,16 @@ class AgentSessionManager:
         # Start ST first — it's the coordinator
         await self._spawn_agent("ST", task_prompt=st_context)
 
+        # Spawn CR (Command Router) alongside ST — handles operator commands instantly via Haiku.
+        # CR is invisible: no chip, no timeline events, no budget display.
+        await self._spawn_agent(
+            "CR",
+            task_prompt=(
+                "You are the Command Router (CR). Stand by to receive and route "
+                "operator commands for this engagement. Await instructions."
+            ),
+        )
+
         # Notify user that ST is planning (takes ~30-60s)
         await self._emit("system", "ST",
             "Strategy Agent is analyzing the target and planning the engagement. "
@@ -678,7 +688,7 @@ class AgentSessionManager:
         # Start the manager loop that processes agent requests
         self._manager_task = asyncio.create_task(self._manager_loop())
 
-        logger.info("Multi-agent engagement started: %s (ST + manager loop)",
+        logger.info("Multi-agent engagement started: %s (ST + CR + manager loop)",
                      self.engagement_id)
 
     async def stop(self):
@@ -848,7 +858,11 @@ class AgentSessionManager:
             {"control": "engagement_resumed", "deferred_replayed": len(deferred)})
 
     async def send_command(self, command: str) -> str:
-        """Forward operator command to ST with two-tier routing.
+        """Forward operator command to CR (if running) or ST with two-tier routing.
+
+        CR (Command Router) is the first stop — it handles status/info queries
+        instantly via Haiku and routes strategy commands to ST. If CR is not
+        running, falls back to routing directly to ST.
 
         NON-BLOCKING commands (suggestions, questions) are queued into ST's
         _command_queue and picked up at the next chunk boundary (~0.2s if active,
@@ -861,6 +875,14 @@ class AgentSessionManager:
         _engagement_loop and caused ST to over-react/end engagements on harmless
         suggestions.
         """
+        # Route through CR first when it's available — it handles instant queries
+        # and forwards strategy commands to ST internally.
+        cr = self.agents.get("CR")
+        cr_task = self._agent_tasks.get("CR")
+        if cr and (cr.is_running or (cr_task and not cr_task.done())):
+            logger.info("Routing operator command through CR: %s", command[:80])
+            return await cr.send_command(command)
+
         st = self.agents.get("ST")
         st_task = self._agent_tasks.get("ST")
         # BUG-H4: Also check task.done() — is_running goes False in finally before task completes
