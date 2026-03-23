@@ -15441,18 +15441,35 @@
 
         // Test RAG connectivity if enabled
         if (ragEnabled) {
-          try {
-            var ragResp = await fetch('/api/knowledge/search?q=test&top_k=1');
-            var ragData = await ragResp.json();
-            if (ragData.error) {
+          if (ragType === 'mcp') {
+            // MCP-type RAG: agents use MCP tool directly, REST proxy is optional fallback
+            // Check REST proxy but don't downgrade status if it fails — MCP is primary
+            try {
+              var ragResp = await fetch('/api/knowledge/search?q=test&top_k=1');
+              var ragData = await ragResp.json();
+              if (!ragData.error) {
+                ragLabel = 'Connected (MCP + REST)';
+              } else {
+                ragLabel = 'Configured (MCP)';  // MCP tool available, REST proxy not running
+              }
+            } catch (_) {
+              ragLabel = 'Configured (MCP)';
+            }
+          } else {
+            // REST-type RAG: REST endpoint is required
+            try {
+              var ragResp = await fetch('/api/knowledge/search?q=test&top_k=1');
+              var ragData = await ragResp.json();
+              if (ragData.error) {
+                ragBadge = 'warning';
+                ragLabel = 'Enabled (unreachable)';
+              } else {
+                ragLabel = 'Connected (REST)';
+              }
+            } catch (_) {
               ragBadge = 'warning';
               ragLabel = 'Enabled (unreachable)';
-            } else {
-              ragLabel = 'Connected (' + ragType.toUpperCase() + ')';
             }
-          } catch (_) {
-            ragBadge = 'warning';
-            ragLabel = 'Enabled (unreachable)';
           }
         }
         setBadge('cfg-rag-badge', ragBadge, ragLabel);

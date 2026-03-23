@@ -9432,9 +9432,15 @@ async def toggle_integration(body: dict):
             return {"ok": True, "integration": "langfuse", "enabled": langfuse_enabled(),
                     "message": "No change"}
 
+    elif integration == "rag":
+        # RAG toggle updates the in-memory config flag
+        _cfg.setdefault("rag", {})["enabled"] = enabled
+        return {"ok": True, "integration": "rag", "enabled": enabled,
+                "message": "RAG " + ("enabled" if enabled else "disabled") + " (update athena-config.yaml to persist)"}
+
     else:
         return JSONResponse(status_code=400, content={
-            "error": f"Unknown integration: {integration}. Supported: graphiti, langfuse"
+            "error": f"Unknown integration: {integration}. Supported: graphiti, langfuse, rag"
         })
 
 
