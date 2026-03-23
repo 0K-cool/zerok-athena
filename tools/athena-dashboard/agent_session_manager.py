@@ -299,7 +299,7 @@ _BLOCKING_COMMAND_KEYWORDS = frozenset([
     "down", "unreachable", "offline", "dead", "crashed",
     "host is down", "target is down", "target down",
     # FLASH priority — operator requests that need immediate ST response
-    "status", "sitrep", "report", "how copy", "radio check",
+    "status", "sitrep", "report",
 ])
 
 def _is_blocking_command(command: str) -> bool:
