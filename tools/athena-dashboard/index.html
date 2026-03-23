@@ -11294,7 +11294,7 @@
       const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
 
       // Skip rendering empty system messages (e.g., suppressed ST turn-complete events)
-      if (!msg.content || !msg.content.trim()) return;
+      if (!msg.content || !String(msg.content).trim() || String(msg.content).trim().length < 2) return;
       // BUG-016 fix: Sanitize raw SDK error messages into user-friendly text
       let displayContent = msg.content || '';
       if (/SDK query error|Command failed with exit code|Check stderr output/i.test(displayContent)) {
