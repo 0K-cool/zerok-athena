@@ -15516,38 +15516,12 @@
         var ragBadge = ragEnabled ? 'enabled' : 'disabled';
         var ragLabel = ragEnabled ? (ragType === 'mcp' ? 'MCP' : 'REST') : 'Not configured';
 
-        // Test RAG connectivity if enabled
+        // RAG status: enabled + has MCP tool configured = Configured
+        // Agents use MCP tool directly (REST proxy disabled due to fork/tokenizer crash)
         if (ragEnabled) {
-          if (ragType === 'mcp') {
-            // MCP-type RAG: agents use MCP tool directly, REST proxy is optional fallback
-            // Check REST proxy but don't downgrade status if it fails — MCP is primary
-            try {
-              var ragResp = await fetch('/api/knowledge/search?q=test&top_k=1');
-              var ragData = await ragResp.json();
-              if (!ragData.error) {
-                ragLabel = 'Connected (MCP + REST)';
-              } else {
-                ragLabel = 'Configured (MCP)';  // MCP tool available, REST proxy not running
-              }
-            } catch (_) {
-              ragLabel = 'Configured (MCP)';
-            }
-          } else {
-            // REST-type RAG: REST endpoint is required
-            try {
-              var ragResp = await fetch('/api/knowledge/search?q=test&top_k=1');
-              var ragData = await ragResp.json();
-              if (ragData.error) {
-                ragBadge = 'warning';
-                ragLabel = 'Enabled (unreachable)';
-              } else {
-                ragLabel = 'Connected (REST)';
-              }
-            } catch (_) {
-              ragBadge = 'warning';
-              ragLabel = 'Enabled (unreachable)';
-            }
-          }
+          var hasMcpTool = cfg.rag && cfg.rag.mcp_tool;
+          ragLabel = hasMcpTool ? 'Configured (MCP)' : 'Enabled (no MCP tool set)';
+          if (!hasMcpTool) ragBadge = 'warning';
         }
         setBadge('cfg-rag-badge', ragBadge, ragLabel);
         setBadge('cfg-rag-detail-badge', ragBadge, ragLabel);
@@ -15557,7 +15531,7 @@
         document.getElementById('cfg-rag-type').textContent = ragType.toUpperCase();
         document.getElementById('cfg-rag-mcp-tool').textContent = (cfg.rag && cfg.rag.mcp_tool) || '—';
         document.getElementById('cfg-rag-index-path').textContent = (cfg.rag && cfg.rag.index_path) || '—';
-        document.getElementById('cfg-rag-endpoint').textContent = '/api/knowledge/search';
+        document.getElementById('cfg-rag-endpoint').textContent = 'Disabled (agents use MCP tool)';
 
         // --- Kali ---
         const backends = cfg.kali.backends || {};

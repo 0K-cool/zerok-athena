@@ -9562,70 +9562,22 @@ async def find_similar_cases(service: str, version: str = ""):
 
 @app.get("/api/knowledge/search")
 async def search_knowledge_base(q: str, top_k: int = 5, agent: str = ""):
-    """Search the ATHENA RAG knowledge base.
+    """RAG Knowledge Base search endpoint.
 
-    Agents can query pentest techniques, tool usage, exploitation methods,
-    and reference material (e.g., Ultimate Kali Linux book, playbooks,
-    Atomic Red Team, PayloadsAllTheThings).
+    REST proxy is disabled — vex-rag's Rust tokenizers library crashes on
+    subprocess fork (SIGABRT). Agents should use the MCP tool directly:
+        mcp__athena_knowledge_base__search_kb(query="...", top_k=5)
 
-    Usage from agents:
-        curl -s "http://localhost:8080/api/knowledge/search?q=privilege+escalation+linux&agent=AR"
+    This endpoint remains for API discovery and health check purposes.
     """
-    import subprocess
-
-    # Use the MCP server's search_kb function via subprocess.
-    # The MCP server initializes the pipeline correctly (embedder + reranker on GPU).
-    # We call the MCP's search_kb directly via a Python one-liner to avoid CLI path issues.
-    vex_rag_python = os.environ.get("VEX_RAG_PYTHON", "/Users/kelvinlomboy/tools/vex-rag/.venv/bin/python3")
-    athena_rag_config = os.environ.get("ATHENA_RAG_CONFIG", "/Users/kelvinlomboy/VERSANT/Projects/ATHENA/.vex-rag.yml")
-    vex_rag_path = os.environ.get("VEX_RAG_PATH", "/Users/kelvinlomboy/tools/vex-rag")
-    athena_project_root = os.environ.get("ATHENA_PROJECT_ROOT", "/Users/kelvinlomboy/VERSANT/Projects/ATHENA")
-
-    search_script = (
-        "import sys, os; "
-        f"sys.path.insert(0, {vex_rag_path!r}); "
-        "from mcp_server.vex_kb_server import search_kb; "
-        "import json; raw = search_kb(sys.argv[1], top_k=int(sys.argv[2])); print(raw if isinstance(raw, str) else json.dumps(raw))"
-    )
-
-    agent_label = agent.upper() if agent else "AGENT"
-    result_count = 0
-    error_msg = ""
-
-    try:
-        result = await asyncio.to_thread(
-            subprocess.run,
-            [vex_rag_python, "-c", search_script, "--", q, str(min(top_k, 10))],
-            capture_output=True, text=True, timeout=15,
-            cwd=athena_project_root,
-            env={
-                **dict(__import__("os").environ),
-                "RAG_CONFIG": athena_rag_config,
-                "PYTHONPATH": vex_rag_path,
-            },
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            import json as _json
-            try:
-                data = _json.loads(result.stdout)
-                result_count = len(data) if isinstance(data, list) else 1
-                # Emit RAG search event to AI drawer
-                await _emit_rag_event(agent_label, q, result_count)
-                return {"results": data, "query": q, "top_k": top_k}
-            except _json.JSONDecodeError:
-                result_count = 1
-                await _emit_rag_event(agent_label, q, result_count)
-                return {"results": [{"content": result.stdout.strip()}], "query": q, "format": "text"}
-        else:
-            error_msg = result.stderr[:200] if result.stderr else "No results"
-            await _emit_rag_event(agent_label, q, 0, error_msg)
-            return {"results": [], "query": q, "error": error_msg}
-    except subprocess.TimeoutExpired:
-        await _emit_rag_event(agent_label, q, 0, "Search timed out (15s)")
-        return {"results": [], "query": q, "error": "Search timed out (15s)"}
-    except Exception as e:
-        await _emit_rag_event(agent_label, q, 0, str(e)[:100])
-        return {"results": [], "query": q, "error": str(e)[:200]}
+    return {
+        "results": [],
+        "query": q,
+        "top_k": top_k,
+        "status": "disabled",
+        "reason": "REST proxy disabled — use MCP tool mcp__athena_knowledge_base__search_kb instead",
+        "mcp_tool": _cfg.get("rag", {}).get("mcp_tool", "mcp__athena_knowledge_base__search_kb"),
+    }
 
 
 async def _emit_rag_event(agent: str, query: str, result_count: int, error: str = ""):
