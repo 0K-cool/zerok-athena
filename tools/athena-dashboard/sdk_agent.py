@@ -915,6 +915,41 @@ class AthenaAgentSession:
         output_lower = output.lower()
         return any(indicator in output_lower for indicator in self.EXPLOIT_INDICATORS)
 
+    _VERIFY_TOOLS = {
+        'nmap_scan', 'nmap', 'port_scan',
+        'netcat', 'nc',
+        'execute_command', 'run_command', 'bash',
+        'curl', 'http_request', 'web_request',
+        'mcp__kali_external__nmap', 'mcp__kali_internal__nmap',
+        'mcp__kali_external__nmap_scan', 'mcp__kali_internal__nmap_scan',
+        'mcp__kali_external__bash', 'mcp__kali_internal__bash',
+        'mcp__kali_external__execute_command', 'mcp__kali_internal__execute_command',
+    }
+
+    VERIFY_INDICATORS = [
+        ' open ', 'open\n', 'state: open',
+        'connected', 'connection accepted', 'connection to',
+        'service info:', 'service detection', 'version:', 'banner:',
+        'http/1', 'http/2', '< http/', '200 ok', '401 unauthorized', '403 forbidden',
+        'confirmed', 'verified', 'verification',
+        '/api/verify', 'vrf-',
+        'nmap scan report', 'host is up', 'not shown:',
+    ]
+
+    def _is_verification_result(self, tool_name: str, output: str) -> bool:
+        """Detect VF-style verification evidence (port checks, service banners, HTTP responses)."""
+        is_verify_tool = (
+            tool_name in self._VERIFY_TOOLS or
+            'kali_external' in tool_name or
+            'kali_internal' in tool_name or
+            'nmap' in tool_name or
+            'scan' in tool_name
+        )
+        if not is_verify_tool:
+            return False
+        output_lower = output.lower()
+        return any(indicator in output_lower for indicator in self.VERIFY_INDICATORS)
+
     async def _capture_exploitation_evidence(self, tool_name: str, output: str, evidence_type: str = "exploitation"):
         """Capture exploitation result as an artifact via the dashboard API.
 
@@ -1644,8 +1679,9 @@ class AthenaAgentSession:
                             self._last_finding_id = m.group(1)
                     # Fix 9: Capture exploitation evidence as artifact (after finding_id is set)
                     if not block.is_error and self._is_exploitation_result(tool_name, output):
-                        _ev_type = "verification" if self._current_agent == "VF" else "exploitation"
-                        await self._capture_exploitation_evidence(tool_name, output, evidence_type=_ev_type)
+                        await self._capture_exploitation_evidence(tool_name, output, evidence_type="exploitation")
+                    elif not block.is_error and self._current_agent == "VF" and self._is_verification_result(tool_name, output):
+                        await self._capture_exploitation_evidence(tool_name, output, evidence_type="verification")
                     # H1: Feed tool outputs into Graphiti for knowledge extraction
                     if graphiti_enabled() and self._engagement_id and len(output) > 50:
                         asyncio.create_task(ingest_episode(
@@ -1714,8 +1750,10 @@ class AthenaAgentSession:
             # Fix 9: Capture exploitation evidence as artifact (after finding_id is set)
             if not msg.tool_use_result.get("is_error", False) and \
                     self._is_exploitation_result(tool_name, output):
-                _ev_type = "verification" if self._current_agent == "VF" else "exploitation"
-                await self._capture_exploitation_evidence(tool_name, output, evidence_type=_ev_type)
+                await self._capture_exploitation_evidence(tool_name, output, evidence_type="exploitation")
+            elif not msg.tool_use_result.get("is_error", False) and self._current_agent == "VF" and \
+                    self._is_verification_result(tool_name, output):
+                await self._capture_exploitation_evidence(tool_name, output, evidence_type="verification")
             # H1: Feed tool outputs into Graphiti for knowledge extraction
             if graphiti_enabled() and self._engagement_id and len(output) > 50:
                 asyncio.create_task(ingest_episode(
