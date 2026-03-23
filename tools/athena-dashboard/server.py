@@ -230,6 +230,8 @@ class Engagement(BaseModel):
     findings_count: int
     phase: str
     authorization: str = "documented"
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
 
 
 # ──────────────────────────────────────────────
@@ -5440,12 +5442,57 @@ async def get_engagement_filters():
 
 
 @app.post("/api/engagements/{eid}/clear")
-async def clear_engagement_data(eid: str):
-    """Clear all data for an engagement (findings, scans, evidence, graph, events, budgets)
-    but KEEP the Engagement node itself. Used for re-engaging on the same target."""
+async def clear_engagement_data(eid: str, mode: str = "clear"):
+    """Clear or reset data for an engagement.
+
+    mode=clear (default): Wipe ALL data (findings, scans, evidence, graph, events, budgets).
+    mode=continue: Reset agent states only — keep all findings, scans, evidence, and Neo4j
+        data intact so ST can resume from where it left off. Sets status back to 'active'.
+    """
     if not re.fullmatch(r'eng-[a-f0-9]{6}', eid):
         return JSONResponse(status_code=400, content={"error": "Invalid engagement ID format"})
 
+    if mode == "continue":
+        # Reset agent states and budgets so ST can re-spawn, but preserve all finding data
+        global _agent_budgets, _engagement_cost, _engagement_cost_eid
+        _agent_budgets = {}
+        _engagement_cost = 0.0
+        _engagement_cost_eid = ""
+        if hasattr(state, '_engagement_cap_warned'):
+            state._engagement_cap_warned = False
+
+        for code in state.agent_statuses:
+            state.agent_statuses[code] = AgentStatus.IDLE
+        state.agent_tasks.clear()
+
+        # Set engagement status back to active
+        for eng in state.engagements:
+            if eng.id == eid:
+                eng.status = "active"
+                break
+
+        if neo4j_available and neo4j_driver:
+            try:
+                with neo4j_driver.session() as session:
+                    session.run(
+                        "MATCH (e:Engagement {id: $eid}) SET e.status = 'active'",
+                        eid=eid,
+                    )
+            except Exception as e:
+                logger.warning("Continue mode Neo4j status update error: %s", str(e)[:200])
+
+        logger.info("[CLEAR/continue] Engagement %s agent states reset — findings preserved", eid)
+
+        await state.broadcast({
+            "type": "engagement_cleared",
+            "engagement_id": eid,
+            "mode": "continue",
+            "timestamp": time.time(),
+        })
+
+        return {"ok": True, "mode": "continue", "message": "Agent states reset. Findings and scan data preserved."}
+
+    # mode=clear (default): wipe everything
     cleared = {"findings": 0, "events": 0, "graph": 0}
 
     if neo4j_available and neo4j_driver:
@@ -5515,10 +5562,11 @@ async def clear_engagement_data(eid: str):
     await state.broadcast({
         "type": "engagement_cleared",
         "engagement_id": eid,
+        "mode": "clear",
         "timestamp": time.time(),
     })
 
-    return {"ok": True, "cleared": cleared}
+    return {"ok": True, "mode": "clear", "cleared": cleared}
 
 
 @app.delete("/api/engagements/{eid}")
@@ -5745,6 +5793,10 @@ async def get_engagement_summary(eid: str):
                         if not hasattr(state, '_hwm_services'):
                             state._hwm_services = {}
                         state._hwm_services[eid] = max(state._hwm_services.get(eid, 0), services_now)
+                        _eng_obj = next((e for e in state.engagements if e.id == eid), None)
+                        _started = getattr(_eng_obj, 'started_at', None) if _eng_obj else None
+                        _completed = getattr(_eng_obj, 'completed_at', None) if _eng_obj else None
+                        _duration = round((_completed or time.time()) - _started, 1) if _started else None
                         return {
                             "hosts": max(neo4j_hosts, len(mem_hosts)),
                             "services": state._hwm_services[eid],
@@ -5756,7 +5808,8 @@ async def get_engagement_summary(eid: str):
                                 "high": max(record["sev_high"], mem_sev["high"]),
                                 "medium": max(record["sev_medium"], mem_sev["medium"]),
                                 "low": max(record["sev_low"], mem_sev["low"]),
-                            }
+                            },
+                            "duration_seconds": _duration,
                         }
         except Exception as e:
             print(f"Neo4j summary query error: {e}")
@@ -5815,6 +5868,10 @@ async def get_engagement_summary(eid: str):
         if is_confirmed:
             exploits += 1
 
+    _eng_fb = next((e for e in state.engagements if e.id == eid), None)
+    _started_fb = getattr(_eng_fb, 'started_at', None) if _eng_fb else None
+    _completed_fb = getattr(_eng_fb, 'completed_at', None) if _eng_fb else None
+    _duration_fb = round((_completed_fb or time.time()) - _started_fb, 1) if _started_fb else None
     return {
         "hosts": len(hosts),
         "services": total_ports,
@@ -5824,6 +5881,7 @@ async def get_engagement_summary(eid: str):
         "findings": len(eng_findings),
         "exploits": exploits,
         "severity": sev_counts,
+        "duration_seconds": _duration_fb,
     }
 
 
@@ -10480,14 +10538,23 @@ async def start_engagement_ai(
     state.active_engagement_id = eid
     state.engagement_stopped = False
 
+    # Record started_at timestamp on the in-memory engagement object
+    _now_start = time.time()
+    for _eng in state.engagements:
+        if _eng.id == eid:
+            _eng.started_at = _now_start
+            _eng.completed_at = None
+            break
+
     # Update Neo4j engagement status to active (non-blocking)
     if neo4j_available and neo4j_driver:
         def _set_active():
             try:
                 with neo4j_driver.session() as session:
                     session.run(
-                        "MATCH (e:Engagement {id: $eid}) SET e.status = 'active'",
+                        "MATCH (e:Engagement {id: $eid}) SET e.status = 'active', e.started_at = $started_at",
                         eid=eid,
+                        started_at=_now_start,
                     )
             except Exception:
                 pass
@@ -10929,12 +10996,18 @@ async def stop_engagement(eid: str):
             await state.update_agent_status(code, AgentStatus.IDLE)
 
     # 6. Set engagement status to completed in Neo4j + broadcast
+    _now_stop = time.time()
+    for _eng in state.engagements:
+        if _eng.id == eid:
+            _eng.completed_at = _now_stop
+            break
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
                 session.run(
-                    "MATCH (e:Engagement {id: $eid}) SET e.status = 'completed'",
+                    "MATCH (e:Engagement {id: $eid}) SET e.status = 'completed', e.completed_at = $completed_at",
                     eid=eid,
+                    completed_at=_now_stop,
                 )
         except Exception:
             pass

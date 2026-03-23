@@ -442,6 +442,17 @@ all dispatched agents are operational:
   If any agent shows running=false with 0 tool calls — it failed silently. Re-spawn it.
   Do NOT proceed to the next phase with dead agents — you'll miss coverage.
 
+RESUME AWARENESS:
+If this is a resumed engagement (you see prior findings in Neo4j but no active agents),
+query the engagement state first:
+  GET {dashboard_url}/api/engagements/{eid}/summary
+Review what was accomplished before the pause. Check duration_seconds to understand how long
+the engagement has been running. Assess the current phase and findings, then decide which
+agents to re-deploy to continue from where the team left off.
+Do NOT restart from scratch — build on existing findings.
+When resuming, announce to the operator: "RESUMING engagement {eid} — X findings, Y hosts
+discovered so far. Continuing from [phase/last activity]."
+
 TARGET STATUS HANDLING:
 When you receive a target_status event from the message bus:
 - "unreachable": No scanning possible. If more targets remain, redirect agents. If last target, proceed to RP.
