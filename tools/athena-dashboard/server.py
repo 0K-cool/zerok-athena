@@ -6156,7 +6156,11 @@ async def get_exploit_stats(eid: str):
             with neo4j_driver.session() as session:
                 result = session.run("""
                     MATCH (f:Finding {engagement_id: $eid})
-                    WHERE f.evidence IS NOT NULL AND f.evidence <> ''
+                    WHERE (
+                        (f.evidence IS NOT NULL AND f.evidence <> '')
+                        OR EXISTS { (f)-[:HAS_ARTIFACT]->(:Artifact) }
+                        OR EXISTS { (f)-[:EVIDENCED_BY]->(:EvidencePackage) }
+                    )
                       AND (f.verified IS NULL OR f.verified = false)
                       AND (f.verification_status IS NULL OR (f.verification_status <> 'confirmed' AND f.verification_status <> 'likely'))
                     RETURN count(f) AS cnt
@@ -6169,7 +6173,7 @@ async def get_exploit_stats(eid: str):
     # BUG-042 fix: Same max-of-both-sources pattern for exploited_unverified
     mem_exploited_unverified = 0
     for f in mem_findings:
-        has_evidence = bool(f.evidence)
+        has_evidence = bool(f.evidence) or getattr(f, 'evidence_count', 0) > 0
         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
         verification = getattr(f, 'verification_status', '') or ''
         is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
@@ -9395,16 +9399,15 @@ async def search_knowledge_base(q: str, top_k: int = 5):
 
     search_script = (
         "import sys, os; "
-        "os.environ['RAG_CONFIG'] = os.environ.get('RAG_CONFIG', ''); "
         f"sys.path.insert(0, {vex_rag_path!r}); "
         "from mcp_server.vex_kb_server import search_kb; "
-        f"print(search_kb({q!r}, top_k={min(top_k, 10)}))"
+        "import json; print(json.dumps(search_kb(sys.argv[1], top_k=int(sys.argv[2]))))"
     )
 
     try:
         result = await asyncio.to_thread(
             subprocess.run,
-            [vex_rag_python, "-c", search_script],
+            [vex_rag_python, "-c", search_script, "--", q, str(min(top_k, 10))],
             capture_output=True, text=True, timeout=15,
             cwd=athena_project_root,
             env={

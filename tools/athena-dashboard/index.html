@@ -4224,6 +4224,7 @@
       word-wrap: break-word;
       word-break: break-word;
       white-space: pre-wrap;
+      overflow: visible;
     }
 
     @keyframes event-slide-in {
@@ -12449,8 +12450,14 @@
               const blob = ((f.category || '') + ' ' + (f.title || '')).toLowerCase();
               return appCats.some(kw => blob.includes(kw));
             })) ptesFallback.add('ST');
-            // Exploitation: findings with evidence of successful exploit
-            if (ptesFF.some(f => f.evidence_count > 0)) ptesFallback.add('EX');
+            // Exploitation: check exploit-stats API (not evidence_count heuristic)
+            try {
+                var esRes = await fetch('/api/engagements/' + currentEngagementId + '/exploit-stats');
+                var esData = await esRes.json();
+                if ((esData.confirmed_exploits || 0) > 0 || (esData.exploited_unverified || 0) > 0) {
+                    ptesFallback.add('EX');
+                }
+            } catch(e) {}
             // Post-Exploitation: auth bypass, lateral movement, or post-exploit findings
             if (ptesFF.some(f => {
               const blob = ((f.category || '') + ' ' + (f.title || '')).toLowerCase();
