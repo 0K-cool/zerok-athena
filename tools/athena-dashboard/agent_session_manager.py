@@ -799,6 +799,16 @@ class AgentSessionManager:
         self.agents.clear()
         self._agent_tasks.clear()
 
+        # Final sweep — catch anything that slipped through
+        try:
+            import subprocess
+            eid = getattr(self, 'engagement_id', '')
+            if eid:
+                subprocess.run(["pkill", "-9", "-f", f"ATHENA engagement {eid}"],
+                               capture_output=True, timeout=3)
+        except Exception:
+            pass
+
         # H3: Close engagement trace
         if self._langfuse_trace_ctx:
             try:
