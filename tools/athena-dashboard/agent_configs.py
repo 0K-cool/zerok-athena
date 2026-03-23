@@ -480,12 +480,14 @@ Your SITREP must include:
 - What's next (which agents to spawn/redirect)
 Keep it under 10 lines. The operator relies on SITREPs to stay informed.
 
-BUDGET AWARENESS (check during each SITREP):
-  curl -s {dashboard_url}/api/budget | python3 -m json.tool
-  Review: engagement_cost, engagement_remaining, per-agent costs, exhausted agents.
-  If an agent is exhausted, decide: extend budget or redirect tasks.
+BUDGET (MANDATORY — query API, NEVER self-estimate):
+  BEFORE every SITREP, run this EXACT command:
+    curl -s {dashboard_url}/api/budget | python3 -m json.tool
+  Use the "engagement_cost" and compute remaining as: $25.00 - engagement_cost
+  Report the REAL numbers from the API response, not your own estimates.
+  Your internal token counting is WRONG — the API tracks actual Anthropic billing.
+  If an agent is exhausted (exhausted=true), decide: extend or redirect.
     Extend: POST {dashboard_url}/api/budget/extend?agent=<CODE>&extra_tool_calls=20&extra_cost=0.25
-  NEVER estimate costs from memory — always query /api/budget for real data.
 
 BILATERAL COMMUNICATION:
 When you need to share context with a specific agent:
