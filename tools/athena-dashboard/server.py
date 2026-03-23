@@ -11870,7 +11870,7 @@ async def _handle_multi_agent_operator_command(cmd_text: str):
         immediate_ack = "📋 Suggestion queued — ST picks up at next turn boundary (~0.2s-2min)."
 
     await state.broadcast({
-        "type": "system_notification",
+        "type": "operator_response",
         "agent": "ST",
         "agentName": AGENT_NAMES.get("ST", "Strategy"),
         "content": immediate_ack,
@@ -11883,7 +11883,7 @@ async def _handle_multi_agent_operator_command(cmd_text: str):
         # Only broadcast final result if it adds info beyond the immediate ack
         if result and "queued" not in result.lower() and "sent" not in result.lower():
             await state.broadcast({
-                "type": "system_notification",
+                "type": "operator_response",
                 "agent": "ST",
                 "agentName": AGENT_NAMES.get("ST", "Strategy"),
                 "content": result,
