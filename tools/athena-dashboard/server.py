@@ -489,6 +489,44 @@ class DashboardState:
             "credential": credential,
             "timestamp": time.time(),
         })
+        # Persist Credential node + HARVESTED_FROM edge to Neo4j
+        if neo4j_available and neo4j_driver:
+            _cred = credential
+            _eid = engagement_id
+            def _write_cred():
+                with neo4j_driver.session() as session:
+                    session.run("""
+                        MERGE (c:Credential {
+                            username: $username,
+                            engagement_id: $eid,
+                            host: $host,
+                            service: $service
+                        })
+                        SET c.password = $password,
+                            c.type = $ctype,
+                            c.access_level = $access_level,
+                            c.discovered_by = $discovered_by,
+                            c.timestamp = $ts,
+                            c.description = $description
+                        WITH c
+                        MATCH (h:Host {ip: $host, engagement_id: $eid})
+                        MERGE (c)-[:HARVESTED_FROM]->(h)
+                    """, {
+                        "username": _cred.get("username", ""),
+                        "eid": _eid,
+                        "host": _cred.get("host", ""),
+                        "service": _cred.get("service", ""),
+                        "password": _cred.get("password", ""),
+                        "ctype": _cred.get("type", ""),
+                        "access_level": _cred.get("access_level", ""),
+                        "discovered_by": _cred.get("discovered_by", ""),
+                        "ts": _cred.get("timestamp", 0),
+                        "description": _cred.get("description", ""),
+                    })
+            try:
+                await neo4j_exec(_write_cred)
+            except Exception as e:
+                print(f"Neo4j credential write error: {e}")
 
     async def request_approval(self, request: ApprovalRequest):
         """Create HITL approval request and broadcast."""

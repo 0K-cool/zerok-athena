@@ -950,6 +950,59 @@ class AthenaAgentSession:
         output_lower = output.lower()
         return any(indicator in output_lower for indicator in self.VERIFY_INDICATORS)
 
+    _PE_TOOLS = {
+        'bash', 'execute_command', 'run_command',
+        'mcp__kali_external__bash', 'mcp__kali_internal__bash',
+        'mcp__kali_external__execute_command', 'mcp__kali_internal__execute_command',
+        'linpeas', 'winpeas', 'linux-exploit-suggester',
+        'crackmapexec', 'bloodhound', 'impacket', 'evil-winrm', 'responder',
+    }
+
+    PE_INDICATORS = [
+        'password:', 'passwd:', '/etc/shadow', '/etc/passwd',
+        'hash:', 'ntlm:', 'lm hash', 'password hash',
+        'private key', 'id_rsa', 'authorized_keys', '-----begin',
+        'mysql', 'postgres', 'tomcat', 'database dump', 'db credentials',
+        'uid=0(root)', 'sudo -l', 'suid', 'setuid',
+        'privilege escalation', 'privesc',
+        'pivot', 'arp -a', 'net view', 'pass the hash',
+    ]
+
+    def _is_post_exploitation_result(self, tool_name: str, output: str) -> bool:
+        """Detect PE evidence: credential harvest, privesc, lateral movement."""
+        is_pe_tool = (
+            tool_name in self._PE_TOOLS or
+            'kali_external' in tool_name or
+            'kali_internal' in tool_name
+        )
+        if not is_pe_tool:
+            return False
+        output_lower = output.lower()
+        return any(indicator in output_lower for indicator in self.PE_INDICATORS)
+
+    _DA_TOOLS = {
+        'bash', 'execute_command', 'run_command',
+        'mcp__kali_external__bash', 'mcp__kali_internal__bash',
+        'mcp__kali_external__execute_command', 'mcp__kali_internal__execute_command',
+    }
+
+    def _is_analysis_result(self, tool_name: str, output: str) -> bool:
+        """Detect significant DA findings — CVE confirmed, exploit available, Metasploit module."""
+        is_da_tool = (
+            tool_name in self._DA_TOOLS or
+            'kali_external' in tool_name or
+            'kali_internal' in tool_name
+        )
+        if not is_da_tool:
+            return False
+        output_lower = output.lower()
+        return (
+            'cve-20' in output_lower or
+            'exploit available' in output_lower or
+            'metasploit module' in output_lower or
+            'edb-id' in output_lower
+        )
+
     async def _capture_exploitation_evidence(self, tool_name: str, output: str, evidence_type: str = "exploitation"):
         """Capture exploitation result as an artifact via the dashboard API.
 
@@ -1682,6 +1735,10 @@ class AthenaAgentSession:
                         await self._capture_exploitation_evidence(tool_name, output, evidence_type="exploitation")
                     elif not block.is_error and self._current_agent == "VF" and self._is_verification_result(tool_name, output):
                         await self._capture_exploitation_evidence(tool_name, output, evidence_type="verification")
+                    elif not block.is_error and self._current_agent == "PE" and self._is_post_exploitation_result(tool_name, output):
+                        await self._capture_exploitation_evidence(tool_name, output, evidence_type="post_exploitation")
+                    elif not block.is_error and self._current_agent == "DA" and self._is_analysis_result(tool_name, output):
+                        await self._capture_exploitation_evidence(tool_name, output, evidence_type="analysis")
                     # H1: Feed tool outputs into Graphiti for knowledge extraction
                     if graphiti_enabled() and self._engagement_id and len(output) > 50:
                         asyncio.create_task(ingest_episode(
@@ -1754,6 +1811,12 @@ class AthenaAgentSession:
             elif not msg.tool_use_result.get("is_error", False) and self._current_agent == "VF" and \
                     self._is_verification_result(tool_name, output):
                 await self._capture_exploitation_evidence(tool_name, output, evidence_type="verification")
+            elif not msg.tool_use_result.get("is_error", False) and self._current_agent == "PE" and \
+                    self._is_post_exploitation_result(tool_name, output):
+                await self._capture_exploitation_evidence(tool_name, output, evidence_type="post_exploitation")
+            elif not msg.tool_use_result.get("is_error", False) and self._current_agent == "DA" and \
+                    self._is_analysis_result(tool_name, output):
+                await self._capture_exploitation_evidence(tool_name, output, evidence_type="analysis")
             # H1: Feed tool outputs into Graphiti for knowledge extraction
             if graphiti_enabled() and self._engagement_id and len(output) > 50:
                 asyncio.create_task(ingest_episode(

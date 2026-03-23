@@ -215,6 +215,23 @@ The events API doesn't respond to fetch calls from the Playwright browser contex
 
 ---
 
+## Session 2 Bugs (5:45 PM round)
+
+### BUG-S2-001: MTTE filter too broad — includes high/critical severity, not just confirmed exploits [MEDIUM]
+MTTE exploit filter includes findings with high/critical severity, not just VF-confirmed exploits. This inflates MTTE with findings that were never actually exploited.
+
+**Fix:** MTTE = time from engagement start to **first successful EX exploit** (first finding where EX agent confirmed shell/RCE/access). Not average across all exploits, not VF-confirmed, not severity-based. Just: engagement started → EX got first shell → that delta is MTTE. Simple, clean, client-meaningful: "an attacker could compromise your system in 25 seconds."
+
+Filter: first finding where `agent = "EX"` AND (`evidence IS NOT NULL` OR has HAS_ARTIFACT relationship OR title contains exploit indicators like "root shell", "RCE confirmed", "backdoor").
+
+### BUG-S2-002: Attack Graph missing Harvested Creds purple dotted lines [MEDIUM]
+4 credentials exist (PostgreSQL, MySQL root, rlogin, Tomcat) and show in selection panel, but no HARVESTED_FROM edges connect them to hosts/services in the graph visualization. Legend shows "Harvested Creds" with purple dotted lines but none rendered.
+
+### BUG-S2-003: Evidence capture only from EX/VF — need PE and DA too [HIGH]
+PE harvests credentials and DA discovers services/vulnerabilities but neither captures evidence artifacts. Only EX (exploitation) and VF (verification) trigger _capture_exploitation_evidence. PE should capture credential evidence, DA should capture analysis evidence. Add evidence capture for all active agents, with evidence_type tags: "exploitation" (EX), "verification" (VF), "post_exploitation" (PE), "analysis" (DA).
+
+---
+
 ## Notes
 
 - L4 injection scanner false-positives on ATHENA's own CVE findings ("unauthenticated root access" etc.) — expected for pentest platform, not a real injection
