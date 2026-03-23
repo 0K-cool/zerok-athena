@@ -190,6 +190,31 @@ Attack Graph shows "Loading attack graph..." for extended time during active eng
 
 ---
 
+## Late Session Bugs (05:00 AM round)
+
+### BUG-LATE-001: Exploit Rate gauge shows 100% with 0 confirmed [HIGH]
+Gauge shows 100% but text reads "0 confirmed + 1 unverified / 1". The calculation uses `(confirmed + unverified) / total` instead of `confirmed / total`. The gauge numerator is wrong — unverified should not count as confirmed.
+
+### BUG-LATE-002: Stop button blocked by Attack Chains widget [MEDIUM]
+The `attack-chains-body` widget overlaps the Stop button area (z-index issue). Physical clicks hit the widget, not the button. Only JS `.click()` bypasses it. Fix: increase z-index on the control bar or set `pointer-events: none` on the empty attack chains widget body.
+
+### BUG-LATE-003: Findings page stuck on "Loading..." [HIGH — recurring]
+Badge shows correct count but table never loads. The dropdown recovery fix didn't fully resolve this — may be a separate rendering or API response parsing issue. Needs deeper investigation of `loadFindings()` data flow.
+
+### BUG-LATE-004: Vulnerabilities page empty despite badge count [HIGH — recurring]
+Same pattern as Findings — badge shows 1 but page shows "No vulnerability data yet." Dropdown recovery applied but not resolving.
+
+### BUG-LATE-005: MTTE never populates despite confirmed exploits [MEDIUM — recurring]
+Despite 100% exploit rate shown, MTTE KPI stays at "--" throughout entire engagement lifecycle. The `es` scoping fix was applied but MTTE still not updating. May need the exploit-stats endpoint to be called more frequently or the MTTE display logic has a second issue.
+
+### BUG-LATE-006: Coverage jumps to 100% on stop [LOW]
+Scan coverage was 44% during running engagement, jumped to 100% immediately after stop. Artificial — doesn't reflect actual scan progress. Likely the stop/reset flow sets coverage to 100% instead of preserving the last real value.
+
+### BUG-LATE-007: /api/events fetch unresponsive from browser context [LOW]
+The events API doesn't respond to fetch calls from the Playwright browser context (timeouts). May be CORS or routing issue. Dashboard's own JS can access it but external fetch fails.
+
+---
+
 ## Notes
 
 - L4 injection scanner false-positives on ATHENA's own CVE findings ("unauthenticated root access" etc.) — expected for pentest platform, not a real injection
