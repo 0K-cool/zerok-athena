@@ -1098,6 +1098,16 @@ async def post_agent_message(payload: AgentMessagePayload):
                 "neo4j_ref": payload.neo4j_ref,
                 "timestamp": time.time(),
             })
+            # Notify ST: recipient not alive — ST decides whether to spawn
+            st_session = _active_session_manager.agents.get("ST")
+            if st_session and st_session.is_running and payload.from_agent != "ST":
+                await st_session.send_command(
+                    f"{payload.from_agent} sent a message to {payload.to_agent}, "
+                    f"but {payload.to_agent} is NOT running. Message queued.\n"
+                    f"Content: {payload.content[:200]}\n"
+                    f"DECIDE: Spawn {payload.to_agent} to process this intel? "
+                    f"Or absorb it yourself?"
+                )
 
     return {
         "ok": True,
