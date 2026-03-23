@@ -9137,7 +9137,7 @@
         showApprovalModal(msg.pending_approvals[0]);
       }
       // Sync engagement control state from server
-      if (msg.engagement_active) {
+      if (msg.engagement_active && !window._stopRequested) {
         setCtrlState(msg.engagement_paused ? 'paused' : 'running');
         // Restore running clock on page reload if engagement is active
         if (!msg.engagement_paused) {
@@ -11537,6 +11537,7 @@
     function _doStartEngage(eid) {
       var backendOverride = 'external';  // Force external for Antsle bridge targets
       window._summaryGenerated = false;  // BUG-020: Reset summary guard for new engagement
+      window._stopRequested = false;  // Reset stop flag for new engagement
       resetAgentChips();  // Clear completed state from previous engagement so chips can pulse on re-engage
       resetEngagementClock();  // Clear any previous clock state before starting fresh
       setCtrlState('preparing');  // Show "Preparing..." immediately, WebSocket upgrades to "running"
@@ -11584,6 +11585,8 @@
 
     function stopEngage() {
       var eid = currentEngagementId || 'dryrun-ms2';
+      // Suppress WebSocket state sync — prevent it from reverting back to 'running'
+      window._stopRequested = true;
       // Immediate UI feedback — don't wait for server
       setCtrlState('idle');
       resetAgentChips();
@@ -11592,6 +11595,7 @@
       fetch('/api/engagement/' + eid + '/stop', { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
+          window._stopRequested = false;
           if (data.ok) {
             showToast('success', 'Stopped', 'Engagement stopped');
           } else {
