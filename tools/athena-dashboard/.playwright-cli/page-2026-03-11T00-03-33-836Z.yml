@@ -1,0 +1,399 @@
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#mainContent"
+  - text: ↻
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e7]:
+          - generic [ref=e8]:
+            - generic [ref=e9]: "0"
+            - text: K
+          - generic [ref=e10]: ATHENA
+        - button "Toggle sidebar" [ref=e11] [cursor=pointer]:
+          - img [ref=e12]
+      - navigation [ref=e14]:
+        - button "Dashboard" [ref=e15] [cursor=pointer]:
+          - img [ref=e16]
+          - generic [ref=e21]: Dashboard
+        - button "Engagements 1" [ref=e22] [cursor=pointer]:
+          - img [ref=e23]
+          - generic [ref=e25]: Engagements
+          - generic [ref=e26]: "1"
+        - button "Scans" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+          - generic [ref=e31]: Scans
+        - button "Findings" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+          - generic [ref=e35]: Findings
+        - button "Vulnerabilities" [ref=e36] [cursor=pointer]:
+          - img [ref=e37]
+          - generic [ref=e40]: Vulnerabilities
+        - button "Evidence" [ref=e41] [cursor=pointer]:
+          - img [ref=e42]
+          - generic [ref=e46]: Evidence
+        - button "Attack Graph" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+          - generic [ref=e54]: Attack Graph
+        - button "Reports" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+          - generic [ref=e58]: Reports
+        - button "Intelligence 2" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+          - generic [ref=e64]: Intelligence
+          - generic [ref=e65]: "2"
+        - button "Settings" [ref=e66] [cursor=pointer]:
+          - img [ref=e67]
+          - generic [ref=e70]: Settings
+      - generic [ref=e71]:
+        - generic [ref=e72]:
+          - generic [ref=e73] [cursor=pointer]:
+            - generic [ref=e74]: Engagements
+            - button "Toggle engagements section" [ref=e75]:
+              - img [ref=e76]
+          - generic [ref=e78]:
+            - generic [ref=e80] [cursor=pointer]:
+              - generic "Gym" [ref=e82]
+              - generic:
+                - button "Archive":
+                  - img
+                - button "Delete":
+                  - img
+            - button "New Engagement" [ref=e83] [cursor=pointer]:
+              - img [ref=e84]
+              - generic [ref=e86]: New Engagement
+        - generic [ref=e87]:
+          - generic [ref=e88] [cursor=pointer]:
+            - generic [ref=e89]: Backends
+            - button "Toggle backends section" [ref=e90]:
+              - img [ref=e91]
+          - generic:
+            - button "http://your-internal-kali:5000 — unreachable Kali Internal offline" [ref=e93] [cursor=pointer]:
+              - generic "http://your-internal-kali:5000 — unreachable" [ref=e94]
+              - generic [ref=e95]: Kali Internal
+              - generic [ref=e96]: offline
+            - button "http://your-kali-host:5000 — 50 tools Kali External 50" [ref=e97] [cursor=pointer]:
+              - generic "http://your-kali-host:5000 — 50 tools" [ref=e98]
+              - generic [ref=e99]: Kali External
+              - generic [ref=e100]: "50"
+            - button "Connected to Neo4j Neo4j Browser Online" [ref=e101] [cursor=pointer]:
+              - generic "Connected to Neo4j" [ref=e102]
+              - generic [ref=e103]: Neo4j Browser
+              - generic [ref=e104]: Online
+            - button "Langfuse not configured Langfuse" [ref=e105] [cursor=pointer]:
+              - generic "Langfuse not configured" [ref=e106]
+              - generic [ref=e107]: Langfuse
+            - button "Graphiti not configured Graphiti" [ref=e108] [cursor=pointer]:
+              - generic "Graphiti not configured" [ref=e109]
+              - generic [ref=e110]: Graphiti
+        - generic [ref=e111]:
+          - generic [ref=e112] [cursor=pointer]:
+            - generic [ref=e113]: Resources
+            - button "Toggle resources section" [ref=e114]:
+              - img [ref=e115]
+          - generic:
+            - button "PTES Reference" [ref=e117] [cursor=pointer]:
+              - img [ref=e118]
+              - generic [ref=e121]: PTES Reference
+            - button "OWASP Top 10" [ref=e122] [cursor=pointer]:
+              - img [ref=e123]
+              - generic [ref=e126]: OWASP Top 10
+      - generic [ref=e127] [cursor=pointer]:
+        - img [ref=e129]
+        - generic [ref=e132]:
+          - generic [ref=e133]: Pentester
+          - generic [ref=e134]: operator@athena.local
+    - generic [ref=e135]:
+      - generic [ref=e136]:
+        - generic [ref=e137]:
+          - heading "Penetration Testing Dashboard" [level=1] [ref=e138]
+          - paragraph [ref=e139]: PTES Methodology • AI-Powered (Claude) • Dual-Backend Architecture
+        - generic [ref=e140]:
+          - generic "Engagement in progress" [ref=e141]:
+            - generic [ref=e143]: Pentest Running
+          - button "Search" [ref=e144] [cursor=pointer]:
+            - img [ref=e145]
+          - button "Notifications" [ref=e148] [cursor=pointer]:
+            - img [ref=e149]
+          - button "Profile" [ref=e151] [cursor=pointer]:
+            - img [ref=e152]
+      - main [ref=e155]:
+        - generic [ref=e156]:
+          - generic [ref=e157]:
+            - generic [ref=e158]:
+              - generic [ref=e159]:
+                - generic [ref=e160]: Active Engagements
+                - img [ref=e161]
+              - generic [ref=e164]: "1"
+            - generic [ref=e165]:
+              - generic [ref=e167]: Hosts Discovered
+              - generic [ref=e168]:
+                - generic [ref=e169]: "0"
+                - generic [ref=e170]: hosts
+            - generic [ref=e171]:
+              - generic [ref=e173]: Open Ports
+              - generic [ref=e175]: "0"
+            - generic [ref=e176]:
+              - generic [ref=e178]: Total Findings
+              - generic [ref=e180]: "0"
+            - generic [ref=e181]:
+              - generic [ref=e183]: Confirmed Exploits
+              - generic [ref=e185]: "0"
+            - generic [ref=e186]:
+              - generic [ref=e188]: Mean Time to Exploit
+              - generic [ref=e191]: —
+            - generic "Total AI API cost (LLM tokens + tool calls)" [ref=e192]:
+              - generic [ref=e194]: AI Cost
+              - generic [ref=e196]: $0.28
+          - generic [ref=e197]:
+            - generic [ref=e198]: STRATEGY
+            - generic [ref=e199]: No strategy decisions yet
+            - generic [ref=e200]:
+              - generic [ref=e201]: 0 chains
+              - generic [ref=e202]: 0 pivots
+            - button "×" [ref=e203] [cursor=pointer]
+          - generic [ref=e204]:
+            - generic [ref=e205]:
+              - generic [ref=e206]:
+                - generic [ref=e207]: AI Agent Status
+                - generic [ref=e208]:
+                  - button "ST" [ref=e209] [cursor=pointer]
+                  - button "See All" [ref=e210] [cursor=pointer]
+              - generic [ref=e212]:
+                - generic "Strategy — Red Team Lead (cross-phase)" [ref=e213] [cursor=pointer]:
+                  - generic [ref=e214]: ST
+                  - generic [ref=e215]: Running
+                - generic "Passive Recon — OSINT & Subdomain Enum" [ref=e216] [cursor=pointer]:
+                  - generic [ref=e217]: PR
+                  - generic [ref=e218]: Idle
+                - generic "Active Recon — Port Scanning & Service Enum" [ref=e219] [cursor=pointer]:
+                  - generic [ref=e220]: AR
+                  - generic [ref=e221]: Idle
+                - generic "Web Vuln Scanner — OWASP Top 10 Testing" [ref=e222] [cursor=pointer]:
+                  - generic [ref=e223]: WV
+                  - generic [ref=e224]: Idle
+                - generic "Deep Analysis — 0-Day Hunting & Deep Dive" [ref=e225] [cursor=pointer]:
+                  - generic [ref=e226]: DA
+                  - generic [ref=e227]: Idle
+                - generic "Probe Executor — Targeted Probe Execution" [ref=e228] [cursor=pointer]:
+                  - generic [ref=e229]: PX
+                  - generic [ref=e230]: Idle
+                - generic "Exploitation — Validated Exploit Execution" [ref=e231] [cursor=pointer]:
+                  - generic [ref=e232]: EX
+                  - generic [ref=e233]: Idle
+                - generic "Post-Exploitation — Lateral Movement & Privesc" [ref=e234] [cursor=pointer]:
+                  - generic [ref=e235]: PE
+                  - generic [ref=e236]: Idle
+                - generic "Verification — Finding Validation & PoC" [ref=e237] [cursor=pointer]:
+                  - generic [ref=e238]: VF
+                  - generic [ref=e239]: Idle
+                - generic "Reporting — Final Report Generation" [ref=e240] [cursor=pointer]:
+                  - generic [ref=e241]: RP
+                  - generic [ref=e242]: Idle
+            - generic [ref=e243]:
+              - generic [ref=e245]: Findings by Severity
+              - generic [ref=e247]: No findings yet
+            - generic [ref=e248]:
+              - generic [ref=e250]: Scan Coverage
+              - generic [ref=e252]:
+                - img [ref=e253]
+                - generic [ref=e256]:
+                  - generic [ref=e257]: 0%
+                  - generic [ref=e258]: Coverage
+            - generic [ref=e259]:
+              - generic [ref=e261]: Exploit Rate
+              - generic [ref=e262]:
+                - generic [ref=e263]:
+                  - img [ref=e264]
+                  - generic [ref=e268]: 0%
+                - generic [ref=e269]: 0/0 findings exploited
+          - generic [ref=e270]:
+            - generic [ref=e271]:
+              - generic [ref=e273]: Unique Vulnerabilities
+              - generic [ref=e275]:
+                - generic:
+                  - generic: "0"
+                  - generic: Total
+            - generic [ref=e277]:
+              - generic [ref=e278]:
+                - generic [ref=e279]: Recent Findings
+                - button "See All" [ref=e280] [cursor=pointer]
+              - generic [ref=e282]: No findings yet. Start an engagement to discover vulnerabilities.
+            - generic [ref=e283]:
+              - generic [ref=e285]: Top Vulnerability Categories OWASP Top 10
+              - generic [ref=e287]: No vulnerability data yet.
+          - generic [ref=e288]:
+            - generic [ref=e290]:
+              - generic [ref=e291]: Findings Over Time
+              - generic [ref=e292]: Last 30 days
+            - generic [ref=e295]:
+              - generic [ref=e296]:
+                - generic [ref=e297]: Kill Chain Depth
+                - generic [ref=e298]: No activity
+              - generic [ref=e300]:
+                - generic [ref=e303]: Init Access
+                - generic [ref=e307]: Execution
+                - generic [ref=e311]: Persistence
+                - generic [ref=e315]: Priv Esc
+                - generic [ref=e319]: Lateral
+                - generic [ref=e323]: Exfil
+            - generic [ref=e324]:
+              - generic [ref=e325]:
+                - generic [ref=e326]: Attack Chains
+                - generic [ref=e327]: 0 chains
+              - generic [ref=e329]: Attack chains will appear as agents discover multi-step paths
+          - generic [ref=e330]:
+            - generic [ref=e332]:
+              - generic [ref=e333]: Attack Surface Coverage
+              - generic [ref=e334]: Finding Categories
+            - generic [ref=e338]:
+              - generic [ref=e339]: Remediation Priority
+              - generic [ref=e340]: CVSS × Hosts
+            - generic [ref=e343]:
+              - generic [ref=e345]: Credential Tracker
+              - generic [ref=e347]:
+                - generic "Click to view details" [ref=e348] [cursor=pointer]:
+                  - img [ref=e349]
+                  - generic [ref=e351]: "0"
+                  - generic [ref=e352]: Credentials Harvested
+                - generic "Click to view details" [ref=e353] [cursor=pointer]:
+                  - img [ref=e354]
+                  - generic [ref=e357]: "0"
+                  - generic [ref=e358]: Default / Weak
+                - generic "Click to view details" [ref=e359] [cursor=pointer]:
+                  - img [ref=e360]
+                  - generic [ref=e363]: "0"
+                  - generic [ref=e364]: Unique Accounts
+          - generic [ref=e366]:
+            - generic [ref=e367]:
+              - generic [ref=e368]:
+                - generic [ref=e369]: Methodology Coverage
+                - generic [ref=e370]:
+                  - button "PTES Phases" [ref=e371] [cursor=pointer]
+                  - button "OWASP Top 10" [ref=e372] [cursor=pointer]
+                  - button "Tool Matrix" [ref=e373] [cursor=pointer]
+              - generic [ref=e374]:
+                - generic [ref=e377]: Covered
+                - generic [ref=e380]: Partial
+                - generic [ref=e383]: No Coverage
+            - generic [ref=e385]:
+              - generic [ref=e386]:
+                - generic [ref=e387]: Pre-Engagement
+                - generic [ref=e388] [cursor=pointer]:
+                  - generic [ref=e389]: PTES-1
+                  - generic [ref=e390]: Authorization
+                  - generic [ref=e391]: Strategy Agent
+                - generic [ref=e392] [cursor=pointer]:
+                  - generic [ref=e393]: PTES-1
+                  - generic [ref=e394]: Scope Validation
+                  - generic [ref=e395]: Strategy Agent
+              - generic [ref=e396]:
+                - generic [ref=e397]: Intel Gathering
+                - generic [ref=e398] [cursor=pointer]:
+                  - generic [ref=e399]: PTES-2
+                  - generic [ref=e400]: Passive OSINT
+                  - generic [ref=e401]: GAU, crt.sh, Amass
+                - generic [ref=e402] [cursor=pointer]:
+                  - generic [ref=e403]: PTES-2
+                  - generic [ref=e404]: Active Recon
+                  - generic [ref=e405]: Naabu, Httpx, Katana
+                - generic [ref=e406] [cursor=pointer]:
+                  - generic [ref=e407]: PTES-2
+                  - generic [ref=e408]: Port Discovery
+                  - generic [ref=e409]: Naabu, Nmap
+              - generic [ref=e410]:
+                - generic [ref=e411]: Threat Modeling
+                - generic [ref=e412] [cursor=pointer]:
+                  - generic [ref=e413]: PTES-3
+                  - generic [ref=e414]: CVE Research
+                  - generic [ref=e415]: 7+ databases
+                - generic [ref=e416] [cursor=pointer]:
+                  - generic [ref=e417]: PTES-3
+                  - generic [ref=e418]: Attack Path Classification
+                  - generic [ref=e419]: LLM-based
+              - generic [ref=e420]:
+                - generic [ref=e421]: Vuln Analysis
+                - generic [ref=e422] [cursor=pointer]:
+                  - generic [ref=e423]: PTES-4
+                  - generic [ref=e424]: Nuclei Scanning
+                  - generic [ref=e425]: 10K+ templates
+                - generic [ref=e426] [cursor=pointer]:
+                  - generic [ref=e427]: PTES-4
+                  - generic [ref=e428]: Web App Testing
+                  - generic [ref=e429]: OWASP Top 10
+                - generic [ref=e430] [cursor=pointer]:
+                  - generic [ref=e431]: PTES-4
+                  - generic [ref=e432]: API Discovery
+                  - generic [ref=e433]: Kiterunner
+              - generic [ref=e434]:
+                - generic [ref=e435]: Exploitation
+                - generic [ref=e436] [cursor=pointer]:
+                  - generic [ref=e437]: PTES-5
+                  - generic [ref=e438]: Safe POC Validation
+                  - generic [ref=e439]: HITL Required
+                - generic [ref=e440] [cursor=pointer]:
+                  - generic [ref=e441]: PTES-5
+                  - generic [ref=e442]: SQLi Validation
+                  - generic [ref=e443]: SQLMap (read-only)
+              - generic [ref=e444]:
+                - generic [ref=e445]: Post-Exploitation
+                - generic [ref=e446] [cursor=pointer]:
+                  - generic [ref=e447]: PTES-6
+                  - generic [ref=e448]: Attack Path Simulation
+                  - generic [ref=e449]: BloodHound, LinPEAS
+                - generic [ref=e450] [cursor=pointer]:
+                  - generic [ref=e451]: PTES-6
+                  - generic [ref=e452]: Lateral Movement
+                  - generic [ref=e453]: CrackMapExec, Chisel
+              - generic [ref=e454]:
+                - generic [ref=e455]: Reporting
+                - generic [ref=e456] [cursor=pointer]:
+                  - generic [ref=e457]: PTES-7
+                  - generic [ref=e458]: Executive Summary
+                  - generic [ref=e459]: Auto-generated
+                - generic [ref=e460] [cursor=pointer]:
+                  - generic [ref=e461]: PTES-7
+                  - generic [ref=e462]: Technical Report
+                  - generic [ref=e463]: Combined Mode
+    - generic [ref=e464]:
+      - generic [ref=e465]:
+        - generic [ref=e468]: AI Assistant
+        - button "Close AI drawer" [ref=e469] [cursor=pointer]:
+          - img [ref=e470]
+      - generic [ref=e472]:
+        - text: Engagement
+        - combobox "Engagement" [ref=e473] [cursor=pointer]:
+          - option "Gym" [selected]
+        - generic:
+          - generic [ref=e474]: 0 hosts
+          - generic [ref=e475]: 0 services
+          - generic [ref=e476]: 0 vulns
+          - generic [ref=e477]: 0 findings
+      - generic [ref=e478]:
+        - generic [ref=e479] [cursor=pointer]: ST
+        - generic [ref=e480] [cursor=pointer]: PR
+        - generic [ref=e481] [cursor=pointer]: AR
+        - generic [ref=e482] [cursor=pointer]: WV
+        - generic [ref=e483] [cursor=pointer]: DA
+        - generic [ref=e484] [cursor=pointer]: PX
+        - generic [ref=e485] [cursor=pointer]: EX
+        - generic [ref=e486] [cursor=pointer]: PE
+        - generic [ref=e487] [cursor=pointer]: VF
+        - generic [ref=e488] [cursor=pointer]: RP
+      - generic [ref=e490]:
+        - img [ref=e491]
+        - paragraph [ref=e494]:
+          - text: No agent activity yet.
+          - text: Start a scan or run demo to see real-time updates.
+      - generic [ref=e495]:
+        - textbox "Command the AI team" [ref=e496]:
+          - /placeholder: Command the AI team...
+        - button "Send command" [ref=e497] [cursor=pointer]:
+          - img [ref=e498]
+      - generic [ref=e500]:
+        - generic [ref=e503]: Disconnected
+        - generic [ref=e504]:
+          - button "Pause" [ref=e505] [cursor=pointer]
+          - button "Stop" [ref=e506] [cursor=pointer]
+  - button [ref=e507] [cursor=pointer]:
+    - img [ref=e508]

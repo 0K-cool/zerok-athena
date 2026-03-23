@@ -22,7 +22,6 @@ indexing:
     - .txt
   auto_index_paths:
     - docs/
-    - playbooks/
     - README.md
     - CLAUDE.md
 
