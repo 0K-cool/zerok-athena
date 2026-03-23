@@ -9629,6 +9629,19 @@ async def search_knowledge_base(q: str, top_k: int = 5, agent: str = ""):
 
 async def _emit_rag_event(agent: str, query: str, result_count: int, error: str = ""):
     """Emit a RAG search event to the AI drawer timeline."""
+    # Only emit during active engagements — skip health checks and manual curl tests
+    if not state.active_engagement_id:
+        return
+
+    # Sanitize error — strip Python tracebacks, keep only the last meaningful line
+    if error:
+        lines = error.strip().splitlines()
+        # Use last line (the actual error message) if it looks like a traceback
+        if len(lines) > 1 and ("Traceback" in lines[0] or "File " in lines[0]):
+            error = lines[-1].strip()[:80]
+        else:
+            error = error[:80]
+
     if result_count > 0:
         content = f'Searched RAG: "{query}" — {result_count} results found'
     elif error:

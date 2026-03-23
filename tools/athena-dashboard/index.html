@@ -12663,6 +12663,37 @@
                 timeline.appendChild(el);
               } else if (evt.type === 'operator_response') {
                 renderOperatorResponse(evt);
+              } else if (evt.type === 'rag_search') {
+                // Render RAG search events with same format as live WebSocket handler
+                var rMeta = evt.metadata || {};
+                var rCount = rMeta.result_count || 0;
+                var rQuery = rMeta.query || '';
+                var rAgent = evt.agent || 'AGENT';
+                var rColor = rCount > 0 ? 'var(--zerok-info)' : 'var(--zerok-text-dim)';
+                var rBadgeColor = rCount > 0
+                  ? 'background:color-mix(in srgb,var(--zerok-info) 20%,transparent);color:var(--zerok-info);'
+                  : 'background:color-mix(in srgb,var(--zerok-medium) 20%,transparent);color:var(--zerok-medium);';
+                var rIcon = rCount > 0 ? '📚' : '🔍';
+                var rLabel = rCount > 0 ? rCount + ' results' : 'no results';
+                var rTs = evt.timestamp ? new Date(evt.timestamp * 1000).toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) : '';
+                var rEl = document.createElement('div');
+                rEl.className = 'timeline-event';
+                rEl.setAttribute('data-agent', rAgent);
+                rEl.innerHTML =
+                  '<span class="event-icon" style="background:' + rColor + ';">' + rIcon + '</span>' +
+                  '<div class="event-body">' +
+                    '<div class="event-header">' +
+                      '<span><strong>' + escHtml(rAgent) + '</strong> ' +
+                        '<span class="event-type" style="' + rBadgeColor + '">RAG SEARCH</span></span>' +
+                      '<span class="event-time">' + rTs + '</span>' +
+                    '</div>' +
+                    '<div class="event-detail" style="color:var(--zerok-text-muted);">' +
+                      '<span style="color:var(--zerok-text);">"' + escHtml(rQuery) + '"</span> — ' + rLabel +
+                      (rCount === 0 && !rMeta.error ? ' → falling back to searchsploit' : '') +
+                      (rMeta.error ? ' <span style="color:var(--zerok-medium);">(error)</span>' : '') +
+                    '</div>' +
+                  '</div>';
+                timeline.appendChild(rEl);
               } else {
                 addTimelineEvent(evt, true, true);
               }
