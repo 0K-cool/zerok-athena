@@ -1,0 +1,65 @@
+# ============================================================
+# ATHENA Configuration — Portable Pentest Platform
+# ============================================================
+# This file provides defaults for a fresh ATHENA installation.
+# Environment variables override these values.
+# The Settings page (dashboard) reads/displays these values.
+#
+# Secrets use ${ENV_VAR:default} syntax.
+# ============================================================
+
+athena:
+  version: "2.0"
+
+  # Dashboard server
+  dashboard:
+    host: "127.0.0.1"
+    port: 8080
+
+  # Kali Linux backends
+  backends:
+    kali_external:
+      url: "${KALI_EXTERNAL_URL:http://localhost:5000}"
+      api_key: "${KALI_API_KEY:}"
+      enabled: true
+    kali_internal:
+      url: "${KALI_INTERNAL_URL:http://localhost:5001}"
+      api_key: "${KALI_API_KEY:}"
+      enabled: true
+
+  # RAG Knowledge Base
+  rag:
+    enabled: true
+    type: "mcp"  # mcp | rest
+    mcp_tool: "mcp__athena_knowledge_base__search_kb"
+    index_path: "./lance_athena_kb"
+
+  # Neo4j Graph Database
+  neo4j:
+    uri: "${NEO4J_URI:bolt://localhost:7687}"
+    user: "${NEO4J_USER:neo4j}"
+    password: "${NEO4J_PASSWORD:}"
+
+  # AI Models
+  ai:
+    default_model: "claude-sonnet-4-6"
+    st_model: "claude-opus-4-6"
+    cr_model: "claude-haiku-4-5"
+
+  # Engagement defaults
+  engagement:
+    default_backend: "external"
+    hitl_mode: "required"  # required | optional | disabled
+    max_cost_usd: 25.0
+    time_limit_minutes: 60
+
+  # Observability (optional)
+  observability:
+    langfuse:
+      enabled: false
+      url: "${LANGFUSE_BASE_URL:http://localhost:3000}"
+      public_key: "${LANGFUSE_PUBLIC_KEY:}"
+      secret_key: "${LANGFUSE_SECRET_KEY:}"
+    graphiti:
+      enabled: false
+      model: "${GRAPHITI_LLM_MODEL:claude-haiku-4-5}"

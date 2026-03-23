@@ -286,6 +286,37 @@ else:
 
 
 # ──────────────────────────────────────────────
+# ATHENA Config File Loader
+# ──────────────────────────────────────────────
+
+def _load_athena_config() -> dict:
+    """Load athena-config.yaml with ${ENV_VAR:default} substitution."""
+    config_path = Path(__file__).parent / "athena-config.yaml"
+    if not config_path.exists():
+        return {}
+    try:
+        with open(config_path) as f:
+            raw = f.read()
+
+        def _env_sub(m):
+            var = m.group(1)
+            if ':' in var:
+                name, default = var.split(':', 1)
+                return os.environ.get(name, default)
+            return os.environ.get(var, '')
+
+        resolved = re.sub(r'\$\{([^}]+)\}', _env_sub, raw)
+        return yaml.safe_load(resolved) or {}
+    except Exception as e:
+        print(f"Warning: Failed to load athena-config.yaml: {e}")
+        return {}
+
+
+_ATHENA_CONFIG = _load_athena_config()
+_cfg = _ATHENA_CONFIG.get('athena', {})
+
+
+# ──────────────────────────────────────────────
 # Kali Backend Configuration
 # ──────────────────────────────────────────────
 
@@ -9208,6 +9239,7 @@ _ENV_FILE = Path(__file__).parent / ".env"
 _PUBLIC_KEYS = {
     "NEO4J_URI", "NEO4J_USER", "KALI_EXTERNAL_URL", "KALI_INTERNAL_URL",
     "GRAPHITI_LLM_MODEL", "LANGFUSE_BASE_URL",
+    "RAG_TYPE", "RAG_MCP_TOOL", "RAG_INDEX_PATH",
 }
 
 # Keys that hold secrets — only show masked hint in GET, full value never returned
@@ -9294,8 +9326,36 @@ async def get_feature_config():
         "neo4j": {"enabled": neo4j_available, "uri": os.environ.get("NEO4J_URI", "bolt://localhost:7687")},
         "graphiti": {"enabled": graphiti_enabled(), "model": os.environ.get("GRAPHITI_LLM_MODEL", "claude-haiku-4-5")},
         "langfuse": {"enabled": langfuse_enabled(), "url": os.environ.get("LANGFUSE_BASE_URL", "http://localhost:3000")},
+        "rag": {
+            "enabled": _cfg.get("rag", {}).get("enabled", False),
+            "type": _cfg.get("rag", {}).get("type", "mcp"),
+            "mcp_tool": _cfg.get("rag", {}).get("mcp_tool", ""),
+            "index_path": _cfg.get("rag", {}).get("index_path", ""),
+        },
         "kali": {"backends": kali_backends, "tools": len(kali_client.list_tools())},
         "editable": editable,
+    }
+
+
+@app.get("/api/config/athena")
+async def get_athena_config():
+    """Return loaded ATHENA configuration (secrets masked)."""
+    cfg = _cfg
+    return {
+        "version": cfg.get("version", "unknown"),
+        "dashboard": cfg.get("dashboard", {}),
+        "backends": {
+            name: {"url": b.get("url", ""), "enabled": b.get("enabled", True)}
+            for name, b in cfg.get("backends", {}).items()
+        },
+        "rag": {
+            "enabled": cfg.get("rag", {}).get("enabled", False),
+            "type": cfg.get("rag", {}).get("type", "mcp"),
+        },
+        "neo4j": {"uri": cfg.get("neo4j", {}).get("uri", "")},
+        "ai": cfg.get("ai", {}),
+        "engagement": cfg.get("engagement", {}),
+        "config_loaded": bool(_ATHENA_CONFIG),
     }
 
 

@@ -7477,6 +7477,13 @@
             </div>
             <div class="config-stat-card">
               <div class="config-stat-header">
+                <span class="config-stat-name">RAG</span>
+                <span class="config-status-badge disabled" id="cfg-rag-badge"><span class="config-status-dot"></span> Checking</span>
+              </div>
+              <div class="config-stat-detail" id="cfg-rag-detail">—</div>
+            </div>
+            <div class="config-stat-card">
+              <div class="config-stat-header">
                 <span class="config-stat-name">Kali</span>
                 <span class="config-status-badge disabled" id="cfg-kali-badge"><span class="config-status-dot"></span> Checking</span>
               </div>
@@ -7652,6 +7659,66 @@
                   <div class="config-edit-actions">
                     <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('langfuse')">Save</button>
                     <button class="modal-btn modal-btn-cancel" onclick="toggleConfigEdit('langfuse')">Cancel</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- RAG Knowledge Base Card -->
+              <div class="config-detail-card" id="cfg-card-rag">
+                <div class="config-detail-header">
+                  <span class="config-detail-title">RAG Knowledge Base</span>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <span class="config-status-badge disabled" id="cfg-rag-detail-badge"><span class="config-status-dot"></span> —</span>
+                    <div class="config-toggle" id="cfg-toggle-rag" title="Enable/disable RAG" onclick="toggleIntegration('rag')"></div>
+                    <button class="widget-action" onclick="toggleConfigEdit('rag')">Edit</button>
+                  </div>
+                </div>
+                <!-- Read mode -->
+                <div class="config-detail-body config-read-mode" id="cfg-rag-read">
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Type</span>
+                    <span class="config-kv-value" id="cfg-rag-type">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">MCP Tool</span>
+                    <span class="config-kv-value" id="cfg-rag-mcp-tool">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Index Path</span>
+                    <span class="config-kv-value" id="cfg-rag-index-path">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">REST Endpoint</span>
+                    <span class="config-kv-value" id="cfg-rag-endpoint">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Purpose</span>
+                    <span class="config-kv-value muted">Attack intelligence, exploit techniques, pentest playbooks</span>
+                  </div>
+                  <div class="config-kv-row" id="rag-setup-hint" style="margin-top:8px;">
+                    <span class="config-kv-value muted" style="font-size:11px;">Uses <a href="https://github.com/0K-cool/vex-rag" target="_blank" style="color:var(--zerok-accent);">vex-rag</a> plugin or any MCP-compatible RAG server. Configure the MCP tool name and index path below.</span>
+                  </div>
+                </div>
+                <!-- Edit mode -->
+                <div class="config-detail-body config-edit-mode" id="cfg-rag-edit" style="display:none;">
+                  <div class="config-edit-field">
+                    <label class="config-kv-label" for="cfg-input-RAG_TYPE">Type</label>
+                    <select class="config-input" id="cfg-input-RAG_TYPE">
+                      <option value="mcp">MCP Tool (recommended)</option>
+                      <option value="rest">REST Endpoint</option>
+                    </select>
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label" for="cfg-input-RAG_MCP_TOOL">MCP Tool Name</label>
+                    <input type="text" class="config-input" id="cfg-input-RAG_MCP_TOOL" placeholder="mcp__athena_knowledge_base__search_kb">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label" for="cfg-input-RAG_INDEX_PATH">Index Path</label>
+                    <input type="text" class="config-input" id="cfg-input-RAG_INDEX_PATH" placeholder="./lance_athena_kb">
+                  </div>
+                  <div class="config-edit-actions">
+                    <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('rag')">Save</button>
+                    <button class="modal-btn modal-btn-cancel" onclick="toggleConfigEdit('rag')">Cancel</button>
                   </div>
                 </div>
               </div>
@@ -15304,6 +15371,7 @@
       neo4j: ['NEO4J_URI', 'NEO4J_USER', 'NEO4J_PASS'],
       graphiti: ['GRAPHITI_LLM_MODEL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
       langfuse: ['LANGFUSE_BASE_URL', 'LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY'],
+      rag: ['RAG_TYPE', 'RAG_MCP_TOOL', 'RAG_INDEX_PATH'],
       kali: ['KALI_EXTERNAL_URL', 'KALI_INTERNAL_URL', 'KALI_API_KEY'],
     };
 
@@ -15364,6 +15432,38 @@
         document.getElementById('cfg-langfuse-url').textContent = ed.LANGFUSE_BASE_URL || '—';
         setSecretDisplay('cfg-langfuse-pk-display', ed.LANGFUSE_PUBLIC_KEY);
         setSecretDisplay('cfg-langfuse-sk-display', ed.LANGFUSE_SECRET_KEY);
+
+        // --- RAG Knowledge Base ---
+        var ragEnabled = cfg.rag && cfg.rag.enabled;
+        var ragType = (cfg.rag && cfg.rag.type) || 'mcp';
+        var ragBadge = ragEnabled ? 'enabled' : 'disabled';
+        var ragLabel = ragEnabled ? (ragType === 'mcp' ? 'MCP' : 'REST') : 'Not configured';
+
+        // Test RAG connectivity if enabled
+        if (ragEnabled) {
+          try {
+            var ragResp = await fetch('/api/knowledge/search?q=test&top_k=1');
+            var ragData = await ragResp.json();
+            if (ragData.error) {
+              ragBadge = 'warning';
+              ragLabel = 'Enabled (unreachable)';
+            } else {
+              ragLabel = 'Connected (' + ragType.toUpperCase() + ')';
+            }
+          } catch (_) {
+            ragBadge = 'warning';
+            ragLabel = 'Enabled (unreachable)';
+          }
+        }
+        setBadge('cfg-rag-badge', ragBadge, ragLabel);
+        setBadge('cfg-rag-detail-badge', ragBadge, ragLabel);
+        var rToggle = document.getElementById('cfg-toggle-rag');
+        if (rToggle) { if (ragEnabled) rToggle.classList.add('active'); else rToggle.classList.remove('active'); }
+        document.getElementById('cfg-rag-detail').textContent = ragEnabled ? ragLabel : 'Not configured';
+        document.getElementById('cfg-rag-type').textContent = ragType.toUpperCase();
+        document.getElementById('cfg-rag-mcp-tool').textContent = (cfg.rag && cfg.rag.mcp_tool) || '—';
+        document.getElementById('cfg-rag-index-path').textContent = (cfg.rag && cfg.rag.index_path) || '—';
+        document.getElementById('cfg-rag-endpoint').textContent = '/api/knowledge/search';
 
         // --- Kali ---
         const backends = cfg.kali.backends || {};
