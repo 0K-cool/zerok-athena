@@ -11737,11 +11737,12 @@
 
     function stopEngage() {
       var eid = currentEngagementId || 'dryrun-ms2';
+      if (window._stopRequested) return;  // Already stopping — ignore duplicate clicks
       // Suppress WebSocket state sync — prevent it from reverting back to 'running'
       window._stopRequested = true;
-      // Immediate UI feedback — don't wait for server
-      setCtrlState('idle');
-      resetAgentChips();
+      // Show "Stopping..." state — don't go idle until server confirms
+      var stopBtns = document.querySelectorAll('.btn-stop');
+      stopBtns.forEach(function(b) { b.textContent = 'Stopping...'; b.disabled = true; });
       showToast('info', 'Stopping', 'Stop command sent — agents shutting down');
       // Fire-and-forget — server processes in background
       fetch('/api/engagement/' + eid + '/stop', { method: 'POST' })
@@ -11749,13 +11750,18 @@
         .then(function(data) {
           if (data.ok) {
             showToast('success', 'Stopped', 'Engagement stopped');
-            // _stopRequested remains true — cleared by WebSocket engagement_stopped signal
+            setCtrlState('idle');
+            resetAgentChips();
+            // _stopRequested cleared by WebSocket engagement_stopped signal (or here as backup)
+            setTimeout(function() { window._stopRequested = false; }, 5000);
           } else {
             window._stopRequested = false;
+            stopBtns.forEach(function(b) { b.textContent = 'Stop'; b.disabled = false; });
             showToast('warning', 'Stop Issue', data.message || 'Server reported an issue');
           }
         })
         .catch(function() {
+          stopBtns.forEach(function(b) { b.textContent = 'Stop'; b.disabled = false; });
           showToast('warning', 'Stop Sent', 'Network issue — engagement should stop shortly');
         });
     }
