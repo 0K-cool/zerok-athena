@@ -27,12 +27,14 @@ athena:
       api_key: "${KALI_API_KEY:}"
       enabled: true
 
-  # RAG Knowledge Base
+  # RAG Knowledge Base (vex-rag plugin or any MCP-compatible RAG server)
   rag:
     enabled: true
     type: "mcp"  # mcp | rest
     mcp_tool: "mcp__athena_knowledge_base__search_kb"
     index_path: "./lance_athena_kb"
+    vex_rag_path: "${VEX_RAG_PATH}"  # Path to vex-rag installation (required for RAG toggle)
+    python_path: "${VEX_RAG_PYTHON:}"  # Leave empty to auto-detect from vex_rag_path/.venv/bin/python3
 
   # Neo4j Graph Database
   neo4j:

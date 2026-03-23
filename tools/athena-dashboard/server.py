@@ -9239,7 +9239,7 @@ _ENV_FILE = Path(__file__).parent / ".env"
 _PUBLIC_KEYS = {
     "NEO4J_URI", "NEO4J_USER", "KALI_EXTERNAL_URL", "KALI_INTERNAL_URL",
     "GRAPHITI_LLM_MODEL", "LANGFUSE_BASE_URL",
-    "RAG_TYPE", "RAG_MCP_TOOL", "RAG_INDEX_PATH",
+    "RAG_TYPE", "RAG_MCP_TOOL", "RAG_INDEX_PATH", "VEX_RAG_PATH",
 }
 
 # Keys that hold secrets — only show masked hint in GET, full value never returned
@@ -9433,10 +9433,69 @@ async def toggle_integration(body: dict):
                     "message": "No change"}
 
     elif integration == "rag":
-        # RAG toggle updates the in-memory config flag
-        _cfg.setdefault("rag", {})["enabled"] = enabled
-        return {"ok": True, "integration": "rag", "enabled": enabled,
-                "message": "RAG " + ("enabled" if enabled else "disabled") + " (update athena-config.yaml to persist)"}
+        import subprocess
+        rag_cfg = _cfg.setdefault("rag", {})
+        if enabled and not rag_cfg.get("enabled"):
+            # Verify RAG index is accessible before enabling
+            # Read paths from athena-config.yaml first, then env vars, then defaults
+            index_path = rag_cfg.get("index_path", "./lance_athena_kb")
+            vex_rag_path = (rag_cfg.get("vex_rag_path") or
+                            os.environ.get("VEX_RAG_PATH", ""))
+            if not vex_rag_path or vex_rag_path == "/path/to/vex-rag":
+                return {"ok": False, "integration": "rag", "enabled": False,
+                        "message": "Set vex_rag_path in athena-config.yaml or VEX_RAG_PATH env var first"}
+            vex_rag_python = (rag_cfg.get("python_path") or
+                              os.environ.get("VEX_RAG_PYTHON") or
+                              str(Path(vex_rag_path) / ".venv" / "bin" / "python3"))
+
+            # Quick health check: try importing search_kb and checking index
+            check_script = (
+                "import sys, os; "
+                f"sys.path.insert(0, {vex_rag_path!r}); "
+                "from mcp_server.vex_kb_server import get_kb_stats; "
+                "import json; print(json.dumps(get_kb_stats()))"
+            )
+            try:
+                athena_root = os.environ.get("ATHENA_PROJECT_ROOT",
+                                              str(Path(__file__).parent.parent.parent))
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    [vex_rag_python, "-c", check_script],
+                    capture_output=True, text=True, timeout=15,
+                    cwd=athena_root,
+                    env={**os.environ,
+                         "RAG_CONFIG": os.environ.get("ATHENA_RAG_CONFIG",
+                                                       str(Path(athena_root) / ".vex-rag.yml")),
+                         "PYTHONPATH": vex_rag_path},
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    stats = json.loads(result.stdout)
+                    rag_cfg["enabled"] = True
+                    chunk_count = stats.get("total_chunks", "?")
+                    healthy = stats.get("search_healthy", False)
+                    status = "healthy" if healthy else "index loaded"
+                    return {"ok": True, "integration": "rag", "enabled": True,
+                            "message": f"RAG enabled — {chunk_count} chunks indexed, search {status}"}
+                else:
+                    # Index not found or import failed — enable anyway but warn
+                    rag_cfg["enabled"] = True
+                    stderr_hint = (result.stderr or "")[:150]
+                    return {"ok": True, "integration": "rag", "enabled": True,
+                            "message": "RAG enabled (index not verified — agents will use MCP tool). "
+                                       + stderr_hint}
+            except Exception as e:
+                # Enable anyway — MCP tool may still work via Claude Code
+                rag_cfg["enabled"] = True
+                return {"ok": True, "integration": "rag", "enabled": True,
+                        "message": f"RAG enabled (health check failed: {str(e)[:100]}). "
+                                   "Agents can still use the MCP tool if configured."}
+        elif not enabled and rag_cfg.get("enabled"):
+            rag_cfg["enabled"] = False
+            return {"ok": True, "integration": "rag", "enabled": False,
+                    "message": "RAG disabled — agents will skip knowledge base searches"}
+        else:
+            return {"ok": True, "integration": "rag", "enabled": rag_cfg.get("enabled", False),
+                    "message": "No change"}
 
     else:
         return JSONResponse(status_code=400, content={

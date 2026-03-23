@@ -7716,6 +7716,10 @@
                     <label class="config-kv-label" for="cfg-input-RAG_INDEX_PATH">Index Path</label>
                     <input type="text" class="config-input" id="cfg-input-RAG_INDEX_PATH" placeholder="./lance_athena_kb">
                   </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label" for="cfg-input-VEX_RAG_PATH">vex-rag Installation Path <span style="color:var(--zerok-text-dim);font-weight:400;">(required for toggle)</span></label>
+                    <input type="text" class="config-input" id="cfg-input-VEX_RAG_PATH" placeholder="/path/to/vex-rag">
+                  </div>
                   <div class="config-edit-actions">
                     <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('rag')">Save</button>
                     <button class="modal-btn modal-btn-cancel" onclick="toggleConfigEdit('rag')">Cancel</button>
@@ -15371,7 +15375,7 @@
       neo4j: ['NEO4J_URI', 'NEO4J_USER', 'NEO4J_PASS'],
       graphiti: ['GRAPHITI_LLM_MODEL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
       langfuse: ['LANGFUSE_BASE_URL', 'LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY'],
-      rag: ['RAG_TYPE', 'RAG_MCP_TOOL', 'RAG_INDEX_PATH'],
+      rag: ['RAG_TYPE', 'RAG_MCP_TOOL', 'RAG_INDEX_PATH', 'VEX_RAG_PATH'],
       kali: ['KALI_EXTERNAL_URL', 'KALI_INTERNAL_URL', 'KALI_API_KEY'],
     };
 
