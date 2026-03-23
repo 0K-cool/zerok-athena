@@ -9176,6 +9176,8 @@
         }
         // Update Findings page table if visible
         if (typeof loadFindings === 'function') loadFindings();
+        // Refresh exploit gauge — finding_upgraded means exploit status changed
+        debouncedDashboardRefresh();
         showToast('finding', 'CONFIRMED', msg.title, msg.severity);
         addTimelineEvent({ ...msg, type: 'finding', detail: 'Upgraded to confirmed' });
         return;
@@ -10836,19 +10838,7 @@
     var _agentToolsUsed = {};  // { "AR": Set(["naabu_scan", "nmap_scan"]), ... }
 
     function updatePtesToolList(agent) {
-      var tools = _agentToolsUsed[agent];
-      if (!tools || tools.size === 0) return;
-      var cells = document.querySelectorAll('[data-ptes="' + agent + '"]');
-      cells.forEach(function(cell) {
-        var toolSpan = cell.querySelector('.technique-count');
-        if (toolSpan) {
-          // Strip mcp__kali_external__ / mcp__kali_internal__ prefix for brevity
-          var shortNames = Array.from(tools).map(function(t) {
-            return t.replace(/^mcp__kali_(external|internal)__/, '');
-          });
-          toolSpan.textContent = shortNames.join(', ');
-        }
-      });
+      // Tool names displayed in Tool Matrix tab only — not in PTES phase cells
     }
 
     function stripAnsi(s) {
@@ -11619,7 +11609,7 @@
       if (state === 'idle') {
         const hitlOverlay = document.getElementById('hitlOverlay');
         if (hitlOverlay) hitlOverlay.classList.remove('visible');
-        stopEngagementClock();
+        resetEngagementClock();
       }
       // Mark running tool cards as "Paused" when engagement pauses
       if (state === 'paused') {
@@ -12381,9 +12371,10 @@
       }
 
       // ── Exploit Stats (gauge + KPI cards) ──
+      let es = null;
       try {
         const esRes = await fetch(`/api/engagements/${currentEngagementId}/exploit-stats`);
-        const es = await esRes.json();
+        es = await esRes.json();
         // BUG-017 fix: Sync running totals from API so gauge stays consistent after page reload
         if (!window._exploitGaugeTotals) window._exploitGaugeTotals = { discovered: 0, confirmed: 0 };
         window._exploitGaugeTotals.discovered = Math.max(window._exploitGaugeTotals.discovered, es.discovered_vulns || 0);
@@ -13825,15 +13816,22 @@
 
     async function loadFindings() {
       if (!currentEngagementId) {
-        // BUG-001 fix: Show empty state instead of leaving "Loading findings..." forever
-        allFindings = [];
-        renderFindings([]);
-        document.getElementById('findings-critical-count').textContent = '0';
-        document.getElementById('findings-high-count').textContent = '0';
-        document.getElementById('findings-medium-count').textContent = '0';
-        document.getElementById('findings-low-count').textContent = '0';
-        document.getElementById('findings-total-count').textContent = '0';
-        return;
+        // Try to recover from engagement dropdown
+        var dropdown = document.getElementById('engagementSelect');
+        if (dropdown && dropdown.value) {
+          console.warn('loadFindings: currentEngagementId null, recovering from dropdown value:', dropdown.value);
+          currentEngagementId = dropdown.value;
+        } else {
+          // BUG-001 fix: Show empty state instead of leaving "Loading findings..." forever
+          allFindings = [];
+          renderFindings([]);
+          document.getElementById('findings-critical-count').textContent = '0';
+          document.getElementById('findings-high-count').textContent = '0';
+          document.getElementById('findings-medium-count').textContent = '0';
+          document.getElementById('findings-low-count').textContent = '0';
+          document.getElementById('findings-total-count').textContent = '0';
+          return;
+        }
       }
 
       try {

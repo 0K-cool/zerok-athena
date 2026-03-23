@@ -1243,13 +1243,21 @@ class AthenaAgentSession:
                     # BUG-024 FIX: Use _role_config.code (spawned agent), not _current_agent
                     # (which tracks last tool's detected agent and may have shifted).
                     spawned_code = self._role_config.code if self._role_config else self._current_agent
-                    idle_timeout = 300.0 if spawned_code == "ST" else 60.0  # BUG-038: ST needs longer wait for workers
+                    if spawned_code == "CR":
+                        idle_timeout = None  # CR is a persistent router — waits for commands indefinitely
+                    elif spawned_code == "ST":
+                        idle_timeout = 300.0  # BUG-038: ST needs longer wait for workers
+                    else:
+                        idle_timeout = 60.0
                     await self._emit("system", "OR",
                         "AI turn complete. Waiting for operator commands...",
                         {"control": "awaiting_commands"})
                     try:
-                        cmd = await asyncio.wait_for(
-                            self._command_queue.get(), timeout=idle_timeout)
+                        if idle_timeout is None:
+                            cmd = await self._command_queue.get()  # blocks until command or cancellation
+                        else:
+                            cmd = await asyncio.wait_for(
+                                self._command_queue.get(), timeout=idle_timeout)
                         await self._emit("system", "OR",
                             f"Processing operator command: {_clean_cmd_display(cmd)}")
                         prompt = self._build_next_prompt(cmd)
@@ -1420,13 +1428,21 @@ class AthenaAgentSession:
                 if tools_used == 0:
                     # HIGH-6 + BUG-024 fix: Use spawned agent code for timeout
                     spawned_code = self._role_config.code if self._role_config else self._current_agent
-                    idle_timeout = 300.0 if spawned_code == "ST" else 60.0  # BUG-038: ST needs longer wait for workers
+                    if spawned_code == "CR":
+                        idle_timeout = None  # CR is a persistent router — waits for commands indefinitely
+                    elif spawned_code == "ST":
+                        idle_timeout = 300.0  # BUG-038: ST needs longer wait for workers
+                    else:
+                        idle_timeout = 60.0
                     await self._emit("system", "OR",
                         "AI turn complete. Waiting for operator commands...",
                         {"control": "awaiting_commands"})
                     try:
-                        cmd = await asyncio.wait_for(
-                            self._command_queue.get(), timeout=idle_timeout)
+                        if idle_timeout is None:
+                            cmd = await self._command_queue.get()  # blocks until command or cancellation
+                        else:
+                            cmd = await asyncio.wait_for(
+                                self._command_queue.get(), timeout=idle_timeout)
                         await self._emit("system", "OR",
                             f"Processing operator command: {_clean_cmd_display(cmd)}")
                         prompt = self._build_next_prompt(cmd)
