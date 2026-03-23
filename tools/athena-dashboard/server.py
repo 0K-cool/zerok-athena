@@ -7052,6 +7052,7 @@ async def upload_artifact(
     capture_mode: str = Form("manual"),
     evidence_package_id: Optional[str] = Form(None),
     auto_link_latest_finding: bool = Form(False),
+    evidence_type: str = Form(""),
 ):
     """Upload a binary artifact (screenshot, HTTP pair, command output, etc.) for a finding.
 
@@ -7194,6 +7195,7 @@ async def upload_artifact(
                         backend: $backend,
                         capture_mode: $capture_mode,
                         thumbnail_path: $thumbnail_path,
+                        evidence_type: $evidence_type,
                         timestamp: $timestamp
                     })
                 """,
@@ -7211,6 +7213,7 @@ async def upload_artifact(
                 backend=backend,
                 capture_mode=capture_mode,
                 thumbnail_path=thumbnail_path,
+                evidence_type=evidence_type,
                 timestamp=timestamp,
                 )
 
@@ -7252,6 +7255,7 @@ class TextArtifactRequest(BaseModel):
     agent: str = ""
     finding_id: str = ""
     auto_link_latest_finding: bool = False
+    evidence_type: str = ""
 
 
 @app.post("/api/artifacts/text")
@@ -7359,6 +7363,7 @@ async def upload_text_artifact(req: TextArtifactRequest):
                         caption: $caption,
                         agent: $agent,
                         capture_mode: $capture_mode,
+                        evidence_type: $evidence_type,
                         timestamp: $timestamp
                     })
                 """,
@@ -7373,6 +7378,7 @@ async def upload_text_artifact(req: TextArtifactRequest):
                 caption=req.caption,
                 agent=req.agent,
                 capture_mode="agent",
+                evidence_type=req.evidence_type,
                 timestamp=timestamp,
                 )
 
@@ -7454,19 +7460,22 @@ async def list_artifacts(
                            a.caption AS caption, a.agent AS agent, a.backend AS backend,
                            a.capture_mode AS capture_mode, a.thumbnail_path AS thumbnail_path,
                            a.engagement_id AS engagement_id, a.finding_id AS finding_id,
+                           a.evidence_type AS evidence_type,
                            f.severity AS finding_severity
                     ORDER BY a.timestamp DESC
                     SKIP $offset LIMIT $limit
                 """
                 result = session.run(query, **params)
+                athena_dir = Path(__file__).parent.parent.parent
                 artifacts = []
                 for record in result:
                     art_type = record.get("type")
                     file_path = record.get("file_path")
                     content_text = ""
-                    if art_type == "command_output" and file_path and Path(file_path).exists():
+                    resolved_path = athena_dir / file_path if file_path else None
+                    if art_type == "command_output" and file_path and resolved_path.exists():
                         try:
-                            content_text = Path(file_path).read_text(errors="replace")[:4000]
+                            content_text = resolved_path.read_text(errors="replace")[:4000]
                         except Exception:
                             pass
                     artifacts.append({
@@ -7484,6 +7493,7 @@ async def list_artifacts(
                         "thumbnail_path": record.get("thumbnail_path"),
                         "engagement_id": record.get("engagement_id"),
                         "finding_id": record.get("finding_id"),
+                        "evidence_type": record.get("evidence_type", ""),
                         "finding_severity": record.get("finding_severity"),
                         "file_url": f"/api/artifacts/{record['id']}/file",
                         "thumbnail_url": f"/api/artifacts/{record['id']}/thumbnail" if record.get("thumbnail_path") else None,

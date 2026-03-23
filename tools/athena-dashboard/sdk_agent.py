@@ -915,7 +915,7 @@ class AthenaAgentSession:
         output_lower = output.lower()
         return any(indicator in output_lower for indicator in self.EXPLOIT_INDICATORS)
 
-    async def _capture_exploitation_evidence(self, tool_name: str, output: str):
+    async def _capture_exploitation_evidence(self, tool_name: str, output: str, evidence_type: str = "exploitation"):
         """Capture exploitation result as an artifact via the dashboard API.
 
         Called when a bash/command tool result contains exploitation indicators.
@@ -931,6 +931,7 @@ class AthenaAgentSession:
                 "agent": self._role_config.code if self._role_config else self._current_agent,
                 "finding_id": self._last_finding_id,
                 "auto_link_latest_finding": not bool(self._last_finding_id),
+                "evidence_type": evidence_type,
             }
             client = await self._get_http_client()
             resp = await client.post(
@@ -1633,16 +1634,18 @@ class AthenaAgentSession:
                         })
                     # F4: Check tool output for CTF flags
                     await self._check_for_flags(output, self._current_agent)
-                    # Fix 9: Capture exploitation evidence as artifact
-                    if not block.is_error and self._is_exploitation_result(tool_name, output):
-                        await self._capture_exploitation_evidence(tool_name, output)
                     # BUG-008b: Detect finding creation for budget metrics
+                    # Extract finding_id FIRST so evidence capture gets the correct id
                     if not block.is_error and self._is_finding_creation(tool_name, output):
                         await self._report_budget_finding(self._current_agent)
                         # Fix 9c: Extract and track latest finding_id for artifact linking
                         m = re.search(r'"finding_id"\s*:\s*"([^"]+)"', output)
                         if m:
                             self._last_finding_id = m.group(1)
+                    # Fix 9: Capture exploitation evidence as artifact (after finding_id is set)
+                    if not block.is_error and self._is_exploitation_result(tool_name, output):
+                        _ev_type = "verification" if self._current_agent == "VF" else "exploitation"
+                        await self._capture_exploitation_evidence(tool_name, output, evidence_type=_ev_type)
                     # H1: Feed tool outputs into Graphiti for knowledge extraction
                     if graphiti_enabled() and self._engagement_id and len(output) > 50:
                         asyncio.create_task(ingest_episode(
@@ -1702,16 +1705,17 @@ class AthenaAgentSession:
                 })
             # F4: Check tool output for CTF flags
             await self._check_for_flags(output, self._current_agent)
-            # Fix 9: Capture exploitation evidence as artifact
-            if not msg.tool_use_result.get("is_error", False) and \
-                    self._is_exploitation_result(tool_name, output):
-                await self._capture_exploitation_evidence(tool_name, output)
-            # Fix 9c: Track latest finding_id for artifact linking
+            # Fix 9c: Track latest finding_id FIRST so evidence capture gets the correct id
             if not msg.tool_use_result.get("is_error", False) and \
                     self._is_finding_creation(tool_name, output):
                 m = re.search(r'"finding_id"\s*:\s*"([^"]+)"', output)
                 if m:
                     self._last_finding_id = m.group(1)
+            # Fix 9: Capture exploitation evidence as artifact (after finding_id is set)
+            if not msg.tool_use_result.get("is_error", False) and \
+                    self._is_exploitation_result(tool_name, output):
+                _ev_type = "verification" if self._current_agent == "VF" else "exploitation"
+                await self._capture_exploitation_evidence(tool_name, output, evidence_type=_ev_type)
             # H1: Feed tool outputs into Graphiti for knowledge extraction
             if graphiti_enabled() and self._engagement_id and len(output) > 50:
                 asyncio.create_task(ingest_episode(
