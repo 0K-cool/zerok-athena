@@ -9560,7 +9560,7 @@ async def find_similar_cases(service: str, version: str = ""):
 
 
 @app.get("/api/knowledge/search")
-async def search_knowledge_base(q: str, top_k: int = 5):
+async def search_knowledge_base(q: str, top_k: int = 5, agent: str = ""):
     """Search the ATHENA RAG knowledge base.
 
     Agents can query pentest techniques, tool usage, exploitation methods,
@@ -9568,7 +9568,7 @@ async def search_knowledge_base(q: str, top_k: int = 5):
     Atomic Red Team, PayloadsAllTheThings).
 
     Usage from agents:
-        curl -s "http://localhost:8080/api/knowledge/search?q=privilege+escalation+linux"
+        curl -s "http://localhost:8080/api/knowledge/search?q=privilege+escalation+linux&agent=AR"
     """
     import subprocess
 
@@ -9587,6 +9587,10 @@ async def search_knowledge_base(q: str, top_k: int = 5):
         "import json; print(json.dumps(search_kb(sys.argv[1], top_k=int(sys.argv[2]))))"
     )
 
+    agent_label = agent.upper() if agent else "AGENT"
+    result_count = 0
+    error_msg = ""
+
     try:
         result = await asyncio.to_thread(
             subprocess.run,
@@ -9603,16 +9607,48 @@ async def search_knowledge_base(q: str, top_k: int = 5):
             import json as _json
             try:
                 data = _json.loads(result.stdout)
+                result_count = len(data) if isinstance(data, list) else 1
+                # Emit RAG search event to AI drawer
+                await _emit_rag_event(agent_label, q, result_count)
                 return {"results": data, "query": q, "top_k": top_k}
             except _json.JSONDecodeError:
-                # MCP returns formatted text
+                result_count = 1
+                await _emit_rag_event(agent_label, q, result_count)
                 return {"results": [{"content": result.stdout.strip()}], "query": q, "format": "text"}
         else:
-            return {"results": [], "query": q, "error": result.stderr[:200] if result.stderr else "No results"}
+            error_msg = result.stderr[:200] if result.stderr else "No results"
+            await _emit_rag_event(agent_label, q, 0, error_msg)
+            return {"results": [], "query": q, "error": error_msg}
     except subprocess.TimeoutExpired:
+        await _emit_rag_event(agent_label, q, 0, "Search timed out (15s)")
         return {"results": [], "query": q, "error": "Search timed out (15s)"}
     except Exception as e:
+        await _emit_rag_event(agent_label, q, 0, str(e)[:100])
         return {"results": [], "query": q, "error": str(e)[:200]}
+
+
+async def _emit_rag_event(agent: str, query: str, result_count: int, error: str = ""):
+    """Emit a RAG search event to the AI drawer timeline."""
+    if result_count > 0:
+        content = f'Searched RAG: "{query}" — {result_count} results found'
+    elif error:
+        content = f'Searched RAG: "{query}" — no results ({error})'
+    else:
+        content = f'Searched RAG: "{query}" — no results, falling back to searchsploit'
+
+    event = AgentEvent(
+        id=f"rag-{int(time.time()*1000)}",
+        type="rag_search",
+        agent=agent,
+        content=content,
+        timestamp=time.time(),
+        metadata={
+            "query": query,
+            "result_count": result_count,
+            "error": error or None,
+        },
+    )
+    await state.add_event(event)
 
 
 # ──────────────────────────────────────────────

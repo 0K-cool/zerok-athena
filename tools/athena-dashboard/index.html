@@ -8826,6 +8826,46 @@
         return;
       }
 
+      if (type === 'rag_search') {
+        var ragMeta = msg.metadata || {};
+        var ragCount = ragMeta.result_count || 0;
+        var ragQuery = ragMeta.query || msg.content || '';
+        var ragAgent = msg.agent || 'AGENT';
+        var ragColor = ragCount > 0 ? 'var(--zerok-info)' : 'var(--zerok-text-dim)';
+        var ragBadgeColor = ragCount > 0
+          ? 'background:color-mix(in srgb,var(--zerok-info) 20%,transparent);color:var(--zerok-info);'
+          : 'background:color-mix(in srgb,var(--zerok-medium) 20%,transparent);color:var(--zerok-medium);';
+        var ragIcon = ragCount > 0 ? '📚' : '🔍';
+        var ragLabel = ragCount > 0 ? ragCount + ' results' : 'no results';
+        var ragTimeline = document.getElementById('aiTimeline');
+        var ragEmpty = document.getElementById('aiEmpty');
+        if (ragEmpty) ragEmpty.style.display = 'none';
+        var ragNow = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now())
+          .toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        var ragEl = document.createElement('div');
+        ragEl.className = 'timeline-event';
+        ragEl.setAttribute('data-agent', ragAgent);
+        ragEl.innerHTML =
+          '<span class="event-icon" style="background:' + ragColor + ';">' + ragIcon + '</span>' +
+          '<div class="event-body">' +
+            '<div class="event-header">' +
+              '<span><strong>' + escHtml(ragAgent) + '</strong> ' +
+                '<span class="event-type" style="' + ragBadgeColor + '">RAG SEARCH</span></span>' +
+              '<span class="event-time">' + ragNow + '</span>' +
+            '</div>' +
+            '<div class="event-detail" style="color:var(--zerok-text-muted);">' +
+              '<span style="color:var(--zerok-text);">"' + escHtml(ragQuery) + '"</span> — ' + ragLabel +
+              (ragCount === 0 && !ragMeta.error ? ' → falling back to searchsploit' : '') +
+              (ragMeta.error ? ' <span style="color:var(--zerok-medium);">(' + escHtml(ragMeta.error) + ')</span>' : '') +
+            '</div>' +
+          '</div>';
+        if (ragTimeline) {
+          ragTimeline.appendChild(ragEl);
+          smartScroll(ragTimeline);
+        }
+        return;
+      }
+
       if (type === 'phase_update') {
         handlePhaseUpdate(msg);
         // BUG-009 fix: Also update strategy banner on phase transitions
