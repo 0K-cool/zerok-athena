@@ -298,8 +298,8 @@ _BLOCKING_COMMAND_KEYWORDS = frozenset([
     # BUG-042: Critical operational alerts must interrupt immediately
     "down", "unreachable", "offline", "dead", "crashed",
     "host is down", "target is down", "target down",
-    # FLASH priority — operator requests that need immediate ST response
-    "status", "sitrep", "report",
+    # FLASH priority — only for commands that MUST interrupt immediately
+    # Info queries (status, sitrep, report) are non-blocking — queued for next turn
 ])
 
 def _is_blocking_command(command: str) -> bool:
@@ -879,20 +879,15 @@ class AgentSessionManager:
         if st and (st.is_running or (st_task and not st_task.done())):
             blocking = _is_blocking_command(command)
             if blocking and st.session_id and st._query_task and not st._query_task.done():
-                # BLOCKING: Cancel current chunk and resume with command immediately
-                logger.info("BUG-019: BLOCKING command detected — interrupting ST: %s",
+                # BLOCKING: Signal _run_query to break at next message chunk boundary.
+                # _engagement_loop stays alive — is_running remains True, no agent_complete emitted.
+                logger.info("BLOCKING command — interrupting current query via interrupt event: %s",
                     command[:80])
-                st._query_task.cancel()
-                try:
-                    await st._query_task
-                except (asyncio.CancelledError, RuntimeError):
-                    pass
-                # Resume with operator command — session context preserved via --resume
-                prompt = st._build_next_prompt(
-                    f"OPERATOR COMMAND (respond immediately):\n{command}"
+                st._interrupt_event.set()
+                await st._command_queue.put(
+                    f"OPERATOR COMMAND (respond immediately, then CONTINUE the engagement):\n{command}"
                 )
-                st._query_task = asyncio.create_task(st._run_query(prompt, st.session_id))
-                return "Blocking command sent — ST interrupted and resuming with your command."
+                return "⚡ Blocking command sent — ST responding at next chunk boundary."
             else:
                 # NON-BLOCKING: Queue for next chunk boundary (preserves _engagement_loop)
                 logger.info("BUG-019: Non-blocking command queued for ST: %s",

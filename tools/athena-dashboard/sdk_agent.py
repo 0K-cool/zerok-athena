@@ -366,6 +366,7 @@ class AthenaAgentSession:
         self._query_task: asyncio.Task | None = None
         self._event_callback: Optional[Callable] = None
         self._command_queue: asyncio.Queue[str] = asyncio.Queue()
+        self._interrupt_event = asyncio.Event()
         self._current_agent = "OR"
         self._tool_count = 0
         self._total_cost_usd: float = 0.0
@@ -1120,7 +1121,9 @@ class AthenaAgentSession:
             _lf_ctx.__enter__()
         try:
             async for msg in query(prompt=prompt, options=opts):
-                if not self.is_running or self._budget_exhausted:
+                if not self.is_running or self._budget_exhausted or self._interrupt_event.is_set():
+                    if self._interrupt_event.is_set():
+                        self._interrupt_event.clear()
                     break
 
                 if isinstance(msg, SystemMessage):
