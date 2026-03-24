@@ -382,6 +382,15 @@ Reset View works but takes a long time (5-10 seconds) on a dense graph with 167 
 ### BUG-S2-010: Attack Graph too dense/cluttered at 100+ nodes [LOW]
 With 100 findings, 27 services, 21 attack paths, the graph is unreadable — labels overlap, edges are tangled. Consider: cluster nodes by service/CVE, collapse credentials into a single node with count badge, or add zoom/filter controls.
 
+### BUG-S2-011: Report Summary takes 8 minutes to appear after engagement stop [MEDIUM]
+Engagement stopped at 20:25:17, Report Summary card appeared at 20:33:07 — 8 minute delay. The summary is fetched via `/api/engagements/{eid}/summary` after a setTimeout. With 134 findings and heavy Neo4j aggregation under system load, the query is slow.
+
+**Fix options:**
+1. Pre-compute summary incrementally during engagement (update on each new finding, not at end)
+2. Cache the summary after first computation
+3. Show a "Computing summary..." placeholder immediately, then populate when ready
+4. Optimize the Neo4j summary query (avoid full graph traversal, use indexed counts)
+
 ---
 
 ## Notes
