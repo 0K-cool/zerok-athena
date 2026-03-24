@@ -966,6 +966,12 @@ class AthenaAgentSession:
         'uid=0(root)', 'sudo -l', 'suid', 'setuid',
         'privilege escalation', 'privesc',
         'pivot', 'arp -a', 'net view', 'pass the hash',
+        # Network enumeration
+        'ifconfig', 'inet addr', 'ip addr', 'netstat', 'route print',
+        # System enumeration
+        'whoami', '/usr/sbin', '/usr/bin/sudo', 'cat /etc',
+        # SUID output patterns
+        '-rwsr-xr-x', '-rwsr-sr-x',
     ]
 
     def _is_post_exploitation_result(self, tool_name: str, output: str) -> bool:
@@ -1003,6 +1009,26 @@ class AthenaAgentSession:
             'edb-id' in output_lower
         )
 
+    def _generate_evidence_title(self, tool_name: str, output: str, evidence_type: str) -> str:
+        """Generate a descriptive evidence title from tool output."""
+        import re
+        out = output[:2000]
+        m = re.search(r'CVE-\d{4}-\d+', out, re.IGNORECASE)
+        if m:
+            return f"{evidence_type.replace('_', ' ').title()} — {m.group(0).upper()}"
+        if re.search(r'uid=0\(root\)|# $|root@', out):
+            return "Root shell obtained"
+        if re.search(r'/etc/shadow|ntlm:|password hash', out, re.IGNORECASE):
+            return "Credential material harvested"
+        for svc in ('vsftpd', 'ssh', 'http', 'smb', 'ftp', 'mysql', 'postgres', 'rdp', 'telnet', 'tomcat', 'vnc'):
+            if svc in tool_name.lower() or svc in out[:500].lower():
+                return f"{evidence_type.replace('_', ' ').title()} — {svc.upper()}"
+        for line in out.splitlines():
+            line = line.strip()
+            if len(line) > 10 and not line.startswith('#'):
+                return line[:80]
+        return f"{evidence_type.replace('_', ' ').title()} — {tool_name.split('__')[-1][:40]}"
+
     async def _capture_exploitation_evidence(self, tool_name: str, output: str, evidence_type: str = "exploitation"):
         """Capture exploitation result as an artifact via the dashboard API.
 
@@ -1014,7 +1040,7 @@ class AthenaAgentSession:
             artifact_payload = {
                 "engagement_id": self.engagement_id,
                 "type": "command_output",
-                "caption": f"Exploitation evidence — {tool_name}",
+                "caption": self._generate_evidence_title(tool_name, output, evidence_type),
                 "content": output[:8000],  # cap to avoid oversized payloads
                 "agent": self._role_config.code if self._role_config else self._current_agent,
                 "finding_id": self._last_finding_id,
