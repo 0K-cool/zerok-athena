@@ -1731,13 +1731,14 @@ class AthenaAgentSession:
                         if m:
                             self._last_finding_id = m.group(1)
                     # Fix 9: Capture exploitation evidence as artifact (after finding_id is set)
-                    if not block.is_error and self._is_exploitation_result(tool_name, output):
+                    # FR-003 fix: Guard against empty output before calling evidence capture.
+                    if not block.is_error and output and output.strip() and self._is_exploitation_result(tool_name, output):
                         await self._capture_exploitation_evidence(tool_name, output, evidence_type="exploitation")
-                    elif not block.is_error and self._current_agent == "VF" and self._is_verification_result(tool_name, output):
+                    elif not block.is_error and output and output.strip() and self._current_agent == "VF" and self._is_verification_result(tool_name, output):
                         await self._capture_exploitation_evidence(tool_name, output, evidence_type="verification")
-                    elif not block.is_error and self._current_agent == "PE" and self._is_post_exploitation_result(tool_name, output):
+                    elif not block.is_error and output and output.strip() and self._current_agent == "PE" and self._is_post_exploitation_result(tool_name, output):
                         await self._capture_exploitation_evidence(tool_name, output, evidence_type="post_exploitation")
-                    elif not block.is_error and self._current_agent == "DA" and self._is_analysis_result(tool_name, output):
+                    elif not block.is_error and output and output.strip() and self._current_agent == "DA" and self._is_analysis_result(tool_name, output):
                         await self._capture_exploitation_evidence(tool_name, output, evidence_type="analysis")
                     # H1: Feed tool outputs into Graphiti for knowledge extraction
                     if graphiti_enabled() and self._engagement_id and len(output) > 50:
@@ -1805,16 +1806,20 @@ class AthenaAgentSession:
                 if m:
                     self._last_finding_id = m.group(1)
             # Fix 9: Capture exploitation evidence as artifact (after finding_id is set)
-            if not msg.tool_use_result.get("is_error", False) and \
+            # FR-003 fix: Guard against empty output before calling evidence capture.
+            if not msg.tool_use_result.get("is_error", False) and output and output.strip() and \
                     self._is_exploitation_result(tool_name, output):
                 await self._capture_exploitation_evidence(tool_name, output, evidence_type="exploitation")
-            elif not msg.tool_use_result.get("is_error", False) and self._current_agent == "VF" and \
+            elif not msg.tool_use_result.get("is_error", False) and output and output.strip() and \
+                    self._current_agent == "VF" and \
                     self._is_verification_result(tool_name, output):
                 await self._capture_exploitation_evidence(tool_name, output, evidence_type="verification")
-            elif not msg.tool_use_result.get("is_error", False) and self._current_agent == "PE" and \
+            elif not msg.tool_use_result.get("is_error", False) and output and output.strip() and \
+                    self._current_agent == "PE" and \
                     self._is_post_exploitation_result(tool_name, output):
                 await self._capture_exploitation_evidence(tool_name, output, evidence_type="post_exploitation")
-            elif not msg.tool_use_result.get("is_error", False) and self._current_agent == "DA" and \
+            elif not msg.tool_use_result.get("is_error", False) and output and output.strip() and \
+                    self._current_agent == "DA" and \
                     self._is_analysis_result(tool_name, output):
                 await self._capture_exploitation_evidence(tool_name, output, evidence_type="analysis")
             # H1: Feed tool outputs into Graphiti for knowledge extraction

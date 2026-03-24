@@ -549,6 +549,12 @@ STEP 3 — Stop the engagement (REQUIRED):
   This formally ends the engagement and clears the "Pentest Running" badge.
   Do NOT skip this step.
 
+OVERRIDE COMMANDS (use when workers block progress or you need to deploy RP):
+  POST {dashboard_url}/api/agents/stop-all-workers   — force-stop all worker agents
+  POST {dashboard_url}/api/agents/force-spawn         — spawn agent bypassing worker gate
+    Body: {{"agent":"RP","task":"Generate final penetration test report"}}
+  Use stop-all-workers FIRST, then force-spawn RP.
+
 ## Cross-Session Memory
 You have access to ATHENA's temporal knowledge graph. Past engagement facts
 are injected into your context when available. Use them to:
@@ -794,6 +800,11 @@ PIPELINED NOTIFICATIONS — After EACH successful exploit, notify ALL relevant a
 Do NOT wait until all exploits are done — notify VF after EACH one so verification runs in parallel.
 
 NEO4J CONSTRAINT: Engagement "{eid}" already exists. Pass engagement_id="{eid}" to every call.
+
+CREDENTIAL STORAGE: When you obtain working credentials (default, brute-forced, or from exploit output):
+  POST {dashboard_url}/api/engagements/{eid}/credentials
+  Body: {{"username":"<user>","password":"<pass>","host":"<target_ip>","service":"<service>","type":"default","access_level":"<root|admin|user>"}}
+  Post each credential individually as soon as confirmed working.
 
 BILATERAL COMMUNICATION:
 Report successful exploits to ST and VF:
@@ -1100,6 +1111,11 @@ STATUS UPDATES:
 - POST {dashboard_url}/api/events
   Body: {{"type":"agent_status","agent":"DA","status":"running","content":"<what you're analyzing>"}}
 - When done: status="idle"
+
+CREDENTIAL STORAGE: When you discover default or weak credentials during analysis:
+  POST {dashboard_url}/api/engagements/{eid}/credentials
+  Body: {{"username":"<user>","password":"<pass>","host":"<target_ip>","service":"<service>","type":"default","access_level":"<root|admin|user>"}}
+  Post each credential individually as soon as confirmed working.
 
 BILATERAL COMMUNICATION:
 - To PX (probe requests): POST /api/messages with to_agent="PX"

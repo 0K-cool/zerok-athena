@@ -6326,11 +6326,17 @@ async def get_exploit_stats(eid: str):
     # In-memory state is updated immediately when agents report findings, but Neo4j
     # persistence is async. Using either/or caused the Exploit Rate to spike then drop
     # when Neo4j returned partial data (non-zero but lower than in-memory).
+    # BUG-S2-004 fix: Exclude port/batch summary findings from discovered count.
+    SUMMARY_PATTERNS = ('open tcp port', 'open udp port', 'open ports', 'cves confirmed', 'cves detected')
     mem_findings = [f for f in state.findings if f.engagement == eid]
-    mem_discovered = len(mem_findings)
+    mem_findings_clean = [
+        f for f in mem_findings
+        if not any(pat in (f.title or '').lower() for pat in SUMMARY_PATTERNS)
+    ]
+    mem_discovered = len(mem_findings_clean)
     mem_confirmed = 0
     mem_by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-    for f in mem_findings:
+    for f in mem_findings_clean:
         sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
         verification = getattr(f, 'verification_status', '') or ''
@@ -6348,17 +6354,19 @@ async def get_exploit_stats(eid: str):
             by_severity[sev] = max(by_severity[sev], mem_by_severity.get(sev, 0))
 
     # BUG-029: Count exploited-but-unverified findings (EX succeeded, VF didn't confirm)
+    # BUG-S2-004 fix: Scope to EX agent only — not all evidenced findings.
     exploited_unverified = 0
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
                 result = session.run("""
                     MATCH (f:Finding {engagement_id: $eid})
-                    WHERE (
+                    WHERE f.agent = 'EX'
+                      AND (
                         (f.evidence IS NOT NULL AND f.evidence <> '')
                         OR EXISTS { (f)-[:HAS_ARTIFACT]->(:Artifact) }
                         OR EXISTS { (f)-[:EVIDENCED_BY]->(:EvidencePackage) }
-                    )
+                      )
                       AND (f.verified IS NULL OR f.verified = false)
                       AND (f.verification_status IS NULL OR (f.verification_status <> 'confirmed' AND f.verification_status <> 'likely'))
                     RETURN count(f) AS cnt
@@ -6370,7 +6378,11 @@ async def get_exploit_stats(eid: str):
             pass
     # BUG-042 fix: Same max-of-both-sources pattern for exploited_unverified
     mem_exploited_unverified = 0
-    for f in mem_findings:
+    for f in mem_findings_clean:
+        agent_val = getattr(f, 'agent', '') or ''
+        is_ex = agent_val == 'EX' or (isinstance(agent_val, list) and 'EX' in agent_val)
+        if not is_ex:
+            continue
         has_evidence = bool(f.evidence) or getattr(f, 'evidence_count', 0) > 0
         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
         verification = getattr(f, 'verification_status', '') or ''
@@ -6384,22 +6396,20 @@ async def get_exploit_stats(eid: str):
     success_rate = round((confirmed / max(discovered, 1)) * 100, 1)
 
     # MTTE: estimate from timestamp spread of findings (simplified)
-    mem_findings = [f for f in state.findings if f.engagement == eid]
-    # Broad matching for MTTE — include actual ATHENA finding categories
-    exploit_cats_mtte = {
-        'validated exploit', 'exploitation', 'injection', 'authentication bypass',
-        'lateral movement', 'remote code execution', 'file upload', 'access control',
-        'rce', 'code execution', 'privilege escalation', 'command injection',
-        'sql injection', 'backdoor', 'shell', 'deserialization',
-    }
-    timestamps = sorted([f.timestamp for f in mem_findings])
+    # BUG-S2-001 fix: Filter to EX-agent findings with actual exploitation evidence only.
+    # Previous filter used severity-based matching which pulled in non-exploited findings.
+    EXPLOIT_TITLE_KEYWORDS = ('root shell', 'rce confirmed', 'backdoor', 'shell obtained',
+                               'command execution', 'remote code execution', 'meterpreter',
+                               'exploit confirmed', 'access confirmed')
+    timestamps = sorted([f.timestamp for f in mem_findings_clean])
     exploit_findings = [
-        f for f in mem_findings
-        if (any(ec in (f.category or '').lower() for ec in exploit_cats_mtte)
-            or bool(f.evidence)
+        f for f in mem_findings_clean
+        if (getattr(f, 'agent', '') == 'EX' or (isinstance(getattr(f, 'agent', None), list) and 'EX' in f.agent))
+        and (
+            bool(f.evidence)
             or bool(getattr(f, 'confirmed_at', None))
-            or (f.severity.value if hasattr(f.severity, 'value')
-                else str(f.severity).lower()) in ('critical', 'high'))
+            or any(kw in (f.title or '').lower() for kw in EXPLOIT_TITLE_KEYWORDS)
+        )
     ]
     # Use engagement start time for MTTE, not first finding time
     eng_start_ts = None
@@ -6423,12 +6433,13 @@ async def get_exploit_stats(eid: str):
     if eng_start_ts is None and timestamps:
         eng_start_ts = timestamps[0]  # fallback to first finding
 
+    # BUG-S2-001 fix: MTTE = time to FIRST EX exploit, not average across all.
+    exploit_findings.sort(key=lambda x: x.timestamp if x.timestamp else float('inf'))
     if eng_start_ts and exploit_findings:
-        for ef in exploit_findings:
-            delta = int(ef.timestamp - eng_start_ts)
-            per_finding_times.append({"title": ef.title[:80], "time_s": max(0, delta)})
-        if per_finding_times:
-            mtte_seconds = int(sum(t["time_s"] for t in per_finding_times) / len(per_finding_times))
+        first = exploit_findings[0]
+        delta = max(0, int(first.timestamp - eng_start_ts))
+        per_finding_times = [{"title": first.title[:80], "time_s": delta}]
+        mtte_seconds = delta
 
     # MTTE: compute from Neo4j finding timestamps when in-memory is empty
     if not per_finding_times and neo4j_available and neo4j_driver:
@@ -6446,13 +6457,14 @@ async def get_exploit_stats(eid: str):
                     return ts.timestamp()
                 return 0.0
 
+            # BUG-S2-001 fix: Filter to EX agent only; remove severity-based matching.
             def _mtte_query():
                 with neo4j_driver.session() as session:
                     result = session.run("""
                         MATCH (f:Finding {engagement_id: $eid})
-                        WHERE f.timestamp IS NOT NULL
-                        RETURN f.title AS title, f.timestamp AS ts, f.category AS category,
-                               f.evidence AS evidence, f.severity AS severity
+                        WHERE f.timestamp IS NOT NULL AND f.agent = 'EX'
+                          AND (f.evidence IS NOT NULL OR f.confirmed_at IS NOT NULL)
+                        RETURN f.title AS title, f.timestamp AS ts
                         ORDER BY f.timestamp ASC
                     """, eid=eid)
                     return [dict(record) for record in result]
@@ -6463,18 +6475,14 @@ async def get_exploit_stats(eid: str):
                 ts_epoch = _to_epoch(record["ts"])
                 if ts_epoch > 0:
                     all_ts.append(ts_epoch)
-                cat = (record["category"] or "").lower()
-                sev = (record.get("severity") or "").lower()
-                if (any(ec in cat for ec in exploit_cats_mtte)
-                        or record.get("evidence")
-                        or sev in ("critical", "high")):
                     neo4j_exploit_findings.append({"title": record["title"], "ts": ts_epoch})
+            # BUG-S2-001 fix: MTTE = time to first EX exploit only.
             if all_ts and neo4j_exploit_findings:
                 neo4j_start_ts = eng_start_ts if eng_start_ts is not None else all_ts[0]
-                for ef in neo4j_exploit_findings:
-                    delta = int(ef["ts"] - neo4j_start_ts)
-                    per_finding_times.append({"title": ef["title"], "time_s": max(0, delta)})
-                mtte_seconds = int(sum(t["time_s"] for t in per_finding_times) / len(per_finding_times))
+                first_neo = neo4j_exploit_findings[0]
+                delta = max(0, int(first_neo["ts"] - neo4j_start_ts))
+                per_finding_times = [{"title": first_neo["title"], "time_s": delta}]
+                mtte_seconds = delta
         except Exception as e:
             print(f"Neo4j MTTE query error: {e}")
 
@@ -8602,6 +8610,19 @@ async def download_report(report_id: str, engagement: Optional[str] = None):
                     filename=fp.name,
                     media_type="application/octet-stream",
                 )
+    # BUG-NEW-001 fix: eid may be None for completed engagements (active_engagement_id cleared).
+    # Fall back to searching all engagements when scoped search returns nothing.
+    if eid is not None:
+        all_reports = await get_reports(all_engagements=True, include_archived=True)
+        for r in all_reports:
+            if r.get("id") == report_id and r.get("file_path"):
+                fp = athena_dir / r["file_path"]
+                if fp.exists():
+                    return FileResponse(
+                        str(fp),
+                        filename=fp.name,
+                        media_type="application/octet-stream",
+                    )
     return JSONResponse({"error": "Report not found"}, status_code=404)
 
 
@@ -12078,6 +12099,38 @@ async def stop_agent(agent_code: str):
         "timestamp": time.time(),
     })
     return {"ok": True, "agent": agent_code, "message": f"{agent_code} stop signal sent"}
+
+
+# ── FR-S2-003: ST Override Authority ──────────────
+
+@app.post("/api/agents/stop-all-workers")
+async def stop_all_workers():
+    """ST override: force-stop all worker agents."""
+    worker_codes = ["PR", "AR", "WV", "EX", "PE", "VF", "DA", "PX"]
+    stopped = []
+    for code in worker_codes:
+        try:
+            if _active_session_manager and _active_session_manager.is_running:
+                _active_session_manager.signal_early_stop(code)
+                await state.update_agent_status(code, AgentStatus.IDLE)
+                stopped.append(code)
+        except Exception:
+            pass
+    return {"ok": True, "stopped": stopped}
+
+
+@app.post("/api/agents/force-spawn")
+async def force_spawn_agent(request: Request):
+    """ST override: spawn agent bypassing workers-still-running gate."""
+    payload = await request.json()
+    agent_code = payload.get("agent", "")
+    task = payload.get("task", "")
+    if not agent_code or not _active_session_manager:
+        return JSONResponse({"error": "No agent code or session manager"}, status_code=400)
+    if hasattr(_active_session_manager, '_pending_rp_request'):
+        _active_session_manager._pending_rp_request = None
+    await _active_session_manager._spawn_agent(agent_code, task_prompt=task)
+    return {"ok": True, "spawned": agent_code}
 
 
 # ── Phase F1a: Agent Request API ──────────────
