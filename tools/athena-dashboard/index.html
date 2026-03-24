@@ -5169,7 +5169,7 @@
       align-items: center;
       justify-content: space-between;
       position: relative;
-      z-index: 100;
+      z-index: 200;
     }
 
     .ai-drawer-footer .connection-status {
@@ -6249,7 +6249,7 @@
           <!-- Open Ports KPI Card -->
           <div class="stat-card">
             <div class="stat-header">
-              <span class="stat-label">Open Ports</span>
+              <span class="stat-label">Services</span>
             </div>
             <div class="stat-value-row">
               <span class="stat-value" id="kpi-open-ports" style="color: var(--zerok-primary);">0</span>
@@ -16092,6 +16092,12 @@
     }
 
     function refreshAttackGraph() {
+      if (!currentEngagementId) {
+        showToast('warning', 'No Engagement', 'Select an engagement first');
+        return;
+      }
+      var statusEl = document.getElementById('graphStatus');
+      if (statusEl) statusEl.textContent = 'Refreshing...';
       hiddenNodeTypes.clear();
       document.querySelectorAll('.graph-legend-item').forEach(el => el.classList.remove('dimmed'));
       closeGraphDetail();
