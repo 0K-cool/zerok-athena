@@ -8837,7 +8837,7 @@
         var ragMeta = msg.metadata || {};
         var ragCount = ragMeta.result_count || 0;
         var ragQuery = ragMeta.query || msg.content || '';
-        var ragAgent = msg.agent || 'AGENT';
+        var ragAgent = msg.agent || 'AR';
         var ragColor = ragCount > 0 ? 'var(--zerok-info)' : 'var(--zerok-text-dim)';
         var ragBadgeColor = ragCount > 0
           ? 'background:color-mix(in srgb,var(--zerok-info) 20%,transparent);color:var(--zerok-info);'
@@ -12742,7 +12742,7 @@
                 var rMeta = evt.metadata || {};
                 var rCount = rMeta.result_count || 0;
                 var rQuery = rMeta.query || '';
-                var rAgent = evt.agent || 'AGENT';
+                var rAgent = evt.agent || 'AR';
                 var rColor = rCount > 0 ? 'var(--zerok-info)' : 'var(--zerok-text-dim)';
                 var rBadgeColor = rCount > 0
                   ? 'background:color-mix(in srgb,var(--zerok-info) 20%,transparent);color:var(--zerok-info);'
@@ -15963,6 +15963,12 @@
 
       const layout = document.getElementById('graphLayout').value;
 
+      // Auto-switch to hierarchical for dense graphs (>50 nodes)
+      var effectiveLayout = layout;
+      if ((!layout || layout === 'force') && nodeItems.length > 50) {
+        effectiveLayout = 'hierarchical';
+      }
+
       // If all nodes have saved positions, skip physics entirely
       const allRestored = nodeItems.length > 0 && nodeItems.every(n => _savedGraphPositions[n.id] !== undefined);
 
@@ -15973,8 +15979,8 @@
         edges: {
           selectionWidth: 2
         },
-        physics: allRestored ? { enabled: false } : getPhysicsConfig(layout),
-        layout: allRestored ? { hierarchical: false } : getLayoutConfig(layout),
+        physics: allRestored ? { enabled: false } : getPhysicsConfig(effectiveLayout),
+        layout: allRestored ? { hierarchical: false } : getLayoutConfig(effectiveLayout),
         interaction: {
           hover: true,
           tooltipDelay: 200,
@@ -16039,8 +16045,8 @@
       // force-directed
       return {
         enabled: true,
-        barnesHut: { gravitationalConstant: -3000, centralGravity: 0.3, springLength: 120, damping: 0.4 },
-        stabilization: { iterations: 200 }
+        barnesHut: { gravitationalConstant: -8000, centralGravity: 0.3, springLength: 200, damping: 0.4 },
+        stabilization: { iterations: 500 }
       };
     }
 

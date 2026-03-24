@@ -9791,6 +9791,8 @@ async def _emit_rag_event(agent: str, query: str, result_count: int, error: str 
         # Use last line (the actual error message) if it looks like a traceback
         if len(lines) > 1 and ("Traceback" in lines[0] or "File " in lines[0]):
             error = lines[-1].strip()[:80]
+        elif "sys.path.insert" in error or "import sys" in error or "/Users/" in error:
+            error = "RAG subprocess error"
         else:
             error = error[:80]
 
@@ -10738,6 +10740,17 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
     event_content = event.get("content", "")
     if event_content and _ctf_session and _ctf_session.get("active"):
         await _scan_for_flags(event_content, eid, agent_code)
+
+    # Skip empty control signals from timeline (still broadcast for state changes)
+    if event_type == "system" and not event_content and metadata.get("control"):
+        await state.broadcast({
+            "type": event_type,
+            "agent": agent_code,
+            "content": "",
+            "timestamp": event.get("timestamp", time.time()),
+            "metadata": metadata,
+        })
+        return
 
     # Add to event timeline
     await state.add_event(AgentEvent(
