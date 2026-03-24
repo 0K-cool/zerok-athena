@@ -230,6 +230,126 @@ Filter: first finding where `agent = "EX"` AND (`evidence IS NOT NULL` OR has HA
 ### BUG-S2-003: Evidence capture only from EX/VF — need PE and DA too [HIGH]
 PE harvests credentials and DA discovers services/vulnerabilities but neither captures evidence artifacts. Only EX (exploitation) and VF (verification) trigger _capture_exploitation_evidence. PE should capture credential evidence, DA should capture analysis evidence. Add evidence capture for all active agents, with evidence_type tags: "exploitation" (EX), "verification" (VF), "post_exploitation" (PE), "analysis" (DA).
 
+### FR-S2-001: Add /docs/ as explicit RAG fallback in agent prompts [HIGH]
+RAG KB can return empty or fail entirely. Agents should have a local fallback: read playbooks and knowledge docs directly from `/docs/playbooks/` and `/docs/knowledge/` directories. Add to the shared agent prompt fallback chain:
+
+1. RAG KB (MCP tool `mcp__athena_knowledge_base__search_kb`)
+2. If empty → `searchsploit` (Kali local Exploit-DB)
+3. If empty → **NEW: Read local docs** — `ls docs/playbooks/ docs/knowledge/` then `cat docs/playbooks/<relevant-file>.md`
+4. If still empty → Online sources (AttackerKB, NVD, PacketStorm, GitHub PoCs, CISA KEV)
+
+This ensures agents always have access to methodology playbooks even when RAG MCP server is down or returns no results. The 16 playbooks in `docs/playbooks/` cover: AD attacks, scanning, C2, cloud, credentials, LOTL/privesc, network, web app, CVE research, evidence collection, SQL injection, etc.
+
+### FR-S2-002: Agent speed optimization — parallel verification + batch scanning [HIGH]
+Improve agent speed without compromising verification integrity or creating bottlenecks on ATHENA or Kali:
+
+**VF optimization:**
+1. Parallel verification batches — verify 2-3 services simultaneously
+2. Prioritize EX-confirmed exploits at front of queue
+3. Batch nmap scans — `nmap -p 21,445,6667 --script <relevant-scripts>` instead of one port at a time
+4. Skip redundant verifications (dedup across EX + DA findings for same service)
+
+**Apply same analysis to ALL agents:**
+- AR: batch port scans (already doing naabu + nmap batching)
+- EX: prioritize highest-CVSS targets first
+- DA: batch searchsploit queries instead of one-at-a-time
+- PE: start post-exploitation as soon as first shell is obtained, don't wait for all exploits
+
+**Key constraint:** No bottlenecks on ATHENA server or Kali backends. Parallel tool calls should use asyncio.gather where possible.
+
+**Dynamic resource check (adaptive speed):**
+Agents should adapt speed based on host resources and architecture:
+1. **Kali backend latency probe** — at engagement start, measure tool response time. <2s = aggressive batching. >10s = conservative sequential.
+2. **Target resilience check** — monitor for connection resets, timeouts, OOM signals. If target is fragile (like Juice Shop), reduce scan intensity automatically.
+3. **ATHENA server load** — if event loop latency >500ms or CPU >80%, throttle agent tool call frequency.
+4. **Kali concurrent capacity** — test with 2-3 parallel requests at start. If all succeed <5s, allow parallel. If timeouts, fall back to sequential.
+5. **Architecture-aware** — ARM/embedded targets need gentler scanning than full Linux servers. Detect from OS fingerprint.
+
+**Operator host (where agents run) — most important factor:**
+Claude SDK agent sessions run locally. The host machine dictates how many parallel agents are sustainable:
+- M1 Air (8 cores, 16GB) — max 4-5 concurrent agents before degradation
+- M1/M2 Pro (10-12 cores, 32GB) — 6-8 concurrent agents
+- M4 Max (16 cores, 128GB) — 10+ concurrent agents
+- Cloud VM — scale by vCPU count
+
+At engagement start, ST should check local resources:
+- `sysctl -n hw.ncpu` — core count
+- `sysctl -n hw.memsize` — total RAM
+- `uptime` — current load average
+- If load > 0.7 × cores, reduce concurrent agents (pause lowest priority)
+- If available RAM < 2GB, defer DA/PE until AR/EX complete
+
+ST should query these metrics during SITREP cycles and adjust agent aggressiveness dynamically:
+- `GET /api/kali/health` — backend response times
+- `GET /api/status` — ATHENA server load + host resource metrics
+- Target response patterns from AR scan results
+- Local host: load average, memory pressure, swap usage
+
+**Future: Cloud-hosted agents**
+Agents don't need to run on operator's laptop. Architecture already supports remote:
+- Agents communicate via HTTP/WebSocket (not local IPC)
+- Cloud VM: check vCPU/RAM via metadata API (AWS IMDSv2, GCP metadata)
+- Container: read cgroup limits
+- Kubernetes: pod resource requests/limits
+- Serverless: function memory allocation
+- Enables: parallel pentests, unlimited agent scaling, operator on thin client
+- Dashboard + Neo4j + Kali backends stay where they are — only agent runtime moves
+
+### BUG-S2-004: Exploit count inflated — duplicate findings not deduped [HIGH]
+Shows 20 confirmed exploits but only ~8 are truly unique. Multiple agents (EX, DA, ST) post findings for the same CVE with slightly different titles, bypassing the fingerprint-based MERGE dedup:
+- "CVE-2011-2523: vsftpd 2.3.4 Backdoor" (EX) vs "CVE(s) detected: CVE-2011-2523, CVE-2010-2075..." (DA)
+- "6 CRITICAL CVEs confirmed..." is a batch summary, not an individual exploit
+- "31 open TCP ports" counted as exploitable but isn't an exploit
+
+**Fix:** Improve finding deduplication — extract CVE IDs from titles and dedup on CVE + host + port combination. Batch CVE findings should be split into individual findings or excluded from exploit count. Port discovery findings should not count as exploitable.
+
+### BUG-S2-005: Open Ports KPI shows 27 but 31 ports discovered [MEDIUM]
+KPI label says "Open Ports" but value reads from `services` count (27) not actual open ports (31). Naabu found 31 open ports, nmap identified services on 27. The 4 unidentified ports are still open but not counted.
+
+**Fix:** Either change the KPI to read actual open port count from naabu/scan results, or rename the label to "Services" to match what it displays.
+
+### FR-S2-003: ST needs override authority as Red Team leader [HIGH]
+ST is the team leader but can't override system gates:
+- RP blocked because workers still running — ST should force-stop workers and deploy RP
+- ST says "engagement at saturation" but system ignores the decision
+- Workers consuming budget unnecessarily after ST declares completion
+
+**Fix:** Give ST explicit override commands:
+1. `POST /api/agents/stop-all-workers` — ST can stop AR, EX, DA, PE, VF in one call
+2. `POST /api/agents/force-spawn` — bypass "workers still running" gate for RP
+3. Phase transition: when ST declares phase change (e.g., "Reporting"), automatically stop workers not needed for that phase
+4. Budget authority: ST can freeze agent budgets to prevent further spending
+
+ST is the Red Team leader. The system should execute ST's decisions, not block them.
+
+### Evidence Pipeline Improvements (from Session 2 audit)
+
+**Current state (50 artifacts, eng-aadee9):**
+- Content: 50/50 (100%) ✅
+- Tagged: 17/50 (34%) — 33 untagged (mostly AR scans)
+- Finding-linked: 23/50 but only 4 unique finding IDs
+- Proof quality: 4 root shells, 17 Metasploit sessions, 5 credential proofs ✅
+
+**Fixes needed:**
+
+**FIX-EV-001: 33 untagged artifacts [MEDIUM]**
+AR (19) and auto-captured artifacts have no evidence_type. Add `evidence_type="reconnaissance"` for AR outputs. Auto-captured nmap/httpx outputs should be tagged based on the capturing agent.
+
+**FIX-EV-002: Evidence clusters on 1 finding — only 4 unique finding IDs [HIGH]**
+23 artifacts link to findings but most point to the same finding (find-11ecfe0a). `_last_finding_id` stays stale too long. Fix: after each evidence capture, check if a NEW finding was created since last capture and update `_last_finding_id` proactively. Or: match evidence to findings by CVE/service/port correlation, not just last-created order.
+
+**FIX-EV-003: PE evidence too thin — 1/3 tagged [MEDIUM]**
+`_is_post_exploitation_result` indicators are too narrow. PE outputs contain SUID binary lists, /etc/shadow dumps, network mapping — but only 1 matched. Widen indicators: add "sbin", "/usr/bin", "ifconfig", "netstat", "arp", "route", "cat /etc", "whoami", "id".
+
+**FIX-EV-004: All evidence is command_output — no variety [LOW]**
+No screenshots, HTTP request/response pairs, or response diffs despite UI filter options existing. Future: VF should capture HTTP pairs for web vulns, EX should capture Metasploit session logs as separate type.
+
+**FIX-EV-005: Evidence titles generic — "Exploitation evidence — mcp_k..." [MEDIUM]**
+All titles say "Exploitation evidence — mcp__kali_external__execute_command". Should be descriptive: "Root shell via vsftpd backdoor (CVE-2011-2523)" based on the finding title or tool context.
+
+**FIX-EV-006: Evidence Gallery shows 0 then loads after delay [LOW]**
+First screenshot showed "No evidence yet" then second showed 40 artifacts. Same engagement filter / loading race as other pages.
+
 ---
 
 ## Notes
