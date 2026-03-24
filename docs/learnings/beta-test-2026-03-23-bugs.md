@@ -350,6 +350,38 @@ All titles say "Exploitation evidence — mcp__kali_external__execute_command". 
 **FIX-EV-006: Evidence Gallery shows 0 then loads after delay [LOW]**
 First screenshot showed "No evidence yet" then second showed 40 artifacts. Same engagement filter / loading race as other pages.
 
+**FIX-EV-007: ALL evidence must be registered and viewable on dashboard [HIGH — NON-NEGOTIABLE]**
+Every piece of evidence captured by any agent MUST:
+1. Be registered as an artifact via the `/api/artifacts/text` or `/api/artifacts` endpoint
+2. Be viewable in the Evidence Gallery on the ATHENA dashboard
+3. Be linked to the finding it proves
+4. Be downloadable/exportable for client delivery
+5. Include: the command run, the output received, the agent that captured it, timestamp
+
+No hidden evidence in log files or agent memory. If it's not on the dashboard, it doesn't exist for the client. The Evidence Gallery is the single source of truth for all pentest proof. Clients and auditors must be able to browse, filter, and download all evidence from the dashboard without touching the filesystem.
+
+### BUG-S2-006: KPI values flicker between two counts [HIGH]
+Total Findings flickers between 134 and 119. Drawer stats alternate between "0 vulns" and "125 vulns". Two data sources fight: KPI poll (loadDashboardFromAPI every 5s) vs WebSocket real-time events. Each overwrites the other.
+
+**One source of truth rule:** The API poll should be authoritative. WebSocket events should only INCREMENT counts, never decrease them. If WS says 119 but last API poll said 134, keep 134. Apply Math.max() on all KPI updates to prevent downward flicker.
+
+**Fix:** In every KPI update path (both API poll and WS handler), use:
+```javascript
+kpiEl.textContent = Math.max(parseInt(kpiEl.textContent || '0'), newValue);
+```
+
+### BUG-S2-007: Attack Graph — credential nodes visible but no HARVESTED_FROM edges [HIGH]
+Purple triangle credential nodes appear (cred-077a7841, cred-ec06145a, cred-c6858327) but no purple dotted lines connect them to hosts. The Neo4j HARVESTED_FROM edge fix (commit ddc773f) was deployed but the server wasn't restarted — credentials were posted via the old in-memory path, not through Neo4j. Next engagement after restart should create the edges. Verify the graph query at GET /api/attack-graph includes HARVESTED_FROM in its relationship types.
+
+### BUG-S2-008: Attack Graph Refresh button doesn't work [MEDIUM]
+Clicking Refresh does nothing visible. The graph stays the same. May need to re-fetch data from API and redraw the vis.js network.
+
+### BUG-S2-009: Attack Graph Reset View very slow [MEDIUM]
+Reset View works but takes a long time (5-10 seconds) on a dense graph with 167 nodes. The vis.js physics simulation recalculates all node positions. Consider: disable physics after initial layout stabilizes, or use a simpler layout (hierarchical) for large graphs.
+
+### BUG-S2-010: Attack Graph too dense/cluttered at 100+ nodes [LOW]
+With 100 findings, 27 services, 21 attack paths, the graph is unreadable — labels overlap, edges are tangled. Consider: cluster nodes by service/CVE, collapse credentials into a single node with count badge, or add zoom/filter controls.
+
 ---
 
 ## Notes
