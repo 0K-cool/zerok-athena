@@ -1757,6 +1757,21 @@ class FindingPayload(BaseModel):
     poc_script: Optional[str] = None
 
 
+def _normalize_ts(ts):
+    """Convert Neo4j DateTime, python datetime, or numeric value to epoch float."""
+    if ts is None:
+        return None
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    # neo4j.time.DateTime has .to_native() → python datetime
+    if hasattr(ts, 'to_native'):
+        return ts.to_native().timestamp()
+    # python datetime
+    if hasattr(ts, 'timestamp'):
+        return ts.timestamp()
+    return None
+
+
 def _extract_host_port(target: str) -> tuple[str | None, int | None]:
     """Extract host IP and port from various target formats.
 
@@ -5127,47 +5142,51 @@ async def get_engagements(include_archived: bool = False):
     """Get all engagements from Neo4j or fallback to mock data."""
     if neo4j_available and neo4j_driver:
         try:
-            with neo4j_driver.session() as session:
-                query = """
-                    MATCH (e:Engagement)
-                    OPTIONAL MATCH (f:Finding {engagement_id: e.id})
-                    RETURN e.id AS id, e.name AS name, e.client AS client,
-                           e.target AS target, e.scope AS scope, e.types AS type, e.status AS status,
-                           e.start_date AS start_date,
-                           count(DISTINCT f) AS findings_count
-                    ORDER BY e.start_date DESC
-                """
-                result = session.run(query)
-                engagements = []
-                for record in result:
-                    status = record.get("status", "active")
-                    if not include_archived and status == "archived":
-                        continue
-                    # Determine phase: if this is the active AI engagement, show "AI Mode"
-                    eid = record["id"]
-                    phase = "Active" if status == "active" else "—"
-                    if eid == state.active_engagement_id:
-                        phase = "AI Mode"
-                    # Check if this engagement is currently paused
-                    is_paused = (eid == state.active_engagement_id and
-                                 not state.engagement_pause_event.is_set() and
-                                 state.engagement_task and not state.engagement_task.done())
-                    engagements.append({
-                        "id": eid,
-                        "name": record["name"],
-                        "client": record.get("client", "Unknown"),
-                        "scope": record.get("scope", ""),
-                        "target": record.get("target") or record.get("scope", ""),
-                        "type": record.get("type", "external"),
-                        "status": "paused" if is_paused else status,
-                        "start_date": record.get("start_date", ""),
-                        "findings_count": max(
-                            record.get("findings_count", 0),
-                            len([f for f in state.findings if f.engagement == eid]),
-                        ),
-                        "phase": phase,
-                    })
-                return {"engagements": engagements, "source": "neo4j"}
+            def _query():
+                with neo4j_driver.session() as session:
+                    query = """
+                        MATCH (e:Engagement)
+                        OPTIONAL MATCH (f:Finding {engagement_id: e.id})
+                        RETURN e.id AS id, e.name AS name, e.client AS client,
+                               e.target AS target, e.scope AS scope, e.types AS type, e.status AS status,
+                               e.start_date AS start_date,
+                               count(DISTINCT f) AS findings_count
+                        ORDER BY e.start_date DESC
+                    """
+                    result = session.run(query)
+                    records = list(result)
+                    return records
+            records = await neo4j_exec(_query)
+            engagements = []
+            for record in records:
+                status = record.get("status", "active")
+                if not include_archived and status == "archived":
+                    continue
+                # Determine phase: if this is the active AI engagement, show "AI Mode"
+                eid = record["id"]
+                phase = "Active" if status == "active" else "—"
+                if eid == state.active_engagement_id:
+                    phase = "AI Mode"
+                # Check if this engagement is currently paused
+                is_paused = (eid == state.active_engagement_id and
+                             not state.engagement_pause_event.is_set() and
+                             state.engagement_task and not state.engagement_task.done())
+                engagements.append({
+                    "id": eid,
+                    "name": record["name"],
+                    "client": record.get("client", "Unknown"),
+                    "scope": record.get("scope", ""),
+                    "target": record.get("target") or record.get("scope", ""),
+                    "type": record.get("type", "external"),
+                    "status": "paused" if is_paused else status,
+                    "start_date": record.get("start_date", ""),
+                    "findings_count": max(
+                        record.get("findings_count", 0),
+                        len([f for f in state.findings if f.engagement == eid]),
+                    ),
+                    "phase": phase,
+                })
+            return {"engagements": engagements, "source": "neo4j"}
         except Exception as e:
             print(f"Neo4j query error: {e}")
             # Fall through to mock data
@@ -5805,112 +5824,125 @@ async def get_engagement_summary(eid: str):
     """Get engagement statistics from Neo4j or mock data."""
     if neo4j_available and neo4j_driver:
         try:
-            with neo4j_driver.session() as session:
-                result = session.run("""
-                    MATCH (e:Engagement {id: $eid})
-                    OPTIONAL MATCH (h:Host {engagement_id: $eid})
-                    OPTIONAL MATCH (h)-[:HAS_SERVICE]->(s:Service)
-                    OPTIONAL MATCH (v:Vulnerability {engagement_id: $eid})
-                    WITH e, count(DISTINCT h) AS hosts,
-                         count(DISTINCT s) AS services,
-                         count(DISTINCT v) AS vulns
-                    OPTIONAL MATCH (f:Finding {engagement_id: $eid})
-                    RETURN hosts, services, vulns,
-                           count(DISTINCT f) AS findings,
-                           count(DISTINCT CASE WHEN f.severity = 'critical' THEN f END) AS sev_critical,
-                           count(DISTINCT CASE WHEN f.severity = 'high' THEN f END) AS sev_high,
-                           count(DISTINCT CASE WHEN f.severity = 'medium' THEN f END) AS sev_medium,
-                           count(DISTINCT CASE WHEN f.severity = 'low' THEN f END) AS sev_low,
-                           count(DISTINCT CASE WHEN
-                               f.verified = true OR
-                               f.verification_status = 'confirmed' OR
-                               f.verification_status = 'likely'
-                           THEN f END) AS exploits
-                """, eid=eid)
-                record = result.single()
-                if record:
-                    neo4j_hosts = record["hosts"]
-                    # BUG-036: Subtract version-string Host nodes (e.g. "3.2.8.1" from UnrealIRCd)
-                    # that were created directly via MCP tools, bypassing _safe_extract_host.
-                    # We fetch Host IPs in a lightweight query and filter in Python.
-                    if neo4j_hosts > 0:
+            def _query():
+                with neo4j_driver.session() as session:
+                    result = session.run("""
+                        MATCH (e:Engagement {id: $eid})
+                        OPTIONAL MATCH (h:Host {engagement_id: $eid})
+                        OPTIONAL MATCH (h)-[:HAS_SERVICE]->(s:Service)
+                        OPTIONAL MATCH (v:Vulnerability {engagement_id: $eid})
+                        WITH e, count(DISTINCT h) AS hosts,
+                             count(DISTINCT s) AS services,
+                             count(DISTINCT v) AS vulns
+                        OPTIONAL MATCH (f:Finding {engagement_id: $eid})
+                        RETURN hosts, services, vulns,
+                               count(DISTINCT f) AS findings,
+                               count(DISTINCT CASE WHEN f.severity = 'critical' THEN f END) AS sev_critical,
+                               count(DISTINCT CASE WHEN f.severity = 'high' THEN f END) AS sev_high,
+                               count(DISTINCT CASE WHEN f.severity = 'medium' THEN f END) AS sev_medium,
+                               count(DISTINCT CASE WHEN f.severity = 'low' THEN f END) AS sev_low,
+                               count(DISTINCT CASE WHEN
+                                   f.verified = true OR
+                                   f.verification_status = 'confirmed' OR
+                                   f.verification_status = 'likely'
+                               THEN f END) AS exploits,
+                               e.started_at AS started_at, e.completed_at AS completed_at
+                    """, eid=eid)
+                    record = result.single()
+                    if record is None:
+                        return None, None
+                    raw_hosts = record["hosts"]
+                    ip_list = []
+                    if raw_hosts > 0:
                         ip_result = session.run(
                             "MATCH (h:Host {engagement_id: $eid}) RETURN h.ip AS ip",
                             eid=eid,
                         )
-                        version_string_count = sum(
-                            1 for r in ip_result if _is_version_string_ip(r["ip"] or "")
-                        )
-                        neo4j_hosts = max(0, neo4j_hosts - version_string_count)
-                    neo4j_services = record["services"]
-                    neo4j_findings = record["findings"]
-                    # If Neo4j has real Host/Service data, use it; otherwise supplement from in-memory state
-                    if neo4j_hosts > 0 or neo4j_findings > 0:
-                        # Supplement: if Neo4j has findings but no Host nodes, derive from in-memory findings
-                        mem_findings = [f for f in state.findings if f.engagement == eid]
-                        mem_hosts = set()
+                        ip_list = [r["ip"] or "" for r in ip_result]
+                    return dict(record), ip_list
+            neo4j_record, ip_list = await neo4j_exec(_query)
+            if neo4j_record:
+                record = neo4j_record
+                neo4j_hosts = record["hosts"]
+                # BUG-036: Subtract version-string Host nodes (e.g. "3.2.8.1" from UnrealIRCd)
+                # that were created directly via MCP tools, bypassing _safe_extract_host.
+                # We fetch Host IPs in a lightweight query and filter in Python.
+                if neo4j_hosts > 0:
+                    version_string_count = sum(
+                        1 for ip in ip_list if _is_version_string_ip(ip)
+                    )
+                    neo4j_hosts = max(0, neo4j_hosts - version_string_count)
+                neo4j_services = record["services"]
+                neo4j_findings = record["findings"]
+                # If Neo4j has real Host/Service data, use it; otherwise supplement from in-memory state
+                if neo4j_hosts > 0 or neo4j_findings > 0:
+                    # Supplement: if Neo4j has findings but no Host nodes, derive from in-memory findings
+                    mem_findings = [f for f in state.findings if f.engagement == eid]
+                    mem_hosts = set()
+                    for f in mem_findings:
+                        if f.target:
+                            h = _safe_extract_host(f.target)
+                            if h:
+                                mem_hosts.add(h)
+                    # Count ports from scans first, then fallback to finding targets
+                    import re as _re_mp
+                    # BUG-027: Use keyword matching — MCP tools have prefix (mcp__kali_external__naabu_scan)
+                    _port_kw = ("nmap", "naabu")
+                    mem_ports = sum(s.get("findings_count", 0) for s in state.scans
+                                    if s.get("engagement_id") == eid
+                                    and any(kw in (s.get("tool") or "").lower() for kw in _port_kw))
+                    if mem_ports == 0:
+                        # Extract unique ports from finding targets
+                        port_set = set()
                         for f in mem_findings:
-                            if f.target:
-                                h = _safe_extract_host(f.target)
-                                if h:
-                                    mem_hosts.add(h)
-                        # Count ports from scans first, then fallback to finding targets
-                        import re as _re_mp
-                        # BUG-027: Use keyword matching — MCP tools have prefix (mcp__kali_external__naabu_scan)
-                        _port_kw = ("nmap", "naabu")
-                        mem_ports = sum(s.get("findings_count", 0) for s in state.scans
-                                        if s.get("engagement_id") == eid
-                                        and any(kw in (s.get("tool") or "").lower() for kw in _port_kw))
-                        if mem_ports == 0:
-                            # Extract unique ports from finding targets
-                            port_set = set()
-                            for f in mem_findings:
-                                target = f.target or ""
-                                pm = _re_mp.search(r':(\d+)', target)
-                                if pm:
-                                    pn = int(pm.group(1))
-                                    if 1 <= pn <= 65535:
-                                        port_set.add(pn)
-                            mem_ports = len(port_set)
-                        # Use max of Neo4j and in-memory severity counts (handles missing BELONGS_TO)
-                        mem_sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-                        # BUG-022 FIX: Count exploits using VF-confirmed logic ONLY.
-                        # Previously used keyword+agent+evidence heuristics which gave a
-                        # higher count than exploit-stats, causing KPI mismatch.
-                        # Now aligned: both /summary and /exploit-stats count the same way.
-                        mem_exploits = 0
-                        for f in mem_findings:
-                            s = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
-                            if s in mem_sev:
-                                mem_sev[s] += 1
-                            has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
-                            verification = getattr(f, 'verification_status', '') or ''
-                            if has_confirmed_ts or verification in ('confirmed', 'likely'):
-                                mem_exploits += 1
-                        # BUG-039 FIX: Monotonic increase for services/ports during active engagement.
-                        # Use a high-water mark so the KPI never decreases during a pentest.
-                        services_now = max(neo4j_services, mem_ports)
-                        if not hasattr(state, '_hwm_services'):
-                            state._hwm_services = {}
-                        state._hwm_services[eid] = max(state._hwm_services.get(eid, 0), services_now)
-                        _eng_obj = next((e for e in state.engagements if e.id == eid), None)
-                        _started = getattr(_eng_obj, 'started_at', None) if _eng_obj else None
-                        _completed = getattr(_eng_obj, 'completed_at', None) if _eng_obj else None
-                        _duration = round((_completed or time.time()) - _started, 1) if _started else None
-                        return {
-                            "hosts": max(neo4j_hosts, len(mem_hosts)),
-                            "services": state._hwm_services[eid],
-                            "vulnerabilities": record["vulns"],
-                            "findings": max(neo4j_findings, len(mem_findings)),
-                            "exploits": max(record["exploits"], mem_exploits),
-                            "severity": {
-                                "critical": max(record["sev_critical"], mem_sev["critical"]),
-                                "high": max(record["sev_high"], mem_sev["high"]),
-                                "medium": max(record["sev_medium"], mem_sev["medium"]),
-                                "low": max(record["sev_low"], mem_sev["low"]),
-                            },
-                            "duration_seconds": _duration,
-                        }
+                            target = f.target or ""
+                            pm = _re_mp.search(r':(\d+)', target)
+                            if pm:
+                                pn = int(pm.group(1))
+                                if 1 <= pn <= 65535:
+                                    port_set.add(pn)
+                        mem_ports = len(port_set)
+                    # Use max of Neo4j and in-memory severity counts (handles missing BELONGS_TO)
+                    mem_sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+                    # BUG-022 FIX: Count exploits using VF-confirmed logic ONLY.
+                    # Previously used keyword+agent+evidence heuristics which gave a
+                    # higher count than exploit-stats, causing KPI mismatch.
+                    # Now aligned: both /summary and /exploit-stats count the same way.
+                    mem_exploits = 0
+                    for f in mem_findings:
+                        s = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
+                        if s in mem_sev:
+                            mem_sev[s] += 1
+                        has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
+                        verification = getattr(f, 'verification_status', '') or ''
+                        if has_confirmed_ts or verification in ('confirmed', 'likely'):
+                            mem_exploits += 1
+                    # BUG-039 FIX: Monotonic increase for services/ports during active engagement.
+                    # Use a high-water mark so the KPI never decreases during a pentest.
+                    services_now = max(neo4j_services, mem_ports)
+                    if not hasattr(state, '_hwm_services'):
+                        state._hwm_services = {}
+                    state._hwm_services[eid] = max(state._hwm_services.get(eid, 0), services_now)
+                    _eng_obj = next((e for e in state.engagements if e.id == eid), None)
+                    _started = getattr(_eng_obj, 'started_at', None) if _eng_obj else record.get("started_at")
+                    _completed = getattr(_eng_obj, 'completed_at', None) if _eng_obj else record.get("completed_at")
+                    _duration = round((_completed or time.time()) - _started, 1) if _started else None
+                    return {
+                        "hosts": max(neo4j_hosts, len(mem_hosts)),
+                        "services": state._hwm_services[eid],
+                        "vulnerabilities": record["vulns"],
+                        "findings": max(neo4j_findings, len(mem_findings)),
+                        "exploits": max(record["exploits"], mem_exploits),
+                        "severity": {
+                            "critical": max(record["sev_critical"], mem_sev["critical"]),
+                            "high": max(record["sev_high"], mem_sev["high"]),
+                            "medium": max(record["sev_medium"], mem_sev["medium"]),
+                            "low": max(record["sev_low"], mem_sev["low"]),
+                        },
+                        "duration_seconds": _duration,
+                        "started_at": _started,
+                        "completed_at": _completed,
+                    }
         except Exception as e:
             print(f"Neo4j summary query error: {e}")
             # Fall through to mock
@@ -5982,6 +6014,8 @@ async def get_engagement_summary(eid: str):
         "exploits": exploits,
         "severity": sev_counts,
         "duration_seconds": _duration_fb,
+        "started_at": _started_fb,
+        "completed_at": _completed_fb,
     }
 
 
@@ -6048,120 +6082,126 @@ async def get_engagement_findings(eid: str):
     """Get findings for engagement from Neo4j or fallback."""
     if neo4j_available and neo4j_driver:
         try:
-            with neo4j_driver.session() as session:
-                # BUG-009: Get engagement scope as fallback for affected_hosts
-                engagement_scope = ""
-                try:
-                    scope_rec = session.run(
-                        "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope",
-                        eid=eid
-                    ).single()
-                    if scope_rec and scope_rec.get("scope"):
-                        engagement_scope = scope_rec["scope"]
-                except Exception:
-                    pass
+            def _query():
+                with neo4j_driver.session() as session:
+                    # BUG-009: Get engagement scope as fallback for affected_hosts
+                    engagement_scope = ""
+                    try:
+                        scope_rec = session.run(
+                            "MATCH (e:Engagement {id: $eid}) RETURN e.scope AS scope",
+                            eid=eid
+                        ).single()
+                        if scope_rec and scope_rec.get("scope"):
+                            engagement_scope = scope_rec["scope"]
+                    except Exception:
+                        pass
 
-                result = session.run("""
-                    MATCH (f:Finding {engagement_id: $eid})
-                    OPTIONAL MATCH (f)-[:FOUND_ON]->(h:Host)
-                    WITH f, collect(DISTINCT h.ip) AS affected_hosts
-                    OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
-                    OPTIONAL MATCH (f)-[:HAS_ARTIFACT]->(art:Artifact)
-                    OPTIONAL MATCH (prop_art:Artifact {finding_id: f.id})
-                    RETURN f.id AS id, f.title AS title, f.severity AS severity,
-                           f.cvss AS cvss, f.status AS status, f.category AS category,
-                           f.description AS description, f.target AS target,
-                           f.evidence AS evidence, affected_hosts,
-                           count(DISTINCT ep) + count(DISTINCT art) + count(DISTINCT prop_art) AS evidence_count
-                    ORDER BY f.cvss DESC
-                """, eid=eid)
-                findings = []
-                for record in result:
-                    # Derive affected_hosts from target if no AFFECTS relationships
-                    hosts = record["affected_hosts"]
-                    if not hosts and record.get("target"):
-                        # Extract host IP from target like "10.1.1.13:21"
-                        host_part = record["target"].split(":")[0] if ":" in record["target"] else record["target"]
-                        hosts = [host_part]
-                    # BUG-009: Fall back to engagement scope if still no hosts
-                    if not hosts and engagement_scope:
-                        scope_host = engagement_scope.split(":")[0] if ":" in engagement_scope else engagement_scope
-                        # Clean up — scope might be a URL like "http://target:port"
-                        scope_host = scope_host.replace("http://", "").replace("https://", "")
-                        if scope_host:
-                            hosts = [scope_host]
-                    # Derive evidence_count from evidence text if no relationships found
-                    ev_count = record["evidence_count"]
-                    if ev_count == 0 and record.get("evidence"):
-                        ev_count = 1
-                    findings.append({
-                        "id": record["id"],
-                        "title": record["title"],
-                        "severity": record["severity"],
-                        "cvss": record["cvss"],
-                        "status": record.get("status", "open"),
-                        "category": record.get("category", ""),
-                        "description": record.get("description", ""),
-                        "affected_hosts": hosts,
-                        "evidence_count": ev_count,
-                    })
-
-                # BUG-016: Also include Vulnerability nodes not yet promoted to Findings
-                # The AI often creates Vulnerability nodes during scanning but doesn't
-                # always create formal Finding nodes for each one
-                vuln_result = session.run("""
-                    MATCH (v:Vulnerability {engagement_id: $eid})
-                    OPTIONAL MATCH (f:Finding {engagement_id: $eid})
-                    WHERE f.title = v.name OR (f.cve IS NOT NULL AND f.cve = v.cve)
-                    WITH v, f
-                    WHERE f IS NULL
-                    RETURN v.id AS id, COALESCE(v.name, v.title, 'Untitled') AS title,
-                           toLower(COALESCE(v.severity, 'info')) AS severity,
-                           v.cvss AS cvss, 'discovered' AS status,
-                           COALESCE(v.category, '') AS category,
-                           COALESCE(v.description, '') AS description,
-                           v.target AS target, null AS evidence
-                    ORDER BY v.cvss DESC
-                """, eid=eid)
-
-                for record in vuln_result:
-                    vuln_id = record.get("id")
-                    if not vuln_id:
-                        continue
-                    host_part = ""
-                    t = record.get("target", "")
-                    if t:
-                        host_part = t.split(":")[0] if ":" in t else t
-                    findings.append({
-                        "id": vuln_id,
-                        "title": record["title"],
-                        "severity": record["severity"],
-                        "cvss": record.get("cvss"),
-                        "status": "discovered",
-                        "category": record.get("category", ""),
-                        "description": record.get("description", ""),
-                        "affected_hosts": [host_part] if host_part else [],
-                        "evidence_count": 0,
-                    })
-
-                # BUG-042 fix: Merge in-memory findings not yet persisted to Neo4j
-                neo4j_ids = {f["id"] for f in findings}
-                mem_findings = [f for f in state.findings if f.engagement == eid]
-                for f in mem_findings:
-                    if f.id not in neo4j_ids:
+                    result = session.run("""
+                        MATCH (f:Finding {engagement_id: $eid})
+                        OPTIONAL MATCH (f)-[:FOUND_ON]->(h:Host)
+                        WITH f, collect(DISTINCT h.ip) AS affected_hosts
+                        OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
+                        OPTIONAL MATCH (f)-[:HAS_ARTIFACT]->(art:Artifact)
+                        OPTIONAL MATCH (prop_art:Artifact {finding_id: f.id})
+                        RETURN f.id AS id, f.title AS title, f.severity AS severity,
+                               f.cvss AS cvss, f.status AS status, f.category AS category,
+                               f.description AS description, f.target AS target,
+                               f.evidence AS evidence, affected_hosts,
+                               f.agent AS agent, f.timestamp AS timestamp,
+                               count(DISTINCT ep) + count(DISTINCT art) + count(DISTINCT prop_art) AS evidence_count
+                        ORDER BY f.cvss DESC
+                    """, eid=eid)
+                    findings = []
+                    for record in result:
+                        # Derive affected_hosts from target if no AFFECTS relationships
+                        hosts = record["affected_hosts"]
+                        if not hosts and record.get("target"):
+                            # Extract host IP from target like "10.1.1.13:21"
+                            host_part = record["target"].split(":")[0] if ":" in record["target"] else record["target"]
+                            hosts = [host_part]
+                        # BUG-009: Fall back to engagement scope if still no hosts
+                        if not hosts and engagement_scope:
+                            scope_host = engagement_scope.split(":")[0] if ":" in engagement_scope else engagement_scope
+                            # Clean up — scope might be a URL like "http://target:port"
+                            scope_host = scope_host.replace("http://", "").replace("https://", "")
+                            if scope_host:
+                                hosts = [scope_host]
+                        # Derive evidence_count from evidence text if no relationships found
+                        ev_count = record["evidence_count"]
+                        if ev_count == 0 and record.get("evidence"):
+                            ev_count = 1
                         findings.append({
-                            "id": f.id,
-                            "title": f.title,
-                            "severity": f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower(),
-                            "cvss": f.cvss,
-                            "status": "open",
-                            "category": f.category,
-                            "description": f.description,
-                            "affected_hosts": [f.target],
-                            "evidence_count": 1 if f.evidence else 0,
+                            "id": record["id"],
+                            "title": record["title"],
+                            "severity": record["severity"],
+                            "cvss": record["cvss"],
+                            "status": record.get("status", "open"),
+                            "category": record.get("category", ""),
+                            "description": record.get("description", ""),
+                            "affected_hosts": hosts,
+                            "evidence_count": ev_count,
+                            "agent": record.get("agent", ""),
+                            "timestamp": _normalize_ts(record.get("timestamp")),
                         })
-                if findings:
+
+                    # BUG-016: Also include Vulnerability nodes not yet promoted to Findings
+                    # The AI often creates Vulnerability nodes during scanning but doesn't
+                    # always create formal Finding nodes for each one
+                    vuln_result = session.run("""
+                        MATCH (v:Vulnerability {engagement_id: $eid})
+                        OPTIONAL MATCH (f:Finding {engagement_id: $eid})
+                        WHERE f.title = v.name OR (f.cve IS NOT NULL AND f.cve = v.cve)
+                        WITH v, f
+                        WHERE f IS NULL
+                        RETURN v.id AS id, COALESCE(v.name, v.title, 'Untitled') AS title,
+                               toLower(COALESCE(v.severity, 'info')) AS severity,
+                               v.cvss AS cvss, 'discovered' AS status,
+                               COALESCE(v.category, '') AS category,
+                               COALESCE(v.description, '') AS description,
+                               v.target AS target, null AS evidence
+                        ORDER BY v.cvss DESC
+                    """, eid=eid)
+
+                    for record in vuln_result:
+                        vuln_id = record.get("id")
+                        if not vuln_id:
+                            continue
+                        host_part = ""
+                        t = record.get("target", "")
+                        if t:
+                            host_part = t.split(":")[0] if ":" in t else t
+                        findings.append({
+                            "id": vuln_id,
+                            "title": record["title"],
+                            "severity": record["severity"],
+                            "cvss": record.get("cvss"),
+                            "status": "discovered",
+                            "category": record.get("category", ""),
+                            "description": record.get("description", ""),
+                            "affected_hosts": [host_part] if host_part else [],
+                            "evidence_count": 0,
+                        })
+
+                    # BUG-042 fix: Merge in-memory findings not yet persisted to Neo4j
+                    neo4j_ids = {f["id"] for f in findings}
+                    mem_findings = [f for f in state.findings if f.engagement == eid]
+                    for f in mem_findings:
+                        if f.id not in neo4j_ids:
+                            findings.append({
+                                "id": f.id,
+                                "title": f.title,
+                                "severity": f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower(),
+                                "cvss": f.cvss,
+                                "status": "open",
+                                "category": f.category,
+                                "description": f.description,
+                                "affected_hosts": [f.target],
+                                "evidence_count": 1 if f.evidence else 0,
+                            })
                     return findings
+            findings = await neo4j_exec(_query)
+            if findings:
+                return findings
         except Exception as e:
             print(f"Neo4j findings query error: {e}")
             # Fall through to in-memory
@@ -6367,6 +6407,19 @@ async def get_exploit_stats(eid: str):
         if eng.id == eid and hasattr(eng, 'started_at') and eng.started_at:
             eng_start_ts = eng.started_at
             break
+    # Fallback: read started_at from Neo4j when in-memory state is cold
+    if eng_start_ts is None and neo4j_available and neo4j_driver:
+        try:
+            def _get_started_at():
+                with neo4j_driver.session() as neo_s:
+                    r = neo_s.run(
+                        "MATCH (e:Engagement {id: $eid}) RETURN e.started_at AS started_at",
+                        eid=eid,
+                    ).single()
+                    return r["started_at"] if r and r["started_at"] else None
+            eng_start_ts = await neo4j_exec(_get_started_at)
+        except Exception:
+            pass
     if eng_start_ts is None and timestamps:
         eng_start_ts = timestamps[0]  # fallback to first finding
 
@@ -6380,30 +6433,48 @@ async def get_exploit_stats(eid: str):
     # MTTE: compute from Neo4j finding timestamps when in-memory is empty
     if not per_finding_times and neo4j_available and neo4j_driver:
         try:
-            with neo4j_driver.session() as session:
-                result = session.run("""
-                    MATCH (f:Finding {engagement_id: $eid})
-                    WHERE f.timestamp IS NOT NULL
-                    RETURN f.title AS title, f.timestamp AS ts, f.category AS category,
-                           f.evidence AS evidence, f.severity AS severity
-                    ORDER BY f.timestamp ASC
-                """, eid=eid)
-                all_ts = []
-                neo4j_exploit_findings = []
-                for record in result:
-                    all_ts.append(record["ts"])
-                    cat = (record["category"] or "").lower()
-                    sev = (record.get("severity") or "").lower()
-                    if (any(ec in cat for ec in exploit_cats_mtte)
-                            or record.get("evidence")
-                            or sev in ("critical", "high")):
-                        neo4j_exploit_findings.append({"title": record["title"], "ts": record["ts"]})
-                if all_ts and neo4j_exploit_findings:
-                    neo4j_start_ts = eng_start_ts if eng_start_ts is not None else all_ts[0]
-                    for ef in neo4j_exploit_findings:
-                        delta = int(ef["ts"] - neo4j_start_ts)
-                        per_finding_times.append({"title": ef["title"], "time_s": max(0, delta)})
-                    mtte_seconds = int(sum(t["time_s"] for t in per_finding_times) / len(per_finding_times))
+            def _to_epoch(ts):
+                """Convert Neo4j DateTime or python value to epoch float."""
+                if isinstance(ts, (int, float)):
+                    return float(ts)
+                # neo4j.time.DateTime has .to_native() → python datetime
+                if hasattr(ts, 'to_native'):
+                    dt = ts.to_native()
+                    return dt.timestamp()
+                # python datetime
+                if hasattr(ts, 'timestamp'):
+                    return ts.timestamp()
+                return 0.0
+
+            def _mtte_query():
+                with neo4j_driver.session() as session:
+                    result = session.run("""
+                        MATCH (f:Finding {engagement_id: $eid})
+                        WHERE f.timestamp IS NOT NULL
+                        RETURN f.title AS title, f.timestamp AS ts, f.category AS category,
+                               f.evidence AS evidence, f.severity AS severity
+                        ORDER BY f.timestamp ASC
+                    """, eid=eid)
+                    return [dict(record) for record in result]
+            records = await neo4j_exec(_mtte_query)
+            all_ts = []
+            neo4j_exploit_findings = []
+            for record in records:
+                ts_epoch = _to_epoch(record["ts"])
+                if ts_epoch > 0:
+                    all_ts.append(ts_epoch)
+                cat = (record["category"] or "").lower()
+                sev = (record.get("severity") or "").lower()
+                if (any(ec in cat for ec in exploit_cats_mtte)
+                        or record.get("evidence")
+                        or sev in ("critical", "high")):
+                    neo4j_exploit_findings.append({"title": record["title"], "ts": ts_epoch})
+            if all_ts and neo4j_exploit_findings:
+                neo4j_start_ts = eng_start_ts if eng_start_ts is not None else all_ts[0]
+                for ef in neo4j_exploit_findings:
+                    delta = int(ef["ts"] - neo4j_start_ts)
+                    per_finding_times.append({"title": ef["title"], "time_s": max(0, delta)})
+                mtte_seconds = int(sum(t["time_s"] for t in per_finding_times) / len(per_finding_times))
         except Exception as e:
             print(f"Neo4j MTTE query error: {e}")
 
@@ -9025,122 +9096,126 @@ async def get_attack_graph(engagement: Optional[str] = None):
     eid = engagement or state.active_engagement_id
     if neo4j_available and neo4j_driver:
         try:
-            with neo4j_driver.session() as session:
-                # Query nodes — scope to engagement if available
-                nodes = []
-                for label, ntype in [("Host", "host"), ("Service", "service"),
-                                      ("Vulnerability", "vulnerability"),
-                                      ("Credential", "credential"), ("Finding", "finding"),
-                                      ("AttackPath", "attack_path")]:
-                    if eid:
-                        result = session.run(
-                            f"MATCH (n:{label}) WHERE n.engagement_id = $eid RETURN n, labels(n) AS labels LIMIT 100",
-                            eid=eid,
-                        )
-                    else:
-                        result = session.run(
-                            f"MATCH (n:{label}) RETURN n, labels(n) AS labels LIMIT 100"
-                        )
-                    for record in result:
-                        node = dict(record["n"])
-                        # BUG-036: Filter out version-string IPs (e.g. "3.2.8.1" from UnrealIRCd)
-                        # that were created directly as Host nodes by MCP tools, bypassing _safe_extract_host.
-                        if ntype == "host" and _is_version_string_ip(node.get("ip", "")):
-                            continue
-                        node_id = node.get("id", node.get("ip", node.get("name", str(id(node)))))
-                        # Services need port in ID to avoid collisions
-                        # (e.g. netbios-ssn on port 139 and 445)
-                        if ntype == "service" and node.get("port"):
-                            node_id = f"{node.get('name', '')}:{node['port']}"
-                        node_label = node.get("ip", node.get("title", node.get("name", node.get("id", ""))))
-                        nodes.append({
-                            "id": node_id,
-                            "type": ntype,
-                            "label": str(node_label),
-                            "tooltip": node.get("title", node.get("description", str(node_label))),
-                            "properties": {k: str(v) if v is not None else None for k, v in node.items()},
-                        })
+            def _query():
+                with neo4j_driver.session() as session:
+                    # Query nodes — scope to engagement if available
+                    nodes = []
+                    for label, ntype in [("Host", "host"), ("Service", "service"),
+                                          ("Vulnerability", "vulnerability"),
+                                          ("Credential", "credential"), ("Finding", "finding"),
+                                          ("AttackPath", "attack_path")]:
+                        if eid:
+                            result = session.run(
+                                f"MATCH (n:{label}) WHERE n.engagement_id = $eid RETURN n, labels(n) AS labels LIMIT 100",
+                                eid=eid,
+                            )
+                        else:
+                            result = session.run(
+                                f"MATCH (n:{label}) RETURN n, labels(n) AS labels LIMIT 100"
+                            )
+                        for record in result:
+                            node = dict(record["n"])
+                            # BUG-036: Filter out version-string IPs (e.g. "3.2.8.1" from UnrealIRCd)
+                            # that were created directly as Host nodes by MCP tools, bypassing _safe_extract_host.
+                            if ntype == "host" and _is_version_string_ip(node.get("ip", "")):
+                                continue
+                            node_id = node.get("id", node.get("ip", node.get("name", str(id(node)))))
+                            # Services need port in ID to avoid collisions
+                            # (e.g. netbios-ssn on port 139 and 445)
+                            if ntype == "service" and node.get("port"):
+                                node_id = f"{node.get('name', '')}:{node['port']}"
+                            node_label = node.get("ip", node.get("title", node.get("name", node.get("id", ""))))
+                            nodes.append({
+                                "id": node_id,
+                                "type": ntype,
+                                "label": str(node_label),
+                                "tooltip": node.get("title", node.get("description", str(node_label))),
+                                "properties": {k: str(v) if v is not None else None for k, v in node.items()},
+                            })
 
-                # Query edges — scoped to engagement if available
-                edges = []
-                edge_query = """
-                    MATCH (a)-[r]->(b)
-                    WHERE type(r) IN [
-                        'RUNS_ON', 'AFFECTS', 'EXPLOITS', 'LATERAL_MOVE',
-                        'HARVESTED_FROM', 'EVIDENCED_BY', 'BELONGS_TO',
-                        'HAS_SERVICE', 'HAS_VULN', 'CONFIRMED_BY', 'EXPLOITED_BY',
-                        'VERIFIED_BY', 'YIELDED', 'LEADS_TO', 'STARTS_AT', 'HAS_URL',
-                        'FOUND_ON'
-                    ]
-                """
-                if eid:
-                    edge_query += """
-                    AND (a.engagement_id = $eid OR b.engagement_id = $eid
-                         OR a.engagement_id IS NULL OR b.engagement_id IS NULL)
+                    # Query edges — scoped to engagement if available
+                    edges = []
+                    edge_query = """
+                        MATCH (a)-[r]->(b)
+                        WHERE type(r) IN [
+                            'RUNS_ON', 'AFFECTS', 'EXPLOITS', 'LATERAL_MOVE',
+                            'HARVESTED_FROM', 'EVIDENCED_BY', 'BELONGS_TO',
+                            'HAS_SERVICE', 'HAS_VULN', 'CONFIRMED_BY', 'EXPLOITED_BY',
+                            'VERIFIED_BY', 'YIELDED', 'LEADS_TO', 'STARTS_AT', 'HAS_URL',
+                            'FOUND_ON'
+                        ]
                     """
-                edge_query += """
-                    RETURN
-                        coalesce(a.id, a.ip, a.name) AS from_id,
-                        coalesce(b.id, b.ip, b.name) AS to_id,
-                        type(r) AS rel_type,
-                        labels(a) AS from_labels,
-                        a.port AS from_port,
-                        labels(b) AS to_labels,
-                        b.port AS to_port
-                    LIMIT 500
-                """
-                result = session.run(edge_query, eid=eid) if eid else session.run(edge_query)
-                for record in result:
-                    from_id = str(record["from_id"])
-                    to_id = str(record["to_id"])
-                    # Service edges need port-qualified IDs to match nodes
-                    if "Service" in (record["from_labels"] or []) and record["from_port"]:
-                        from_id = f"{from_id}:{record['from_port']}"
-                    if "Service" in (record["to_labels"] or []) and record["to_port"]:
-                        to_id = f"{to_id}:{record['to_port']}"
-                    edges.append({
-                        "from": from_id,
-                        "to": to_id,
-                        "type": record["rel_type"],
-                        "label": record["rel_type"],
-                    })
-
-                # If we have findings but no Host/Service nodes (AI mode), synthesize graph from in-memory
-                host_count = sum(1 for n in nodes if n["type"] == "host")
-                finding_count = sum(1 for n in nodes if n["type"] == "finding")
-                if finding_count > 0 and host_count == 0:
-                    nodes, edges = _synthesize_graph_from_findings(nodes, edges)
-
-                # Post-process: auto-connect orphaned findings/vulns to hosts
-                nodes, edges = _connect_orphaned_nodes(nodes, edges)
-
-                # Compute attack paths from EXPLOITS edges
-                attack_paths_computed = []
-                try:
-                    ap_result = session.run("""
-                        MATCH (f:Finding)-[:EXPLOITS]->(target)
-                        WHERE f.engagement_id = $eid
-                        OPTIONAL MATCH (f)-[:FOUND_ON|AFFECTS]->(entry)
-                        OPTIONAL MATCH (entry)<-[:HAS_SERVICE]-(entry_host:Host)
-                        RETURN f.id AS fid, f.title AS title, f.severity AS severity,
-                               coalesce(entry_host.ip, f.target, '') AS entry,
-                               coalesce(target.ip, target.name, '') AS pivot,
-                               labels(target) AS target_labels
-                        LIMIT 50
-                    """, eid=eid)
-                    for r in ap_result:
-                        attack_paths_computed.append({
-                            "finding_id": r["fid"],
-                            "title": r["title"],
-                            "severity": r["severity"],
-                            "entry": r["entry"],
-                            "pivot": r["pivot"],
-                            "target_type": (r["target_labels"] or ["Unknown"])[0],
+                    if eid:
+                        edge_query += """
+                        AND (a.engagement_id = $eid OR b.engagement_id = $eid
+                             OR a.engagement_id IS NULL OR b.engagement_id IS NULL)
+                        """
+                    edge_query += """
+                        RETURN
+                            coalesce(a.id, a.ip, a.name) AS from_id,
+                            coalesce(b.id, b.ip, b.name) AS to_id,
+                            type(r) AS rel_type,
+                            labels(a) AS from_labels,
+                            a.port AS from_port,
+                            labels(b) AS to_labels,
+                            b.port AS to_port
+                        LIMIT 500
+                    """
+                    result = session.run(edge_query, eid=eid) if eid else session.run(edge_query)
+                    for record in result:
+                        from_id = str(record["from_id"])
+                        to_id = str(record["to_id"])
+                        # Service edges need port-qualified IDs to match nodes
+                        if "Service" in (record["from_labels"] or []) and record["from_port"]:
+                            from_id = f"{from_id}:{record['from_port']}"
+                        if "Service" in (record["to_labels"] or []) and record["to_port"]:
+                            to_id = f"{to_id}:{record['to_port']}"
+                        edges.append({
+                            "from": from_id,
+                            "to": to_id,
+                            "type": record["rel_type"],
+                            "label": record["rel_type"],
                         })
-                except Exception as _ap_err:
-                    logger.warning("Attack path query error: %s", _ap_err)
 
-                return {"nodes": nodes, "edges": edges, "attack_paths": attack_paths_computed, "source": "neo4j"}
+                    # Compute attack paths from EXPLOITS edges
+                    attack_paths_computed = []
+                    try:
+                        ap_result = session.run("""
+                            MATCH (f:Finding)-[:EXPLOITS]->(target)
+                            WHERE f.engagement_id = $eid
+                            OPTIONAL MATCH (f)-[:FOUND_ON|AFFECTS]->(entry)
+                            OPTIONAL MATCH (entry)<-[:HAS_SERVICE]-(entry_host:Host)
+                            RETURN f.id AS fid, f.title AS title, f.severity AS severity,
+                                   coalesce(entry_host.ip, f.target, '') AS entry,
+                                   coalesce(target.ip, target.name, '') AS pivot,
+                                   labels(target) AS target_labels
+                            LIMIT 50
+                        """, eid=eid)
+                        for r in ap_result:
+                            attack_paths_computed.append({
+                                "finding_id": r["fid"],
+                                "title": r["title"],
+                                "severity": r["severity"],
+                                "entry": r["entry"],
+                                "pivot": r["pivot"],
+                                "target_type": (r["target_labels"] or ["Unknown"])[0],
+                            })
+                    except Exception as _ap_err:
+                        logger.warning("Attack path query error: %s", _ap_err)
+
+                    return nodes, edges, attack_paths_computed
+            nodes, edges, attack_paths_computed = await neo4j_exec(_query)
+
+            # If we have findings but no Host/Service nodes (AI mode), synthesize graph from in-memory
+            host_count = sum(1 for n in nodes if n["type"] == "host")
+            finding_count = sum(1 for n in nodes if n["type"] == "finding")
+            if finding_count > 0 and host_count == 0:
+                nodes, edges = _synthesize_graph_from_findings(nodes, edges)
+
+            # Post-process: auto-connect orphaned findings/vulns to hosts
+            nodes, edges = _connect_orphaned_nodes(nodes, edges)
+
+            return {"nodes": nodes, "edges": edges, "attack_paths": attack_paths_computed, "source": "neo4j"}
         except Exception as e:
             print(f"Neo4j attack graph query error: {e}")
 

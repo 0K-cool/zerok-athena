@@ -9323,7 +9323,9 @@
       // Refresh all widgets when engagement completes
       if (msg.phase === 'COMPLETE') {
         _completedPhases.clear();
-        updateScanCoverage(100);
+        computeActualCoverage(currentEngagementId).then(function(pct) {
+          updateScanCoverage(pct !== null ? pct : 100);
+        });
         if (typeof refreshAttackGraphLive === 'function') refreshAttackGraphLive();
         refreshFindingsFromApi();
         // Refresh all KPI widgets (exploit gauge, MTTE, services, credentials, bubble chart)
@@ -9333,6 +9335,17 @@
         if (pulse) { pulse.classList.remove('active', 'connected', 'disconnected'); pulse.classList.add('completed'); }
         addNotification('Engagement completed successfully', 'success');
       }
+    }
+
+    async function computeActualCoverage(eid) {
+      if (!eid) return null;
+      try {
+        var r = await fetch('/api/scans?engagement=' + encodeURIComponent(eid));
+        var scans = await r.json();
+        if (!Array.isArray(scans) || scans.length === 0) return null;
+        var completed = scans.filter(function(s) { return s.status === 'completed'; }).length;
+        return Math.round((completed / scans.length) * 100);
+      } catch (e) { return null; }
     }
 
     let _lastScanCoveragePct = -1;  // BUG-014: Track last value to prevent flicker
@@ -9388,7 +9401,7 @@
         var eu = exploitedUnverified || 0;
         var c = confirmed || 0;
         var t = total || 0;
-        subEl.textContent = c + ' confirmed + ' + eu + ' unverified / ' + (c + eu);
+        subEl.textContent = c + ' confirmed + ' + eu + ' unverified / ' + t;
       }
     }
 
@@ -9410,7 +9423,11 @@
         }
         // Update KPI
         const kpiFindings = document.getElementById('kpi-findings');
-        if (kpiFindings) kpiFindings.textContent = findings.length;
+        if (kpiFindings) {
+          var newCount = findings.length;
+          var curCount = parseInt(kpiFindings.textContent) || 0;
+          if (newCount >= curCount) kpiFindings.textContent = newCount;
+        }
         // Update donut total
         const donutTotal = document.getElementById('donut-total');
         if (donutTotal) donutTotal.textContent = findings.length;
@@ -10045,8 +10062,17 @@
       } else if (cat.includes('information') || sev === 'info' || sev === 'low') {
         tag = 'INFO'; tagColor = 'var(--zerok-info)';
       }
-      // Timestamp
-      const ts = f.timestamp ? new Date(f.timestamp * 1000) : new Date();
+      // Timestamp — guard against Neo4j DateTime objects returned as non-numbers
+      var ts;
+      if (!f.timestamp) {
+        ts = new Date();
+      } else if (typeof f.timestamp === 'number') {
+        ts = new Date(f.timestamp * 1000);
+      } else if (typeof f.timestamp === 'string') {
+        ts = new Date(f.timestamp);
+      } else {
+        ts = new Date();
+      }
       const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
       const entry = document.createElement('div');
@@ -10736,7 +10762,12 @@
           const sevClass = (f.severity || 'medium').toLowerCase();
           const cvss = f.cvss !== null && f.cvss !== undefined ? f.cvss.toFixed(1) : '—';
           const agent = f.agent || '—';
-          const ts = f.timestamp ? new Date(f.timestamp * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+          var _fts;
+          if (!f.timestamp) { _fts = null; }
+          else if (typeof f.timestamp === 'number') { _fts = new Date(f.timestamp * 1000); }
+          else if (typeof f.timestamp === 'string') { _fts = new Date(f.timestamp); }
+          else { _fts = null; }
+          const ts = _fts ? _fts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
           return '<tr>' +
             '<td><span class="finding-severity-badge ' + sevClass + '">' + sevClass.toUpperCase() + '</span></td>' +
             '<td style="font-weight:500;">' + escHtml(f.title || '') + '</td>' +
@@ -11554,7 +11585,7 @@
       }, 1000);
     }
 
-    function resetEngagementClock() {
+    function resetEngagementClock(forceClear) {
       if (_clockInterval) {
         clearInterval(_clockInterval);
         _clockInterval = null;
@@ -11563,9 +11594,12 @@
       _clockPausedElapsed = null;
       var clockEl = document.getElementById('engagementClock');
       if (clockEl) {
-        clockEl.textContent = '';
-        clockEl.className = 'engagement-clock';
-        clockEl.style.opacity = '';
+        // Preserve completed clock display unless force-clearing (engagement switch)
+        if (forceClear || !clockEl.classList.contains('completed')) {
+          clockEl.textContent = '';
+          clockEl.className = 'engagement-clock';
+          clockEl.style.opacity = '';
+        }
       }
     }
 
@@ -12057,7 +12091,7 @@
       if (empty && timeline) { empty.style.display = ''; timeline.appendChild(empty); }
 
       // ── Reset engagement controls ──
-      resetEngagementClock();
+      resetEngagementClock(true);  // Force-clear on engagement switch
       setCtrlState('idle');
     }
 
@@ -12191,10 +12225,12 @@
         // If SSE has already shown findings but API returns 0, skip the overwrite.
         const kpiFindingsEl = document.getElementById('kpi-findings');
         const currentKpiCount = parseInt(kpiFindingsEl?.textContent || '0', 10);
+        let skipFindingsRender = false;
         if (findings.length === 0 && currentKpiCount > 0) {
-          // API returned empty but SSE already populated — preserve SSE data
-          return;
+          // API returned empty but SSE already populated — preserve SSE data, skip findings-specific updates
+          skipFindingsRender = true;
         }
+        if (!skipFindingsRender) {
         if (kpiFindingsEl) kpiFindingsEl.textContent = findings.length;
         const donutTotalEl = document.getElementById('donut-total');
         if (donutTotalEl && findings.length > 0) donutTotalEl.textContent = findings.length;
@@ -12308,6 +12344,7 @@
           findingsBadge.textContent = findings.length;
           findingsBadge.style.display = '';
         }
+        } // end if (!skipFindingsRender)
 
       } catch (e) {
         console.error('Failed to load dashboard data from API:', e);
@@ -12351,7 +12388,9 @@
           const engs = engData.engagements || engData;
           const eng = engs.find(e => e.id === currentEngagementId);
           if (eng && (eng.status === 'completed' || eng.status === 'complete')) {
-            updateScanCoverage(100);
+            computeActualCoverage(currentEngagementId).then(function(pct) {
+              updateScanCoverage(pct !== null ? pct : 100);
+            });
           } else if (eng && eng.status === 'active') {
             // Estimate coverage from scans, findings, and reports
             const scansRes2 = await fetch(`/api/scans?engagement=${currentEngagementId}`);
@@ -12416,7 +12455,11 @@
         window._exploitGaugeTotals.discovered = Math.max(window._exploitGaugeTotals.discovered, es.discovered_vulns || 0);
         window._exploitGaugeTotals.confirmed = Math.max(window._exploitGaugeTotals.confirmed, es.confirmed_exploits || 0);
         // Update Exploit Gauge SVG arc (BUG-029: pass exploited_unverified)
-        updateExploitGauge(es.success_rate, es.confirmed_exploits, es.discovered_vulns, es.exploited_unverified || 0);
+        // BUG-LATE-001: Derive rate client-side — don't trust es.success_rate (stale server calc)
+        var derivedRate = es.discovered_vulns > 0
+          ? Math.round((es.confirmed_exploits / es.discovered_vulns) * 100)
+          : 0;
+        updateExploitGauge(derivedRate, es.confirmed_exploits, es.discovered_vulns, es.exploited_unverified || 0);
         // Set Confirmed Exploits KPI from authoritative server count
         const kpiExploitsEl = document.getElementById('kpi-criticals');
         // Don't decrease Confirmed Exploits during active engagement (prevent flicker)
@@ -12555,7 +12598,9 @@
         if (_loadedFindingsCount > 0) {
           if (completedCount > 0 && runningCount === 0 && _currentCtrlState !== 'idle') {
             // All done and findings exist — engagement complete
-            updateScanCoverage(100);
+            computeActualCoverage(currentEngagementId).then(function(pct) {
+              updateScanCoverage(pct !== null ? pct : 100);
+            });
             const badge = document.getElementById('phaseBadge');
             const badgeRow = document.getElementById('phaseBadgeRow');
             if (badge) {
@@ -12777,9 +12822,11 @@
               badge.textContent = lastPhase;
               badge.className = 'phase-badge' + (lastPhase === 'COMPLETE' ? ' complete' : '');
               if (badgeRow) badgeRow.style.display = '';
-              // If engagement completed, show 100% scan coverage (only if findings exist)
+              // If engagement completed, show actual scan coverage (only if findings exist)
               if (lastPhase === 'COMPLETE' && _loadedFindingsCount > 0) {
-                updateScanCoverage(100);
+                computeActualCoverage(currentEngagementId).then(function(pct) {
+                  updateScanCoverage(pct !== null ? pct : 100);
+                });
               } else if (_loadedFindingsCount > 0) {
                 updateScanCoverage();
               }
@@ -13023,6 +13070,22 @@
         }
         // Load attack chains for this engagement
         loadAttackChains(eid);
+
+        // Restore engagement clock from persisted timestamps
+        if (summary.completed_at && summary.started_at) {
+          // Completed engagement — show static final elapsed time
+          var elapsedSec = Math.floor(summary.completed_at - summary.started_at);
+          if (elapsedSec > 0) {
+            var clockEl = document.getElementById('engagementClock');
+            if (clockEl) {
+              clockEl.textContent = formatClockTime(elapsedSec);
+              clockEl.className = 'engagement-clock completed';
+            }
+          }
+        } else if (summary.started_at && !summary.completed_at) {
+          // Active engagement — restore live clock
+          restoreEngagementClock(summary.started_at);
+        }
       } catch (e) {
         console.error('Failed to load engagement summary:', e);
       }
