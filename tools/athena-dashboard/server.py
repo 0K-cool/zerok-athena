@@ -9805,53 +9805,84 @@ async def find_similar_cases(service: str, version: str = ""):
 
 @app.get("/api/knowledge/search")
 async def search_knowledge_base(q: str, top_k: int = 5, agent: str = ""):
-    """RAG Knowledge Base search via mcp-proxy sidecar.
+    """RAG Knowledge Base search via mcp-proxy sidecar (Streamable HTTP).
 
     Calls the vex-rag MCP server through mcp-proxy HTTP bridge (port 8765).
+    Uses MCP Streamable HTTP transport (JSON-RPC over POST /mcp).
     This avoids the Rust tokenizer SIGABRT on fork — mcp-proxy runs vex-rag
     as a separate process, not a forked child of uvicorn.
     """
     import httpx
+    import json as _json
 
     MCP_PROXY_URL = "http://127.0.0.1:8765"
+    HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Step 1: Initialize SSE session to get session endpoint
-            init_resp = await client.get(f"{MCP_PROXY_URL}/sse")
+            # Step 1: Initialize MCP session
+            init_resp = await client.post(
+                f"{MCP_PROXY_URL}/mcp",
+                json={
+                    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {"name": "athena-dashboard", "version": "1.0"}
+                    }
+                },
+                headers=HEADERS,
+            )
             if init_resp.status_code != 200:
-                raise Exception(f"mcp-proxy SSE init failed: {init_resp.status_code}")
+                raise Exception(f"MCP init failed: {init_resp.status_code}")
 
-            # Step 2: Call search_kb tool via MCP JSON-RPC over HTTP
-            rpc_payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {
-                    "name": "search_kb",
-                    "arguments": {"query": q, "top_k": top_k}
-                }
-            }
+            # Extract session ID from response header
+            session_id = init_resp.headers.get("mcp-session-id", "")
+            if not session_id:
+                raise Exception("No Mcp-Session-Id in init response")
+
+            session_headers = {**HEADERS, "Mcp-Session-Id": session_id}
+
+            # Step 2: Send initialized notification
+            await client.post(
+                f"{MCP_PROXY_URL}/mcp",
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                headers=session_headers,
+            )
+
+            # Step 3: Call search_kb tool
             resp = await client.post(
-                f"{MCP_PROXY_URL}/message",
-                json=rpc_payload,
-                headers={"Content-Type": "application/json"}
+                f"{MCP_PROXY_URL}/mcp",
+                json={
+                    "jsonrpc": "2.0", "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "search_kb",
+                        "arguments": {"query": q, "top_k": top_k}
+                    }
+                },
+                headers=session_headers,
             )
 
             if resp.status_code == 200:
-                data = resp.json()
-                # Extract results from MCP response
+                raw_text = resp.text
+                try:
+                    data = _json.loads(raw_text)
+                except _json.JSONDecodeError:
+                    # Handle control characters in response
+                    import re
+                    cleaned = re.sub(r'[\x00-\x1f\x7f]', ' ', raw_text)
+                    data = _json.loads(cleaned)
+
                 result = data.get("result", {})
                 content = result.get("content", [])
                 if content and isinstance(content, list):
-                    # Parse the text content (vex-rag returns JSON string in text)
-                    import json as _json
                     text_content = content[0].get("text", "{}") if content else "{}"
                     try:
                         parsed = _json.loads(text_content)
                         documents = parsed.get("documents", [])
                     except _json.JSONDecodeError:
-                        documents = [{"content": text_content}]
+                        documents = [{"content": text_content[:500]}]
                     return {
                         "results": documents,
                         "query": q,
@@ -9860,7 +9891,6 @@ async def search_knowledge_base(q: str, top_k: int = 5, agent: str = ""):
                         "source": "mcp-proxy",
                     }
 
-            # Fallback: return empty with status
             return {
                 "results": [],
                 "query": q,

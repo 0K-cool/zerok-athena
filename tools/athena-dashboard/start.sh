@@ -180,8 +180,11 @@ if command -v mcp-proxy &>/dev/null && [ -f "$VEX_RAG_MODULE" ]; then
     # Check if already running
     RAG_RUNNING=$(lsof -ti:$RAG_PROXY_PORT 2>/dev/null)
     if [ -z "$RAG_RUNNING" ]; then
-        RAG_CONFIG="$RAG_CONFIG" mcp-proxy \
+        ATHENA_ROOT="$(cd "$DIR/../.." && pwd)"
+        mcp-proxy \
             --port $RAG_PROXY_PORT --host 127.0.0.1 \
+            --transport streamablehttp \
+            --cwd "$ATHENA_ROOT" \
             -e RAG_CONFIG "$RAG_CONFIG" \
             -e PYTHONPATH "/Users/kelvinlomboy/tools/vex-rag" \
             -- "$VEX_RAG_SERVER" "$VEX_RAG_MODULE" &>/dev/null &
