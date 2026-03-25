@@ -703,6 +703,16 @@ async def lifespan(app: FastAPI):
                     session.run("CREATE INDEX fp_record_key IF NOT EXISTS FOR (fp:FalsePositiveRecord) ON (fp.key)")
             await neo4j_exec(_create_cei_indexes)
             print("  Neo4j Index: technique_key, fp_record_key ✓")
+            # CVE Registry: index + uniqueness constraint for ConfirmedCVE nodes
+            def _create_cve_registry_indexes():
+                with neo4j_driver.session() as session:
+                    session.run("CREATE INDEX confirmed_cve_engagement IF NOT EXISTS FOR (c:ConfirmedCVE) ON (c.engagement_id)")
+                    try:
+                        session.run("CREATE CONSTRAINT confirmed_cve_unique IF NOT EXISTS FOR (c:ConfirmedCVE) REQUIRE (c.cve, c.engagement_id, c.host) IS UNIQUE")
+                    except Exception:
+                        pass  # Constraint may conflict on older Neo4j versions
+            await neo4j_exec(_create_cve_registry_indexes)
+            print("  Neo4j Index/Constraint: confirmed_cve_engagement, confirmed_cve_unique ✓")
             # Backfill EXPLOITS edges for confirmed findings missing them
             def _backfill_exploits():
                 with neo4j_driver.session() as session:
@@ -12480,3 +12490,108 @@ async def health():
         "tools_registered": len(kali_client.list_tools()),
         "timestamp": time.time(),
     }
+
+
+# ============================================================================
+# CVE Registry — Shared Confirmed CVE Tracking (Phase 1)
+# Eliminates duplicate agent work by tracking CVE verification status.
+# Agents check this registry BEFORE working on any CVE.
+# ============================================================================
+
+@app.get("/api/engagements/{eid}/confirmed-cves")
+async def get_confirmed_cves(eid: str):
+    """Return all tracked CVEs for this engagement with their verification status."""
+    if not neo4j_available or not neo4j_driver:
+        return []
+    try:
+        def _query():
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (c:ConfirmedCVE {engagement_id: $eid})
+                    RETURN c.cve AS cve, c.status AS status, c.host AS host,
+                           c.exploited_by AS exploited_by, c.verified_by AS verified_by,
+                           c.exploit_method AS exploit_method, c.verification_method AS verification_method,
+                           c.exploited_at AS exploited_at, c.verified_at AS verified_at,
+                           c.reason AS reason
+                    ORDER BY c.exploited_at ASC
+                """, eid=eid)
+                return [dict(record) for record in result]
+        records = await neo4j_exec(_query)
+        return records
+    except Exception as e:
+        print(f"CVE Registry GET error: {e}")
+        return []
+
+
+@app.post("/api/engagements/{eid}/confirmed-cves")
+async def update_confirmed_cve(eid: str, request: Request):
+    """Update CVE verification status. Agents call this after exploiting/verifying."""
+    payload = await request.json()
+    cve = payload.get("cve", "").strip()
+    status = payload.get("status", "")
+    agent = payload.get("agent", "")
+    host = payload.get("host", "")
+    method = payload.get("method", "")
+    reason = payload.get("reason", "")
+    evidence = payload.get("evidence", "")
+
+    if not cve or not status:
+        return JSONResponse({"error": "cve and status required"}, status_code=400)
+
+    valid_statuses = ("discovered", "exploited", "vf_verifying", "verified",
+                      "vf_failed", "escalated", "secondary_confirmed", "confirmed", "unverified")
+    if status not in valid_statuses:
+        return JSONResponse({"error": f"Invalid status. Valid: {valid_statuses}"}, status_code=400)
+
+    if not neo4j_available or not neo4j_driver:
+        return JSONResponse({"error": "Neo4j not available"}, status_code=503)
+
+    try:
+        import time as _time
+        now = _time.time()
+
+        def _update():
+            with neo4j_driver.session() as session:
+                # MERGE on cve + engagement_id + host — creates or updates
+                session.run("""
+                    MERGE (c:ConfirmedCVE {cve: $cve, engagement_id: $eid, host: $host})
+                    ON CREATE SET
+                        c.status = $status,
+                        c.created_at = $now,
+                        c.exploited_by = CASE WHEN $status = 'exploited' THEN $agent ELSE null END,
+                        c.exploited_at = CASE WHEN $status = 'exploited' THEN $now ELSE null END,
+                        c.exploit_method = CASE WHEN $status = 'exploited' THEN $method ELSE null END,
+                        c.verified_by = CASE WHEN $status IN ['verified', 'confirmed'] THEN $agent ELSE null END,
+                        c.verified_at = CASE WHEN $status IN ['verified', 'confirmed'] THEN $now ELSE null END,
+                        c.verification_method = CASE WHEN $status IN ['verified', 'confirmed'] THEN $method ELSE null END,
+                        c.reason = $reason,
+                        c.evidence = $evidence
+                    ON MATCH SET
+                        c.status = $status,
+                        c.updated_at = $now,
+                        c.exploited_by = CASE WHEN $status = 'exploited' THEN $agent ELSE c.exploited_by END,
+                        c.exploited_at = CASE WHEN $status = 'exploited' THEN $now ELSE c.exploited_at END,
+                        c.exploit_method = CASE WHEN $status = 'exploited' THEN $method ELSE c.exploit_method END,
+                        c.verified_by = CASE WHEN $status IN ['verified', 'confirmed'] THEN $agent ELSE c.verified_by END,
+                        c.verified_at = CASE WHEN $status IN ['verified', 'confirmed'] THEN $now ELSE c.verified_at END,
+                        c.verification_method = CASE WHEN $status IN ['verified', 'confirmed'] THEN $method ELSE c.verification_method END,
+                        c.reason = CASE WHEN $reason <> '' THEN $reason ELSE c.reason END,
+                        c.evidence = CASE WHEN $evidence <> '' THEN $evidence ELSE c.evidence END
+                """, cve=cve, eid=eid, host=host, status=status, agent=agent,
+                     method=method, now=now, reason=reason, evidence=evidence)
+                return True
+        await neo4j_exec(_update)
+
+        # Broadcast status change via WebSocket so dashboard can update
+        await state.broadcast({
+            "type": "system",
+            "agent": agent or "SYSTEM",
+            "content": f"CVE Registry: {cve} → {status}" + (f" by {agent}" if agent else ""),
+            "timestamp": now,
+            "metadata": {"control": "cve_status_update", "cve": cve, "status": status}
+        })
+
+        return {"ok": True, "cve": cve, "status": status}
+    except Exception as e:
+        print(f"CVE Registry POST error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)

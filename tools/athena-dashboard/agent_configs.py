@@ -1477,6 +1477,90 @@ _DA_PROMPT = _DA_PROMPT + _KNOWLEDGE_BASE_PROMPT
 _PX_PROMPT = _PX_PROMPT + _KNOWLEDGE_BASE_PROMPT
 _RP_PROMPT = _RP_PROMPT + _KNOWLEDGE_BASE_PROMPT
 
+# ── CVE Registry — Dedup Protocol (Phase 1+2) ────────────────────────────────
+# Base check block — appended to ALL agents
+_CVE_DEDUP_BASE = """
+
+CVE DEDUP PROTOCOL — CHECK BEFORE WORKING:
+  Before analyzing, exploiting, or verifying any CVE:
+  GET {dashboard_url}/api/engagements/{eid}/confirmed-cves
+
+  Decision matrix:
+  - Status "verified" or "confirmed" → SKIP this CVE entirely. Move to next target.
+  - Status "exploited" AND you are VF → VERIFY it (your mandatory job).
+  - Status "exploited" AND you are NOT VF → SKIP. Wait for VF.
+  - Status "discovered" AND you are EX → EXPLOIT it.
+  - Status "vf_failed" AND you received escalation → ATTEMPT confirmation.
+  - Status not found → You're the first. Proceed normally.
+"""
+
+# EX-specific: register exploit confirmation
+_CVE_DEDUP_EX = """
+AFTER CONFIRMING EXPLOIT:
+  POST {dashboard_url}/api/engagements/{eid}/confirmed-cves
+  Body: {{"cve": "<CVE-ID>", "status": "exploited", "agent": "EX",
+         "host": "<target_ip>", "method": "<exploit module/technique>",
+         "evidence": "<brief proof — uid=0, shell obtained, etc.>"}}
+"""
+
+# VF-specific: register verification result + escalation path
+_CVE_DEDUP_VF = """
+AFTER VERIFICATION ATTEMPT:
+  If PASS:
+    POST {dashboard_url}/api/engagements/{eid}/confirmed-cves
+    Body: {{"cve": "<CVE-ID>", "status": "verified", "agent": "VF",
+           "method": "<your independent method>"}}
+  If FAIL:
+    POST {dashboard_url}/api/engagements/{eid}/confirmed-cves
+    Body: {{"cve": "<CVE-ID>", "status": "vf_failed", "agent": "VF",
+           "reason": "<why it failed>"}}
+    THEN escalate to other agents:
+    POST {dashboard_url}/api/messages
+    Body: {{"from_agent": "VF", "to_agent": "DA,PE,AR", "msg_type": "escalation",
+           "content": "Cannot verify <CVE-ID> on <host>. EX used <method>. Can anyone confirm?"}}
+"""
+
+# DA/PE-specific: handle VF escalations + register DA discoveries
+_CVE_DEDUP_DA_PE = """
+ON VERIFICATION ESCALATION FROM VF:
+  If you receive an escalation asking to confirm a CVE:
+  Attempt confirmation using YOUR tools/methods.
+  If confirmed:
+    POST {dashboard_url}/api/engagements/{eid}/confirmed-cves
+    Body: {{"cve": "<CVE-ID>", "status": "secondary_confirmed", "agent": "<your code>",
+           "method": "<your method>"}}
+  If cannot confirm:
+    POST {dashboard_url}/api/messages
+    Body: {{"from_agent": "<your code>", "to_agent": "VF", "msg_type": "escalation_response",
+           "content": "Cannot confirm <CVE-ID> either. Tried: <methods>"}}
+"""
+
+# DA-specific: register newly discovered CVEs
+_CVE_DEDUP_DA_DISCOVER = """
+AFTER CVE RESEARCH — REGISTER DISCOVERIES:
+  POST {dashboard_url}/api/engagements/{eid}/confirmed-cves
+  Body: {{"cve": "<CVE-ID>", "status": "discovered", "agent": "DA",
+         "host": "<target_ip>", "method": "CVE research: <source>"}}
+"""
+
+# Apply base CVE dedup block to all agents
+_ST_PROMPT = _ST_PROMPT + _CVE_DEDUP_BASE
+_AR_PROMPT = _AR_PROMPT + _CVE_DEDUP_BASE
+_WV_PROMPT = _WV_PROMPT + _CVE_DEDUP_BASE
+_PR_PROMPT = _PR_PROMPT + _CVE_DEDUP_BASE
+_PE_PROMPT = _PE_PROMPT + _CVE_DEDUP_BASE
+_VF_PROMPT = _VF_PROMPT + _CVE_DEDUP_BASE
+_DA_PROMPT = _DA_PROMPT + _CVE_DEDUP_BASE
+_PX_PROMPT = _PX_PROMPT + _CVE_DEDUP_BASE
+_RP_PROMPT = _RP_PROMPT + _CVE_DEDUP_BASE
+_EX_PROMPT = _EX_PROMPT + _CVE_DEDUP_BASE
+
+# Apply role-specific CVE instructions
+_EX_PROMPT = _EX_PROMPT + _CVE_DEDUP_EX
+_VF_PROMPT = _VF_PROMPT + _CVE_DEDUP_VF
+_DA_PROMPT = _DA_PROMPT + _CVE_DEDUP_DA_PE + _CVE_DEDUP_DA_DISCOVER
+_PE_PROMPT = _PE_PROMPT + _CVE_DEDUP_DA_PE
+
 # ──────────────────────────────────────────────
 # Command Router prompt (CR) — infrastructure agent, not a pentest agent
 # ──────────────────────────────────────────────
