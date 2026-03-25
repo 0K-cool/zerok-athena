@@ -670,6 +670,18 @@
       color: var(--zerok-text-dim);
     }
 
+    /* Engagement Cost Badge (header bar, next to clock) */
+    .engagement-cost-badge {
+      display: inline-block;
+      font-family: var(--zerok-font-mono);
+      font-size: 13px;
+      color: var(--zerok-purple, #a855f7);
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: color-mix(in srgb, var(--zerok-purple, #a855f7) 10%, transparent);
+      white-space: nowrap;
+    }
+
     /* Internet Outage Banner */
     .network-banner {
       background: linear-gradient(90deg, rgba(234, 179, 8, 0.15), rgba(234, 179, 8, 0.08));
@@ -6172,6 +6184,7 @@
             <span>Pentest Running</span>
           </span>
           <span class="engagement-clock" id="engagementClock"></span>
+          <span class="engagement-cost-badge" id="kpi-cost" title="Total AI API cost (LLM tokens + tool calls)">$0.00</span>
           <button class="icon-btn" id="searchBtn" title="Search">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="8" cy="8" r="5"/>
@@ -6290,15 +6303,7 @@
               <span class="stat-value" id="kpi-mtte" style="color: var(--zerok-info);">—</span>
             </div>
           </div>
-          <!-- F5: Engagement Cost KPI Card -->
-          <div class="stat-card" title="Total AI API cost (LLM tokens + tool calls)">
-            <div class="stat-header">
-              <span class="stat-label">AI Cost</span>
-            </div>
-            <div class="stat-value-row">
-              <span class="stat-value" id="kpi-cost" style="color: var(--zerok-purple, #a855f7);">$0.00</span>
-            </div>
-          </div>
+          <!-- AI Cost moved to header bar (next to clock badge) -->
         </div>
 
         <!-- Strategy Bar (Phase F) — full-width, hidden by default -->
