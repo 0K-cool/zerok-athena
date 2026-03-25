@@ -166,15 +166,29 @@ def create_credential(username: str, engagement_id: str,
 
 @mcp.tool()
 def create_finding(title: str, severity: str, engagement_id: str,
+                   agent: str = "", category: str = "",
                    description: str = "", cvss: float = 0.0,
                    remediation: str = "", references: str = "",
-                   affected_hosts: str = "") -> str:
-    """Create a confirmed finding for the report."""
+                   affected_hosts: str = "", evidence: str = "") -> str:
+    """Create a confirmed finding for the report. Always pass agent (e.g. 'EX', 'DA', 'VF') and category."""
     fid = f"find-{uuid.uuid4().hex[:8]}"
+    if not agent:
+        _tl = title.lower()
+        if any(kw in _tl for kw in ('exploit', 'shell', 'rce', 'backdoor', 'root', 'command execution')):
+            agent = "EX"
+        elif any(kw in _tl for kw in ('open port', 'scan', 'discovered', 'fingerprint')):
+            agent = "AR"
+        elif any(kw in _tl for kw in ('cve', 'cvss', 'debrief', 'hypothesis', 'analysis')):
+            agent = "DA"
+        else:
+            agent = "EX"
+    import time as _time
     run_query("""
         CREATE (f:Finding {
             id: $fid, title: $title, severity: $sev, description: $desc,
             cvss: $cvss, remediation: $rem, references: $refs,
+            agent: $agent, category: $cat, evidence: $evidence,
+            discovery_source: 'mcp', timestamp: $ts,
             status: 'confirmed', engagement_id: $eid, created_at: datetime()
         })
         WITH f
@@ -182,7 +196,9 @@ def create_finding(title: str, severity: str, engagement_id: str,
         MERGE (e)-[:CONTAINS]->(f)
         RETURN f
     """, {"fid": fid, "title": title, "sev": severity, "desc": description,
-          "cvss": cvss, "rem": remediation, "refs": references, "eid": engagement_id})
+          "cvss": cvss, "rem": remediation, "refs": references,
+          "agent": agent, "cat": category or "uncategorized",
+          "evidence": evidence, "ts": _time.time(), "eid": engagement_id})
     if affected_hosts:
         for hip in affected_hosts.split(","):
             run_query("""
