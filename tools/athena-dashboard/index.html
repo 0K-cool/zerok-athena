@@ -10184,9 +10184,16 @@
     // ── Credential Tracker Update ──
     function updateCredentialTracker(data) {
       const el = (id) => document.getElementById(id);
-      if (el('cred-harvested')) el('cred-harvested').textContent = data.total || 0;
-      if (el('cred-weak')) el('cred-weak').textContent = data.default_weak || 0;
-      if (el('cred-unique')) el('cred-unique').textContent = data.unique_accounts || 0;
+      const maxSet = function(id, newVal) {
+        var e = el(id);
+        if (!e) return;
+        var cur = parseInt(e.textContent) || 0;
+        var nv = parseInt(newVal) || 0;
+        if (nv >= cur) e.textContent = nv;
+      };
+      maxSet('cred-harvested', data.total || 0);
+      maxSet('cred-weak', data.default_weak || 0);
+      maxSet('cred-unique', data.unique_accounts || 0);
     }
 
     // ── Credential Detail Modal ──
@@ -12231,7 +12238,11 @@
           skipFindingsRender = true;
         }
         if (!skipFindingsRender) {
-        if (kpiFindingsEl) kpiFindingsEl.textContent = findings.length;
+        if (kpiFindingsEl) {
+          var newVal = findings.length;
+          var curVal = parseInt(kpiFindingsEl.textContent) || 0;
+          if (newVal >= curVal) kpiFindingsEl.textContent = newVal;
+        }
         const donutTotalEl = document.getElementById('donut-total');
         if (donutTotalEl && findings.length > 0) donutTotalEl.textContent = findings.length;
         // BUG-041: Sync drawer findings stat from same API source as KPI card
