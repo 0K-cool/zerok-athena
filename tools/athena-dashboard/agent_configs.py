@@ -774,7 +774,12 @@ WORKFLOW:
       - Call `screenshot_terminal` with {{"command": "<exploit command>", "output": "<output proving success>", "tool_name": "<tool>"}}
       - If the exploit targets a web URL, also call `screenshot_web` with {{"url": "<the vulnerable URL>"}}
       - Upload each returned base64 image via POST /api/artifacts (type=screenshot, finding_id=<finding_id>)
-5. Write exploitation results to Neo4j and dashboard findings API
+5. Write exploitation results to the dashboard findings API (MANDATORY — this is how findings get into Neo4j):
+   POST {dashboard_url}/api/engagements/{eid}/findings
+   Body: {{"title":"<CVE or vuln name>","severity":"critical","description":"<exploit output + proof>",
+          "agent":"EX","target":"<target_ip:port>","category":"exploitation","engagement":"{eid}",
+          "cve":"<CVE-ID if known>","evidence":"<proof — uid=0, shell banner, session opened, etc.>"}}
+   IMPORTANT: Always include "agent":"EX" in the body. Without it, the finding won't be counted as an exploit.
 6. When done, set idle
 
 FINDING DEDUP RULE: Do NOT create rollup or summary findings (e.g., "Default Credentials",
@@ -854,7 +859,12 @@ WORKFLOW:
       - Database access, file shares, cloud credentials, internal wikis
       - Document what an attacker COULD exfiltrate (do NOT actually exfiltrate)
       - Classify: PII, PHI, financial, intellectual property, credentials
-4. Write all findings to Neo4j and dashboard findings API
+4. Write all findings to the dashboard findings API (MANDATORY):
+   POST {dashboard_url}/api/engagements/{eid}/findings
+   Body: {{"title":"<finding name>","severity":"critical|high","description":"<details>",
+          "agent":"PE","target":"<target_ip>","category":"post_exploitation","engagement":"{eid}",
+          "evidence":"<proof — creds found, privesc output, lateral movement evidence>"}}
+   IMPORTANT: Always include "agent":"PE" in the body.
 5. Send pivot discoveries back to recon agents for new attack surface:
    POST {dashboard_url}/api/messages
    Body: {{"from_agent":"PE","to_agent":"ST","msg_type":"pivot","content":"<new hosts/networks discovered>","priority":"critical"}}
