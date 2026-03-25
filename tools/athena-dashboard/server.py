@@ -6348,7 +6348,24 @@ async def get_exploit_stats(eid: str):
                 if record and record["total_findings"] > 0:
                     discovered = record["total_findings"]
                     confirmed = record["exploit_count"]
+                    # CVE-level dedup: same CVE on same host = 1 confirmed exploit
+                    import re as _re_dedup
+                    seen_cve_keys = set()
+                    deduped_confirmed = 0
+                    deduped_details = []
                     for ex in (record["exploit_details"] or []):
+                        title = ex.get("title") or ""
+                        # Extract CVE from title
+                        cve_match = _re_dedup.search(r'CVE-\d{4}-\d+', title, _re_dedup.IGNORECASE)
+                        cve = cve_match.group(0).upper() if cve_match else ""
+                        # Key: CVE if found, else first 40 chars of title (for non-CVE exploits)
+                        key = cve if cve else title[:40].lower().strip()
+                        if key and key not in seen_cve_keys:
+                            seen_cve_keys.add(key)
+                            deduped_confirmed += 1
+                            deduped_details.append(ex)
+                    confirmed = deduped_confirmed
+                    for ex in deduped_details:
                         sev = (ex.get("severity") or "medium").lower()
                         if sev in by_severity:
                             by_severity[sev] += 1
@@ -6369,12 +6386,23 @@ async def get_exploit_stats(eid: str):
     mem_discovered = len(mem_findings_clean)
     mem_confirmed = 0
     mem_by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    import re as _re_dedup_mem
+    seen_mem_cve_keys = set()
     for f in mem_findings_clean:
         sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
         verification = getattr(f, 'verification_status', '') or ''
         is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
         if is_confirmed:
+            # CVE-level dedup for in-memory path
+            title = f.title or ""
+            cve_match = _re_dedup_mem.search(r'CVE-\d{4}-\d+', title, _re_dedup_mem.IGNORECASE)
+            cve = cve_match.group(0).upper() if cve_match else ""
+            mem_key = cve if cve else title[:40].lower().strip()
+            if mem_key and mem_key in seen_mem_cve_keys:
+                continue
+            if mem_key:
+                seen_mem_cve_keys.add(mem_key)
             mem_confirmed += 1
             if sev in mem_by_severity:
                 mem_by_severity[sev] += 1
