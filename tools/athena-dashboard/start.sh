@@ -170,6 +170,39 @@ else
     echo "  Kali:       Not configured"
 fi
 
+# ── RAG Knowledge Base (mcp-proxy sidecar) ──
+RAG_CONFIG="$DIR/../../.vex-rag.yml"
+VEX_RAG_SERVER="/Users/kelvinlomboy/tools/vex-rag/.venv/bin/python3"
+VEX_RAG_MODULE="/Users/kelvinlomboy/tools/vex-rag/mcp_server/vex_kb_server.py"
+RAG_PROXY_PORT=8765
+
+if command -v mcp-proxy &>/dev/null && [ -f "$VEX_RAG_MODULE" ]; then
+    # Check if already running
+    RAG_RUNNING=$(lsof -ti:$RAG_PROXY_PORT 2>/dev/null)
+    if [ -z "$RAG_RUNNING" ]; then
+        RAG_CONFIG="$RAG_CONFIG" mcp-proxy \
+            --port $RAG_PROXY_PORT --host 127.0.0.1 \
+            -e RAG_CONFIG "$RAG_CONFIG" \
+            -e PYTHONPATH "/Users/kelvinlomboy/tools/vex-rag" \
+            -- "$VEX_RAG_SERVER" "$VEX_RAG_MODULE" &>/dev/null &
+        RAG_PID=$!
+        sleep 2
+        if kill -0 $RAG_PID 2>/dev/null; then
+            echo "  RAG KB:     mcp-proxy on :$RAG_PROXY_PORT (PID $RAG_PID) ✓"
+        else
+            echo "  RAG KB:     mcp-proxy failed to start — agents will skip KB searches"
+        fi
+    else
+        echo "  RAG KB:     mcp-proxy already running on :$RAG_PROXY_PORT ✓"
+    fi
+else
+    if ! command -v mcp-proxy &>/dev/null; then
+        echo "  RAG KB:     mcp-proxy not installed — run: pip install mcp-proxy"
+    else
+        echo "  RAG KB:     vex-rag server not found at $VEX_RAG_MODULE"
+    fi
+fi
+
 echo ""
 
 cd "$DIR" && exec "$VENV/bin/uvicorn" $ARGS
