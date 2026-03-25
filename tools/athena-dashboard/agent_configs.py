@@ -1553,6 +1553,58 @@ _VF_PROMPT = _VF_PROMPT + _CVE_DEDUP_BASE
 _DA_PROMPT = _DA_PROMPT + _CVE_DEDUP_BASE
 _PX_PROMPT = _PX_PROMPT + _CVE_DEDUP_BASE
 _RP_PROMPT = _RP_PROMPT + _CVE_DEDUP_BASE
+# ──────────────────────────────────────────────
+# Evidence Screenshot Instructions (appended to EX, VF, PE)
+# ──────────────────────────────────────────────
+
+_SCREENSHOT_EVIDENCE = """
+
+SCREENSHOT EVIDENCE — CAPTURE VISUAL PROOF:
+  Two Kali endpoints are available for screenshot evidence. Use them AFTER confirming exploits.
+
+  1. WEB PAGE SCREENSHOT — for web-facing services (HTTP, HTTPS, admin panels):
+     Use execute_command on kali:
+     curl -s -X POST {kali_url}/api/tools/screenshot \\
+       -H "Content-Type: application/json" \\
+       -d '{{"url": "http://<target>:<port>/<path>", "full_page": true}}'
+     Response: {{"success": true, "image_b64": "<base64 PNG>"}}
+
+     WHEN TO USE:
+     - After exploiting a web app (show the admin panel you accessed)
+     - After finding default credentials (show the authenticated dashboard)
+     - After SQL injection (show the database output page)
+     - phpMyAdmin, Tomcat Manager, DVWA, any web UI accessed via exploit
+     DO NOT screenshot generic landing pages or default Apache/Nginx pages — those are NOT evidence.
+
+  2. TERMINAL SCREENSHOT — for shell output, command results, proof of access:
+     Use execute_command on kali:
+     curl -s -X POST {kali_url}/api/tools/screenshot_terminal \\
+       -H "Content-Type: application/json" \\
+       -d '{{"command": "<the command you ran>", "output": "<the output>", "tool_name": "<tool>"}}'
+     Response: {{"success": true, "image_b64": "<base64 PNG>"}}
+
+     WHEN TO USE:
+     - After getting a root shell (show uid=0 output)
+     - After reading /etc/shadow or /etc/passwd
+     - After credential harvesting (show the creds found)
+     - After Metasploit session opened (show session info)
+     - After privilege escalation (show before/after uid)
+
+  AFTER GETTING SCREENSHOT — upload as artifact:
+     curl -s -X POST {dashboard_url}/api/artifacts \\
+       -H "Content-Type: application/json" \\
+       -d '{{"engagement_id": "{eid}", "type": "screenshot", "caption": "<descriptive title>",
+            "content": "<base64 from screenshot response>", "agent": "<your code>",
+            "finding_id": "<related finding ID if known>", "evidence_type": "<exploitation|verification|post_exploitation>"}}'
+
+  PRIORITY: Take screenshots for HIGH and CRITICAL severity exploits. Skip for LOW/INFO.
+"""
+
+_EX_PROMPT = _EX_PROMPT + _SCREENSHOT_EVIDENCE
+_VF_PROMPT = _VF_PROMPT + _SCREENSHOT_EVIDENCE
+_PE_PROMPT = _PE_PROMPT + _SCREENSHOT_EVIDENCE
+
+# Apply CVE dedup to all agents
 _EX_PROMPT = _EX_PROMPT + _CVE_DEDUP_BASE
 
 # Apply role-specific CVE instructions
