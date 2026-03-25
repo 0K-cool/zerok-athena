@@ -6438,7 +6438,10 @@ async def get_exploit_stats(eid: str):
         except Exception:
             pass
     # BUG-042 fix: Same max-of-both-sources pattern for exploited_unverified
+    # CVE-level dedup applied (same pattern as confirmed)
+    import re as _re_unver
     mem_exploited_unverified = 0
+    seen_unver_cve_keys = set()
     for f in mem_findings_clean:
         agent_val = getattr(f, 'agent', '') or ''
         is_ex = agent_val == 'EX' or (isinstance(agent_val, list) and 'EX' in agent_val)
@@ -6449,7 +6452,13 @@ async def get_exploit_stats(eid: str):
         verification = getattr(f, 'verification_status', '') or ''
         is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
         if has_evidence and not is_confirmed:
-            mem_exploited_unverified += 1
+            # CVE dedup
+            title = getattr(f, 'title', '') or ''
+            cve_match = _re_unver.search(r'CVE-\d{4}-\d+', title, _re_unver.IGNORECASE)
+            key = cve_match.group(0).upper() if cve_match else title[:40].lower().strip()
+            if key and key not in seen_unver_cve_keys:
+                seen_unver_cve_keys.add(key)
+                mem_exploited_unverified += 1
     if mem_exploited_unverified > exploited_unverified:
         exploited_unverified = mem_exploited_unverified
 
