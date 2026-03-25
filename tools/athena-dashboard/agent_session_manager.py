@@ -579,15 +579,43 @@ class AgentSessionManager:
                                 "credential", "password", "login", "creds"
                             )):
                                 cred_id = f"cred-{fingerprint}"
+                                # Extract username/password from summary
+                                _cred_re = re.compile(
+                                    r'(?:login|user(?:name)?|user)\s*[:=]\s*["\']?(\S+?)["\']?\s+'
+                                    r'(?:password|pass(?:wd)?)\s*[:=]\s*["\']?(\S+?)["\']?(?:\s|$)',
+                                    re.IGNORECASE,
+                                )
+                                cred_match = _cred_re.search(msg.summary)
+                                extracted_user = cred_match.group(1) if cred_match else ""
+                                extracted_pass = cred_match.group(2) if cred_match else ""
+                                if not cred_match:
+                                    simple_match = re.search(r'(\w+):(\S+)', msg.summary)
+                                    if simple_match and any(kw in msg.summary.lower() for kw in ("default", "weak", "cred")):
+                                        extracted_user = simple_match.group(1)
+                                        extracted_pass = simple_match.group(2)
                                 sess.run(
                                     "MERGE (c:Credential {id: $id}) "
                                     "SET c.engagement_id = $eid, "
                                     "    c.description = $desc, "
                                     "    c.discovered_by = $agent, "
-                                    "    c.timestamp = datetime()",
+                                    "    c.host = $host, "
+                                    "    c.username = $username, "
+                                    "    c.password = $password, "
+                                    "    c.service = $service, "
+                                    "    c.timestamp = datetime() "
+                                    "WITH c "
+                                    "OPTIONAL MATCH (h:Host {ip: $host}) "
+                                    "WHERE $host <> '' "
+                                    "FOREACH (_ IN CASE WHEN h IS NOT NULL THEN [1] ELSE [] END | "
+                                    "    MERGE (c)-[:HARVESTED_FROM]->(h)"
+                                    ")",
                                     id=cred_id, eid=eid,
                                     desc=msg.summary[:500],
                                     agent=msg.from_agent,
+                                    host=host_ip or "",
+                                    username=extracted_user,
+                                    password=extracted_pass,
+                                    service=data.get("service", ""),
                                 )
 
                             # 5. Escalation → attack chain progression
