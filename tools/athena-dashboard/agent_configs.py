@@ -392,6 +392,25 @@ AGENT ROLES:
   PE — Post-exploitation (lateral movement, privesc, credential harvesting)
   RP — Reporting (technical report + executive summary + remediation roadmap)
 
+SPEED ENFORCEMENT (YOUR #1 PRIORITY AS RED TEAM LEAD):
+  Target: First confirmed exploit as fast as possible. Full engagement under 30 minutes.
+
+  DISPATCH DIRECTIVE TO EX: When dispatching EX, ALWAYS remind:
+    "Start with the EASIEST targets — open services, default creds, known exploits.
+     Use simplest tools first (nc, curl, direct connection) before frameworks.
+     60-second timeout per attempt. 2 retries max. Move fast."
+
+  MONITOR EX SPEED: Check EX progress every 3-5 minutes via SITREP.
+    If EX has not confirmed an exploit within 5 minutes:
+    1. Check EX's status — is it stuck retrying one target?
+    2. Send redirect: "STOP current target. Move to next highest-priority target."
+    3. Suggest specific alternative targets from AR/DA findings that EX hasn't tried.
+    4. If EX is still stuck after 8 minutes, stop and restart EX session with fresh directives.
+
+  MONITOR VF SPEED: If VF is verifying DA findings instead of EX exploits:
+    1. Send priority message: "VF: STOP current work. EX confirmed exploit on <target>. Verify THAT first."
+    2. EX exploits are highest priority for VF — DA findings can wait.
+
 PARALLEL PIPELINE (maximize speed — agents work simultaneously):
   After AR discovers first services, spawn DA + WV + EX simultaneously.
   Each agent feeds the next in real-time via bilateral messaging:
@@ -755,15 +774,34 @@ YOUR TOOLS: sqlmap (SQL injection), metasploit/msfconsole (exploit framework),
   hydra (brute force), searchsploit (exploit database), bash (custom exploits)
 YOUR OUTPUT: Exploitation evidence to Neo4j + dashboard.
 
+SPEED RULES (NON-NEGOTIABLE):
+  1. MAX 60 SECONDS per exploit attempt. If no shell/response in 60s → STOP, move to next target.
+  2. MAX 2 RETRIES per exploit. After 2 failures → mark as stalled, move on.
+  3. Do NOT spend more than 3 minutes total on any single target service.
+  4. SIMPLEST METHOD FIRST — always try the lightest tool before the heaviest:
+     - Direct connection (nc, curl, telnet) before exploit frameworks
+     - Default/common credentials before brute force
+     - Known PoC scripts before custom exploitation
+     - One-liner commands before multi-step Metasploit modules
+  5. If a shell opens but is unresponsive after 10 seconds, ABANDON it and try a different vector.
+
+EXPLOIT PRIORITIZATION ORDER:
+  1. Open/unauthenticated services (bind shells, no-auth consoles, anonymous access)
+  2. Default/weak credentials (common service defaults, empty passwords)
+  3. KEV-listed CVEs with known exploit modules — highest reliability
+  4. CVSS 9.0+ with PoC code available — high impact
+  5. Other HIGH/CRITICAL findings — attempt after higher-priority targets
+
 WORKFLOW:
 1. Light up your LED: POST /api/events with agent="EX", status="running"
 2. Query Neo4j for HIGH/CRITICAL findings from vuln scanning and DA's CVE research
-3. EXPLOIT DB CHECK — For each CVE or finding, verify exploit availability:
+3. SORT by priority order above. Start with the easiest, most reliable targets.
+4. EXPLOIT DB CHECK — For each target, verify exploit availability:
    - searchsploit <CVE-ID or service+version> (Exploit-DB local mirror)
    - msfconsole: search type:exploit <service> (Metasploit modules)
    - Check if DA already flagged exploit_available=true in finding metadata
-   - Prioritize: KEV-listed CVEs first, then CVSS 9.0+, then exploits with PoC code
-4. For each exploitable finding:
+   - Query KB for known techniques: GET {dashboard_url}/api/knowledge/search?q=<service+version>&top_k=3
+5. For each exploitable finding:
    a. Request HITL approval BEFORE exploiting:
       POST {dashboard_url}/api/approvals
       Body: {{"agent":"EX","action":"Exploit <vuln>","description":"<plan>","risk_level":"high","target":"<specific target>"}}
@@ -904,10 +942,26 @@ YOUR TOOLS: You have access to ALL scanning tools but MUST use a different techn
 than the original discoverer. If nuclei found it, verify with manual curl/wget.
 If sqlmap found SQLi, verify with manual injection.
 
+VERIFICATION PRIORITY (NON-NEGOTIABLE):
+  1. EX-CONFIRMED EXPLOITS FIRST — if EX has confirmed a shell/RCE, verify it IMMEDIATELY.
+     Check messages from EX (msg_type="exploit_confirmed") — these jump to front of queue.
+  2. Then HIGH/CRITICAL findings with evidence
+  3. Then remaining unverified findings by severity (CRITICAL → HIGH → MEDIUM)
+  Do NOT verify 20 DA findings before checking if EX has confirmed exploits.
+  Poll for EX messages EVERY 2 MINUTES during verification work.
+
+SPEED RULES:
+  1. MAX 90 SECONDS per verification attempt. If can't reproduce in 90s → mark unconfirmed, move on.
+  2. Use FAST verification methods first: nc, curl, nmap NSE scripts. Metasploit only as last resort.
+  3. For fast-path exploits (ingreslock, rlogin, default creds): verify with the SAME simple command — no complex tools needed.
+
 WORKFLOW:
 1. Light up your LED: POST /api/events with agent="VF", status="running"
-2. Query Neo4j for HIGH/CRITICAL findings needing verification
-3. For each finding:
+2. Check for EX exploit notifications FIRST:
+   GET {dashboard_url}/api/messages?agent=VF&msg_type=exploit_confirmed
+   If any exist → verify those IMMEDIATELY before querying Neo4j for other findings.
+3. Query Neo4j for HIGH/CRITICAL findings needing verification (sorted by priority above)
+4. For each finding:
    a. CHECK FIRST: POST /api/verify — if response contains "already_verified":true, SKIP IT.
       Do NOT re-verify findings that are already confirmed or marked false_positive.
    b. If not yet verified, attempt to reproduce using a different method
