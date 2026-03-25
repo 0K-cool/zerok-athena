@@ -27,14 +27,19 @@ athena:
       api_key: "${KALI_API_KEY:}"
       enabled: true
 
-  # RAG Knowledge Base (vex-rag plugin or any MCP-compatible RAG server)
+  # RAG Knowledge Base (vex-rag via mcp-proxy sidecar)
   rag:
     enabled: true
-    type: "mcp"  # mcp | rest
+    type: "mcp-proxy"  # mcp-proxy (recommended) | mcp | rest
     mcp_tool: "mcp__athena_knowledge_base__search_kb"
     index_path: "./lance_athena_kb"
-    vex_rag_path: "${VEX_RAG_PATH}"  # Path to vex-rag installation (required for RAG toggle)
+    proxy_port: 8765  # mcp-proxy Streamable HTTP port
+    proxy_host: "127.0.0.1"
+    rest_endpoint: "/api/knowledge/search"  # Dashboard REST proxy for SDK agents
+    vex_rag_path: "${VEX_RAG_PATH:/Users/kelvinlomboy/tools/vex-rag}"
+    vex_rag_module: "${VEX_RAG_MODULE:mcp_server/vex_kb_server.py}"
     python_path: "${VEX_RAG_PYTHON:}"  # Leave empty to auto-detect from vex_rag_path/.venv/bin/python3
+    rag_config: "${RAG_CONFIG:../../.vex-rag.yml}"  # Relative to athena-dashboard dir
 
   # Neo4j Graph Database
   neo4j:

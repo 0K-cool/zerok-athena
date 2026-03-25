@@ -7692,7 +7692,7 @@
                     <span class="config-kv-value" id="cfg-rag-index-path">—</span>
                   </div>
                   <div class="config-kv-row">
-                    <span class="config-kv-label">REST Endpoint</span>
+                    <span class="config-kv-label">Agent Endpoint</span>
                     <span class="config-kv-value" id="cfg-rag-endpoint">—</span>
                   </div>
                   <div class="config-kv-row">
@@ -7700,7 +7700,7 @@
                     <span class="config-kv-value muted">Attack intelligence, exploit techniques, pentest playbooks</span>
                   </div>
                   <div class="config-kv-row" id="rag-setup-hint" style="margin-top:8px;">
-                    <span class="config-kv-value muted" style="font-size:11px;">Uses <a href="https://github.com/0K-cool/vex-rag" target="_blank" style="color:var(--zerok-accent);">vex-rag</a> plugin or any MCP-compatible RAG server. Configure the MCP tool name and index path above.</span>
+                    <span class="config-kv-value muted" style="font-size:11px;">Uses <a href="https://github.com/0K-cool/vex-rag" target="_blank" style="color:var(--zerok-accent);">vex-rag</a> via mcp-proxy sidecar (Streamable HTTP). Install: <code>pip install mcp-proxy</code>. Auto-starts with <code>./start.sh</code>.</span>
                   </div>
                 </div>
                 <!-- Edit mode -->
@@ -15635,16 +15635,27 @@
 
         // --- RAG Knowledge Base ---
         var ragEnabled = cfg.rag && cfg.rag.enabled;
-        var ragType = (cfg.rag && cfg.rag.type) || 'mcp';
+        var ragType = (cfg.rag && cfg.rag.type) || 'mcp-proxy';
         var ragBadge = ragEnabled ? 'enabled' : 'disabled';
-        var ragLabel = ragEnabled ? (ragType === 'mcp' ? 'MCP' : 'REST') : 'Not configured';
+        var ragLabel = ragEnabled ? 'Configured' : 'Not configured';
 
-        // RAG status: enabled + has MCP tool configured = Configured
-        // Agents use MCP tool directly (REST proxy disabled due to fork/tokenizer crash)
         if (ragEnabled) {
-          var hasMcpTool = cfg.rag && cfg.rag.mcp_tool;
-          ragLabel = hasMcpTool ? 'Configured (MCP)' : 'Enabled (no MCP tool set)';
-          if (!hasMcpTool) ragBadge = 'warning';
+          var proxyPort = cfg.rag && cfg.rag.proxy_port ? cfg.rag.proxy_port : 8765;
+          ragLabel = ragType === 'mcp-proxy'
+            ? 'mcp-proxy :' + proxyPort
+            : (ragType === 'mcp' ? 'MCP Direct' : 'REST');
+          // Live health check — test if mcp-proxy is responding
+          fetch('/api/knowledge/search?q=test&top_k=1').then(function(r) {
+            return r.json();
+          }).then(function(d) {
+            if (d.status === 'ok' || d.status === 'no_results') {
+              setBadge('cfg-rag-badge', 'enabled', ragLabel + ' ✓');
+              setBadge('cfg-rag-detail-badge', 'enabled', ragLabel + ' ✓');
+            } else if (d.status === 'unavailable') {
+              setBadge('cfg-rag-badge', 'warning', 'Proxy offline');
+              setBadge('cfg-rag-detail-badge', 'warning', 'Proxy offline');
+            }
+          }).catch(function() {});
         }
         setBadge('cfg-rag-badge', ragBadge, ragLabel);
         setBadge('cfg-rag-detail-badge', ragBadge, ragLabel);
@@ -15654,7 +15665,10 @@
         document.getElementById('cfg-rag-type').textContent = ragType.toUpperCase();
         document.getElementById('cfg-rag-mcp-tool').textContent = (cfg.rag && cfg.rag.mcp_tool) || '—';
         document.getElementById('cfg-rag-index-path').textContent = (cfg.rag && cfg.rag.index_path) || '—';
-        document.getElementById('cfg-rag-endpoint').textContent = 'Disabled (agents use MCP tool)';
+        var proxyUrl = (cfg.rag && cfg.rag.proxy_host || '127.0.0.1') + ':' + (cfg.rag && cfg.rag.proxy_port || 8765);
+        document.getElementById('cfg-rag-endpoint').textContent = ragType === 'mcp-proxy'
+          ? '/api/knowledge/search → mcp-proxy ' + proxyUrl
+          : (cfg.rag && cfg.rag.rest_endpoint) || '/api/knowledge/search';
 
         // --- Kali ---
         const backends = cfg.kali.backends || {};
