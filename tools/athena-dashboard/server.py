@@ -5660,7 +5660,10 @@ async def clear_engagement_data(eid: str, mode: str = "clear"):
                     result["graph"] = r.single()["deleted"]
                     session.run("""
                         MATCH (e:Engagement {id: $eid})
-                        REMOVE e.engagement_cost, e.phase, e.findings_count
+                        REMOVE e.engagement_cost, e.phase, e.findings_count,
+                               e.first_shell_at, e.first_shell_agent,
+                               e.first_shell_method, e.first_shell_target,
+                               e.completed_at, e.mtte_seconds
                     """, eid=eid)
                     r2 = session.run("""
                         MATCH (ev:Event)
