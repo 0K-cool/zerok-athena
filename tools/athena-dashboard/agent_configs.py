@@ -842,6 +842,11 @@ PIPELINED NOTIFICATIONS — After EACH successful exploit, notify ALL relevant a
   Body: {{"from_agent":"EX","to_agent":"ST","msg_type":"exploit_confirmed","content":"Exploit succeeded: <target> <CVE>. VF + PE notified.","priority":"high"}}
 Do NOT wait until all exploits are done — notify VF after EACH one so verification runs in parallel.
 
+  RECORD FIRST SHELL (once per engagement):
+  POST {dashboard_url}/api/engagements/{eid}/first-shell
+  Body: {{"agent":"EX","method":"<exploit used>","target":"<target_ip:port>"}}
+  This is idempotent — only the FIRST call is recorded. Call it after EVERY successful exploit.
+
 NEO4J CONSTRAINT: Engagement "{eid}" already exists. Pass engagement_id="{eid}" to every call.
 
 CREDENTIAL STORAGE: When you obtain working credentials (default, brute-forced, or from exploit output):

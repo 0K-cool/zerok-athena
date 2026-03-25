@@ -6271,6 +6271,15 @@
               <span class="stat-value" id="kpi-criticals" style="color: var(--zerok-high);">0</span>
             </div>
           </div>
+          <!-- TTFS KPI Card -->
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Time to First Shell</span>
+            </div>
+            <div class="stat-value-row">
+              <span class="stat-value" id="kpi-ttfs" style="color: var(--zerok-high);">—</span>
+            </div>
+          </div>
           <!-- MTTE KPI Card -->
           <div class="stat-card">
             <div class="stat-header">
@@ -12010,6 +12019,9 @@
       if (credWeak) credWeak.textContent = '0';
       const credUnique = document.getElementById('cred-unique');
       if (credUnique) credUnique.textContent = '0';
+      // Reset TTFS KPI
+      var kpiTtfs = document.getElementById('kpi-ttfs');
+      if (kpiTtfs) kpiTtfs.textContent = '—';
       // Reset MTTE KPI
       const mtteVal = document.getElementById('kpi-mtte');
       if (mtteVal) mtteVal.textContent = '—';
@@ -12521,6 +12533,14 @@
           mtteSparkline.update();
         }
       } catch (e) { console.warn('exploit-stats:', e.message); }
+
+      // ── TTFS KPI (Time to First Shell — single source: exploit-stats) ──
+      try {
+        var kpiTtfs = document.getElementById('kpi-ttfs');
+        if (kpiTtfs && es && es.ttfs_display) {
+          kpiTtfs.textContent = es.ttfs_display;
+        }
+      } catch (e) { console.warn('kpi/ttfs:', e.message); }
 
       // ── MTTE KPI (single source: exploit-stats — always has data) ──
       try {

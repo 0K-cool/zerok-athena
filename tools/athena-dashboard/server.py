@@ -5877,7 +5877,8 @@ async def get_engagement_summary(eid: str):
                                    f.verification_status = 'confirmed' OR
                                    f.verification_status = 'likely'
                                THEN f END) AS exploits,
-                               e.started_at AS started_at, e.completed_at AS completed_at
+                               e.started_at AS started_at, e.completed_at AS completed_at,
+                               e.first_shell_at AS first_shell_at
                     """, eid=eid)
                     record = result.single()
                     if record is None:
@@ -5973,6 +5974,7 @@ async def get_engagement_summary(eid: str):
                         "duration_seconds": _duration,
                         "started_at": _started,
                         "completed_at": _completed,
+                        "first_shell_at": record.get("first_shell_at"),
                     }
         except Exception as e:
             print(f"Neo4j summary query error: {e}")
@@ -6537,6 +6539,27 @@ async def get_exploit_stats(eid: str):
     else:
         mtte_display = "—"
 
+    # TTFS: Time to First Shell — read from Engagement node
+    ttfs_seconds = 0
+    ttfs_display = "—"
+    if neo4j_available and neo4j_driver:
+        try:
+            def _get_ttfs():
+                with neo4j_driver.session() as session:
+                    r = session.run("""
+                        MATCH (e:Engagement {id: $eid})
+                        RETURN e.first_shell_at AS first_shell, e.started_at AS started,
+                               e.first_shell_method AS method, e.first_shell_agent AS agent
+                    """, eid=eid).single()
+                    return dict(r) if r else None
+            ttfs_data = await neo4j_exec(_get_ttfs)
+            if ttfs_data and ttfs_data.get("first_shell") and ttfs_data.get("started"):
+                ttfs_seconds = max(0, int(ttfs_data["first_shell"] - ttfs_data["started"]))
+                mins, secs = divmod(ttfs_seconds, 60)
+                ttfs_display = f"{mins}m {secs:02d}s" if mins else f"{secs}s"
+        except Exception:
+            pass
+
     return {
         "discovered_vulns": discovered,
         "confirmed_exploits": confirmed,
@@ -6547,6 +6570,8 @@ async def get_exploit_stats(eid: str):
         "mtte_seconds": mtte_seconds,
         "mtte_display": mtte_display,
         "per_finding": per_finding_times[:10],
+        "ttfs_seconds": ttfs_seconds,
+        "ttfs_display": ttfs_display,
     }
 
 
@@ -12767,3 +12792,44 @@ async def update_confirmed_cve(eid: str, request: Request):
     except Exception as e:
         print(f"CVE Registry POST error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/engagements/{eid}/first-shell")
+async def record_first_shell(eid: str, request: Request):
+    """Record the timestamp of the first confirmed shell for TTFS calculation.
+    Called by EX agent after first successful exploit. Idempotent — only records
+    the first call, ignores subsequent calls (one source of truth)."""
+    if not neo4j_available or not neo4j_driver:
+        return JSONResponse({"error": "Neo4j not available"}, status_code=503)
+
+    payload = await request.json()
+    agent = payload.get("agent", "EX")
+    method = payload.get("method", "")
+    target = payload.get("target", "")
+
+    try:
+        import time as _time
+        now = _time.time()
+
+        def _record():
+            with neo4j_driver.session() as session:
+                # Only set first_shell_at if not already set (idempotent)
+                result = session.run("""
+                    MATCH (e:Engagement {id: $eid})
+                    WHERE e.first_shell_at IS NULL
+                    SET e.first_shell_at = $now,
+                        e.first_shell_agent = $agent,
+                        e.first_shell_method = $method,
+                        e.first_shell_target = $target
+                    RETURN e.first_shell_at AS recorded, e.started_at AS started_at
+                """, eid=eid, now=now, agent=agent, method=method, target=target)
+                record = result.single()
+                if record and record["recorded"]:
+                    started = record["started_at"] or now
+                    ttfs = max(0, int(now - started))
+                    return {"recorded": True, "ttfs_seconds": ttfs}
+                return {"recorded": False, "reason": "first_shell_at already set"}
+        result = await neo4j_exec(_record)
+        return {"ok": True, **result}
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
