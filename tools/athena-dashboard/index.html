@@ -15621,18 +15621,18 @@
         await loadSettingsView();
         if (icon) icon.style.animation = '';
         if (label) label.textContent = 'Done ✓';
-        if (btn) btn.style.borderColor = 'var(--zerok-low)';
+        if (btn) { btn.style.borderColor = 'var(--zerok-low)'; btn.style.color = 'var(--zerok-low)'; }
         setTimeout(function() {
           if (label) label.textContent = 'Refresh';
-          if (btn) { btn.style.borderColor = ''; btn.style.cursor = ''; }
+          if (btn) { btn.style.borderColor = ''; btn.style.cursor = ''; btn.style.color = ''; }
         }, 1500);
       } catch (e) {
         if (icon) icon.style.animation = '';
         if (label) label.textContent = 'Failed';
-        if (btn) btn.style.borderColor = 'var(--zerok-critical)';
+        if (btn) { btn.style.borderColor = 'var(--zerok-critical)'; btn.style.color = 'var(--zerok-critical)'; }
         setTimeout(function() {
           if (label) label.textContent = 'Refresh';
-          if (btn) { btn.style.borderColor = ''; btn.style.cursor = ''; }
+          if (btn) { btn.style.borderColor = ''; btn.style.cursor = ''; btn.style.color = ''; }
         }, 2000);
       }
       if (btn) { btn.disabled = false; btn.style.opacity = ''; }
