@@ -502,6 +502,7 @@ class DashboardState:
                             host: $host,
                             service: $service
                         })
+                        ON CREATE SET c.id = 'cred-' + substring(randomUUID(), 0, 16)
                         SET c.password = $password,
                             c.type = $ctype,
                             c.access_level = $access_level,
@@ -9183,7 +9184,7 @@ async def get_attack_graph(engagement: Optional[str] = None):
                             # that were created directly as Host nodes by MCP tools, bypassing _safe_extract_host.
                             if ntype == "host" and _is_version_string_ip(node.get("ip", "")):
                                 continue
-                            node_id = node.get("id", node.get("ip", node.get("name", str(id(node)))))
+                            node_id = node.get("id", node.get("ip", node.get("name", node.get("username", str(id(node))))))
                             # Services need port in ID to avoid collisions
                             # (e.g. netbios-ssn on port 139 and 445)
                             if ntype == "service" and node.get("port"):
@@ -9216,8 +9217,8 @@ async def get_attack_graph(engagement: Optional[str] = None):
                         """
                     edge_query += """
                         RETURN
-                            coalesce(a.id, a.ip, a.name) AS from_id,
-                            coalesce(b.id, b.ip, b.name) AS to_id,
+                            coalesce(a.id, a.ip, a.name, a.username) AS from_id,
+                            coalesce(b.id, b.ip, b.name, b.username) AS to_id,
                             type(r) AS rel_type,
                             labels(a) AS from_labels,
                             a.port AS from_port,
