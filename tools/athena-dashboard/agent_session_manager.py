@@ -538,6 +538,33 @@ class AgentSessionManager:
                                 if ip_match and ip_match.group(1) != "127.0.0.1":
                                     host_ip = ip_match.group(1)
 
+                            # Fallback: use engagement target IP when host_ip not parseable
+                            # from message (e.g. DA credential messages like
+                            # "PostgreSQL default credentials postgres/postgres" have no IP).
+                            if not host_ip:
+                                # 1. Try data["target"] field directly
+                                _eng_target = data.get("target", "")
+                                if _eng_target:
+                                    _ip_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3})', _eng_target)
+                                    if _ip_match:
+                                        host_ip = _ip_match.group(1)
+                            if not host_ip and eid:
+                                # 2. Query Neo4j for the engagement's target/scope
+                                try:
+                                    _eng_result = sess.run(
+                                        "MATCH (e:Engagement {id: $eid}) "
+                                        "RETURN e.target AS target, e.scope AS scope",
+                                        eid=eid,
+                                    ).single()
+                                    if _eng_result:
+                                        _t = _eng_result.get("target") or _eng_result.get("scope") or ""
+                                        if _t:
+                                            _ip_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3})', _t)
+                                            if _ip_match:
+                                                host_ip = _ip_match.group(1)
+                                except Exception:
+                                    pass
+
                             if host_ip:
                                 sess.run(
                                     "MERGE (h:Host {ip: $ip}) "
