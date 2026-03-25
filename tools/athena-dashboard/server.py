@@ -1753,10 +1753,10 @@ async def resolve_approval_api(request_id: str, approved: bool, reason: str = ""
 class FindingPayload(BaseModel):
     title: str
     severity: str
-    category: str
-    target: str
-    agent: str
-    description: str
+    category: str = "uncategorized"
+    target: str = ""
+    agent: str = ""
+    description: str = ""
     cvss: Optional[float] = None
     cve: Optional[str] = None
     evidence: Optional[str] = None
@@ -1956,6 +1956,21 @@ async def create_finding(payload: FindingPayload):
             status_code=422,
             content={"error": "Finding title too short (min 5 characters)"}
         )
+
+    # FIX: Auto-detect agent when not provided
+    if not payload.agent:
+        _exploit_keywords = ('exploit', 'shell', 'rce', 'backdoor', 'root', 'command execution',
+                             'code execution', 'injection', 'bypass', 'meterpreter', 'reverse shell')
+        _recon_keywords = ('open port', 'scan', 'discovered', 'fingerprint', 'banner')
+        _analysis_keywords = ('cve research', 'cvss', 'debrief', 'hypothesis', 'analysis')
+        if any(kw in _title_lower for kw in _exploit_keywords):
+            payload.agent = "EX"
+        elif any(kw in _title_lower for kw in _recon_keywords):
+            payload.agent = "AR"
+        elif any(kw in _title_lower for kw in _analysis_keywords):
+            payload.agent = "DA"
+        else:
+            payload.agent = "EX"  # Default to EX for unclassified exploitation findings
 
     timestamp = time.time()
 
@@ -6419,7 +6434,12 @@ async def get_exploit_stats(eid: str):
     timestamps = sorted([f.timestamp for f in mem_findings_clean])
     exploit_findings = [
         f for f in mem_findings_clean
-        if (getattr(f, 'agent', '') == 'EX' or (isinstance(getattr(f, 'agent', None), list) and 'EX' in f.agent))
+        if (
+            # Explicit EX agent
+            (getattr(f, 'agent', '') == 'EX' or (isinstance(getattr(f, 'agent', None), list) and 'EX' in f.agent))
+            # OR agent is None/empty but title indicates exploitation
+            or (not getattr(f, 'agent', None) and any(kw in (f.title or '').lower() for kw in EXPLOIT_TITLE_KEYWORDS))
+        )
         and (
             bool(f.evidence)
             or bool(getattr(f, 'confirmed_at', None))
@@ -6477,7 +6497,15 @@ async def get_exploit_stats(eid: str):
                 with neo4j_driver.session() as session:
                     result = session.run("""
                         MATCH (f:Finding {engagement_id: $eid})
-                        WHERE f.timestamp IS NOT NULL AND f.agent = 'EX'
+                        WHERE f.timestamp IS NOT NULL
+                          AND (
+                            f.agent = 'EX'
+                            OR (f.agent IS NULL AND (
+                              f.title CONTAINS 'shell' OR f.title CONTAINS 'backdoor' OR
+                              f.title CONTAINS 'RCE' OR f.title CONTAINS 'Command Execution' OR
+                              f.title CONTAINS 'exploit' OR f.title CONTAINS 'root'
+                            ))
+                          )
                           AND (f.evidence IS NOT NULL OR f.confirmed_at IS NOT NULL)
                         RETURN f.title AS title, f.timestamp AS ts
                         ORDER BY f.timestamp ASC
