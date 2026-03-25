@@ -9543,6 +9543,30 @@ def _mask_secret(value: str) -> str:
     return "••••••••"
 
 
+def _save_config():
+    """Persist the current _cfg dict back to athena-config.yaml.
+    Writes only the athena: top-level key. Preserves the file header comment."""
+    config_path = Path(__file__).parent / "athena-config.yaml"
+    try:
+        header = (
+            "# ============================================================\n"
+            "# ATHENA Configuration — Portable Pentest Platform\n"
+            "# ============================================================\n"
+            "# Managed by ATHENA Settings. Manual edits are preserved on next save.\n"
+            "# ============================================================\n\n"
+        )
+        content = header + yaml.dump(
+            {"athena": _cfg},
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        )
+        config_path.write_text(content)
+        config_path.chmod(0o600)
+    except Exception as e:
+        logger.error(f"Failed to write athena-config.yaml: {e}")
+
+
 @app.get("/api/config/features")
 async def get_feature_config():
     """Aggregated feature configuration status for Settings UI."""
@@ -9578,6 +9602,9 @@ async def get_feature_config():
             "proxy_port": _cfg.get("rag", {}).get("proxy_port", 8765),
             "proxy_host": _cfg.get("rag", {}).get("proxy_host", "127.0.0.1"),
             "rest_endpoint": "/api/knowledge/search",
+            "vex_rag_path": _cfg.get("rag", {}).get("vex_rag_path", ""),
+            "vex_rag_module": _cfg.get("rag", {}).get("vex_rag_module", "mcp_server/vex_kb_server.py"),
+            "rag_config": _cfg.get("rag", {}).get("rag_config", ""),
             "proxy_status": "checking",
         },
         "kali": {"backends": kali_backends, "tools": len(kali_client.list_tools())},
@@ -9636,6 +9663,24 @@ async def update_config(body: dict):
         "rejected": rejected,
         "restart_required": True,
         "message": f"Saved {len(updates)} setting(s) to .env. Restart the server to apply changes.",
+    }
+
+
+@app.post("/api/config/rag")
+async def save_rag_config(request: Request):
+    """Save RAG configuration fields to athena-config.yaml in memory and on disk."""
+    payload = await request.json()
+    rag_cfg = _cfg.setdefault("rag", {})
+    for key in ("type", "proxy_port", "proxy_host", "mcp_tool", "index_path",
+                "vex_rag_path", "vex_rag_module", "rag_config"):
+        if key in payload and payload[key] != "":
+            rag_cfg[key] = payload[key]
+    _save_config()
+    logger.info(f"RAG config saved: {list(payload.keys())}")
+    return {
+        "ok": True,
+        "restart_required": True,
+        "message": "RAG configuration saved. Restart server to apply changes.",
     }
 
 

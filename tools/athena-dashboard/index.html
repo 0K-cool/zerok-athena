@@ -7684,12 +7684,24 @@
                     <span class="config-kv-value" id="cfg-rag-type">—</span>
                   </div>
                   <div class="config-kv-row">
+                    <span class="config-kv-label">Proxy Port</span>
+                    <span class="config-kv-value" id="cfg-rag-proxy-port">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">Proxy Host</span>
+                    <span class="config-kv-value" id="cfg-rag-proxy-host">—</span>
+                  </div>
+                  <div class="config-kv-row">
                     <span class="config-kv-label">MCP Tool</span>
                     <span class="config-kv-value" id="cfg-rag-mcp-tool">—</span>
                   </div>
                   <div class="config-kv-row">
                     <span class="config-kv-label">Index Path</span>
                     <span class="config-kv-value" id="cfg-rag-index-path">—</span>
+                  </div>
+                  <div class="config-kv-row">
+                    <span class="config-kv-label">RAG Config</span>
+                    <span class="config-kv-value" id="cfg-rag-config">—</span>
                   </div>
                   <div class="config-kv-row">
                     <span class="config-kv-label">Agent Endpoint</span>
@@ -7708,9 +7720,18 @@
                   <div class="config-edit-field">
                     <label class="config-kv-label" for="cfg-input-RAG_TYPE">Type</label>
                     <select class="config-input" id="cfg-input-RAG_TYPE">
-                      <option value="mcp">MCP Tool (recommended)</option>
-                      <option value="rest">REST Endpoint</option>
+                      <option value="mcp-proxy">mcp-proxy (recommended)</option>
+                      <option value="mcp">mcp</option>
+                      <option value="rest">rest</option>
                     </select>
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label" for="cfg-input-RAG_PROXY_PORT">Proxy Port</label>
+                    <input type="number" class="config-input" id="cfg-input-RAG_PROXY_PORT" placeholder="8765">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label" for="cfg-input-RAG_PROXY_HOST">Proxy Host</label>
+                    <input type="text" class="config-input" id="cfg-input-RAG_PROXY_HOST" placeholder="127.0.0.1">
                   </div>
                   <div class="config-edit-field">
                     <label class="config-kv-label" for="cfg-input-RAG_MCP_TOOL">MCP Tool Name</label>
@@ -7721,8 +7742,20 @@
                     <input type="text" class="config-input" id="cfg-input-RAG_INDEX_PATH" placeholder="./lance_athena_kb">
                   </div>
                   <div class="config-edit-field">
-                    <label class="config-kv-label" for="cfg-input-VEX_RAG_PATH">vex-rag Installation Path <span style="color:var(--zerok-text-dim);font-weight:400;">(required for toggle)</span></label>
+                    <label class="config-kv-label" for="cfg-input-VEX_RAG_PATH">vex-rag Path <span style="color:var(--zerok-text-dim);font-weight:400;">(installation directory)</span></label>
                     <input type="text" class="config-input" id="cfg-input-VEX_RAG_PATH" placeholder="/path/to/vex-rag">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label" for="cfg-input-VEX_RAG_MODULE">vex-rag Module <span style="color:var(--zerok-text-dim);font-weight:400;">(relative to vex-rag path)</span></label>
+                    <input type="text" class="config-input" id="cfg-input-VEX_RAG_MODULE" placeholder="mcp_server/vex_kb_server.py">
+                  </div>
+                  <div class="config-edit-field">
+                    <label class="config-kv-label" for="cfg-input-RAG_CONFIG">RAG Config <span style="color:var(--zerok-text-dim);font-weight:400;">(path to .vex-rag.yml)</span></label>
+                    <input type="text" class="config-input" id="cfg-input-RAG_CONFIG" placeholder="../../.vex-rag.yml">
+                  </div>
+                  <div class="config-edit-field" style="margin-top:12px;">
+                    <button class="modal-btn" id="btn-rag-test" onclick="testRagConnection()" style="width:100%;">🔍 Test Connection</button>
+                    <div id="cfg-rag-test-result" style="margin-top:8px;font-size:11px;color:var(--zerok-text-dim);"></div>
                   </div>
                   <div class="config-edit-actions">
                     <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('rag')">Save</button>
@@ -15663,8 +15696,11 @@
         if (rToggle) { if (ragEnabled) rToggle.classList.add('active'); else rToggle.classList.remove('active'); }
         document.getElementById('cfg-rag-detail').textContent = ragEnabled ? ragLabel : 'Not configured';
         document.getElementById('cfg-rag-type').textContent = ragType.toUpperCase();
+        document.getElementById('cfg-rag-proxy-port').textContent = (cfg.rag && cfg.rag.proxy_port) || '8765';
+        document.getElementById('cfg-rag-proxy-host').textContent = (cfg.rag && cfg.rag.proxy_host) || '127.0.0.1';
         document.getElementById('cfg-rag-mcp-tool').textContent = (cfg.rag && cfg.rag.mcp_tool) || '—';
         document.getElementById('cfg-rag-index-path').textContent = (cfg.rag && cfg.rag.index_path) || '—';
+        document.getElementById('cfg-rag-config').textContent = (cfg.rag && cfg.rag.rag_config) || '—';
         var proxyUrl = (cfg.rag && cfg.rag.proxy_host || '127.0.0.1') + ':' + (cfg.rag && cfg.rag.proxy_port || 8765);
         document.getElementById('cfg-rag-endpoint').textContent = ragType === 'mcp-proxy'
           ? '/api/knowledge/search → mcp-proxy ' + proxyUrl
@@ -15750,6 +15786,38 @@
       }
     }
 
+    async function testRagConnection() {
+      var btn = document.getElementById('btn-rag-test');
+      var result = document.getElementById('cfg-rag-test-result');
+      if (btn) { btn.textContent = 'Testing...'; btn.disabled = true; }
+      if (result) result.textContent = '';
+      try {
+        var resp = await fetch('/api/knowledge/search?q=exploit+technique&top_k=1');
+        var data = await resp.json();
+        if (!result) return;
+        if (data.status === 'ok') {
+          var docCount = (data.results || []).length;
+          result.textContent = 'Connected — ' + docCount + ' result(s) returned';
+          result.style.color = 'var(--zerok-low)';
+        } else if (data.status === 'unavailable') {
+          result.textContent = 'mcp-proxy not running — start with ./start.sh';
+          result.style.color = 'var(--zerok-critical)';
+        } else if (data.status === 'no_results') {
+          result.textContent = 'Connected but no results — KB may be empty';
+          result.style.color = 'var(--zerok-high)';
+        } else {
+          result.textContent = (data.reason || data.status || 'Unknown response');
+          result.style.color = 'var(--zerok-high)';
+        }
+      } catch (e) {
+        if (result) {
+          result.textContent = 'Connection failed: ' + e.message;
+          result.style.color = 'var(--zerok-critical)';
+        }
+      }
+      if (btn) { btn.textContent = '🔍 Test Connection'; btn.disabled = false; }
+    }
+
     async function toggleIntegration(name) {
       var toggle = document.getElementById('cfg-toggle-' + name);
       if (!toggle || toggle.classList.contains('busy')) return;
@@ -15784,9 +15852,66 @@
       const isEditing = editEl.style.display !== 'none';
       readEl.style.display = isEditing ? 'block' : 'none';
       editEl.style.display = isEditing ? 'none' : 'block';
+
+      // Populate RAG edit inputs from server config when switching TO edit mode
+      if (!isEditing && section === 'rag') {
+        fetch('/api/config/features').then(function(r) { return r.json(); }).then(function(cfg) {
+          var sel = document.getElementById('cfg-input-RAG_TYPE');
+          if (sel) sel.value = (cfg.rag && cfg.rag.type) || 'mcp-proxy';
+          var pp = document.getElementById('cfg-input-RAG_PROXY_PORT');
+          if (pp) pp.value = (cfg.rag && cfg.rag.proxy_port) || 8765;
+          var ph = document.getElementById('cfg-input-RAG_PROXY_HOST');
+          if (ph) ph.value = (cfg.rag && cfg.rag.proxy_host) || '127.0.0.1';
+          var mt = document.getElementById('cfg-input-RAG_MCP_TOOL');
+          if (mt) mt.value = (cfg.rag && cfg.rag.mcp_tool) || '';
+          var ip = document.getElementById('cfg-input-RAG_INDEX_PATH');
+          if (ip) ip.value = (cfg.rag && cfg.rag.index_path) || '';
+          var vrp = document.getElementById('cfg-input-VEX_RAG_PATH');
+          if (vrp) vrp.value = (cfg.rag && cfg.rag.vex_rag_path) || '';
+          var vrm = document.getElementById('cfg-input-VEX_RAG_MODULE');
+          if (vrm) vrm.value = (cfg.rag && cfg.rag.vex_rag_module) || 'mcp_server/vex_kb_server.py';
+          var rc = document.getElementById('cfg-input-RAG_CONFIG');
+          if (rc) rc.value = (cfg.rag && cfg.rag.rag_config) || '';
+          // Clear any previous test result
+          var tr = document.getElementById('cfg-rag-test-result');
+          if (tr) tr.textContent = '';
+        }).catch(function() {});
+      }
     }
 
     async function saveConfigSection(section) {
+      // RAG config is stored in athena-config.yaml (not .env) — use dedicated endpoint
+      if (section === 'rag') {
+        var ragPayload = {
+          type: (document.getElementById('cfg-input-RAG_TYPE') || {}).value || 'mcp-proxy',
+          proxy_port: parseInt((document.getElementById('cfg-input-RAG_PROXY_PORT') || {}).value) || 8765,
+          proxy_host: (document.getElementById('cfg-input-RAG_PROXY_HOST') || {}).value || '127.0.0.1',
+          mcp_tool: (document.getElementById('cfg-input-RAG_MCP_TOOL') || {}).value || '',
+          index_path: (document.getElementById('cfg-input-RAG_INDEX_PATH') || {}).value || '',
+          vex_rag_path: (document.getElementById('cfg-input-VEX_RAG_PATH') || {}).value || '',
+          vex_rag_module: (document.getElementById('cfg-input-VEX_RAG_MODULE') || {}).value || 'mcp_server/vex_kb_server.py',
+          rag_config: (document.getElementById('cfg-input-RAG_CONFIG') || {}).value || '',
+        };
+        try {
+          var ragRes = await fetch('/api/config/rag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ragPayload),
+          });
+          var ragResult = await ragRes.json();
+          if (ragResult.restart_required) {
+            document.getElementById('configRestartBanner').style.display = 'flex';
+          }
+          showToast(ragResult.ok ? 'success' : 'error', 'RAG Config', ragResult.message || 'Saved');
+          toggleConfigEdit(section);
+          await loadSettingsView();
+        } catch (e) {
+          console.error('RAG config save failed:', e);
+          showToast('error', 'RAG Config', 'Save failed: ' + e.message);
+        }
+        return;
+      }
+
       const keys = CONFIG_SECTIONS[section];
       if (!keys) return;
 
