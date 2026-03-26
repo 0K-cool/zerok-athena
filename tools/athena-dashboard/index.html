@@ -12269,6 +12269,14 @@
     async function loadDashboardFromAPI() {
       await refreshActiveEngagementsKPI();
       if (!currentEngagementId) return;
+      // Ensure evidence_mode is set early so sprint label swap works on first load
+      if (!window._currentEvidenceMode && currentEngagementId) {
+        try {
+          var _smr = await fetch('/api/engagements/' + currentEngagementId + '/summary');
+          var _smrData = await _smr.json();
+          if (_smrData.evidence_mode) window._currentEvidenceMode = _smrData.evidence_mode;
+        } catch(e) { /* ignore */ }
+      }
       let _loadedFindingsCount = 0;
       try {
         // Load findings to populate Recent Findings + severity counts
@@ -12547,14 +12555,22 @@
         }
       } catch (e) { console.warn('kpi/ttfs:', e.message); }
 
-      // ── MTTE KPI or TTFS-EX (sprint mode swaps MTTE → TTFS-EX) ──
+      // ── MTTE KPI or Time to Exploit (sprint mode swaps label + value) ──
       try {
         const mtteEl = document.getElementById('kpi-mtte');
+        const mtteCard = mtteEl ? mtteEl.closest('.stat-card') : null;
+        const mtteLbl = mtteCard ? mtteCard.querySelector('.stat-label') : null;
         if (mtteEl && es) {
-          if (window._currentEvidenceMode === 'sprint' && es.ttfs_ex_display) {
-            mtteEl.textContent = es.ttfs_ex_display;
-          } else if (es.mtte_display) {
-            mtteEl.textContent = es.mtte_display;
+          if (window._currentEvidenceMode === 'sprint') {
+            if (mtteLbl) mtteLbl.textContent = 'Time to Exploit';
+            if (es.ttfs_ex_display && es.ttfs_ex_display !== '—') {
+              mtteEl.textContent = es.ttfs_ex_display;
+            }
+          } else {
+            if (mtteLbl && mtteLbl.textContent === 'Time to Exploit') mtteLbl.textContent = 'Mean Time to Exploit';
+            if (es.mtte_display) {
+              mtteEl.textContent = es.mtte_display;
+            }
           }
         }
       } catch (e) { console.warn('kpi/mtte:', e.message); }
