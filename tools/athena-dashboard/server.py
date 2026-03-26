@@ -5881,7 +5881,9 @@ async def get_engagement_summary(eid: str):
                                    f.verification_status = 'likely'
                                THEN f END) AS exploits,
                                e.started_at AS started_at, e.completed_at AS completed_at,
-                               e.first_shell_at AS first_shell_at
+                               e.first_shell_at AS first_shell_at,
+                               e.first_ex_spawn_at AS first_ex_spawn_at,
+                               e.evidence_mode AS evidence_mode
                     """, eid=eid)
                     record = result.single()
                     if record is None:
@@ -5978,6 +5980,8 @@ async def get_engagement_summary(eid: str):
                         "started_at": _started,
                         "completed_at": _completed,
                         "first_shell_at": record.get("first_shell_at"),
+                        "first_ex_spawn_at": record.get("first_ex_spawn_at"),
+                        "evidence_mode": record.get("evidence_mode", "exploitable"),
                     }
         except Exception as e:
             print(f"Neo4j summary query error: {e}")
@@ -6613,7 +6617,8 @@ async def get_exploit_stats(eid: str):
                     r = session.run("""
                         MATCH (e:Engagement {id: $eid})
                         RETURN e.first_shell_at AS first_shell, e.started_at AS started,
-                               e.first_shell_method AS method, e.first_shell_agent AS agent
+                               e.first_shell_method AS method, e.first_shell_agent AS agent,
+                               e.first_ex_spawn_at AS first_ex_spawn
                     """, eid=eid).single()
                     return dict(r) if r else None
             ttfs_data = await neo4j_exec(_get_ttfs)
@@ -6623,6 +6628,14 @@ async def get_exploit_stats(eid: str):
                 ttfs_display = f"{mins}m {secs:02d}s" if mins else f"{secs}s"
         except Exception:
             pass
+
+    # TTFS-EX: Time from EX spawn to first shell (exploitation-only speed)
+    ttfs_ex_seconds = 0
+    ttfs_ex_display = "—"
+    if ttfs_data and ttfs_data.get("first_shell") and ttfs_data.get("first_ex_spawn"):
+        ttfs_ex_seconds = max(0, int(ttfs_data["first_shell"] - ttfs_data["first_ex_spawn"]))
+        ex_mins, ex_secs = divmod(ttfs_ex_seconds, 60)
+        ttfs_ex_display = f"{ex_mins}m {ex_secs:02d}s" if ex_mins else f"{ex_secs}s"
 
     return {
         "discovered_vulns": discovered,
@@ -6636,6 +6649,8 @@ async def get_exploit_stats(eid: str):
         "per_finding": per_finding_times[:10],
         "ttfs_seconds": ttfs_seconds,
         "ttfs_display": ttfs_display,
+        "ttfs_ex_seconds": ttfs_ex_seconds,
+        "ttfs_ex_display": ttfs_ex_display,
     }
 
 
@@ -12497,6 +12512,21 @@ async def request_agent_spawn(payload: AgentRequestPayload):
         })
 
     _active_session_manager.request_agent(payload.agent, payload.task, payload.priority)
+
+    # Sprint mode: record first EX spawn timestamp for TTFS-EX calculation
+    if payload.agent == "EX" and _active_session_manager.mode == "sprint" and neo4j_available and neo4j_driver:
+        try:
+            import time as _time_ex
+            def _record_ex_spawn():
+                with neo4j_driver.session() as session:
+                    session.run("""
+                        MATCH (e:Engagement {id: $eid})
+                        WHERE e.first_ex_spawn_at IS NULL
+                        SET e.first_ex_spawn_at = $now
+                    """, eid=_active_session_manager.engagement_id, now=_time_ex.time())
+            asyncio.ensure_future(neo4j_exec(_record_ex_spawn))
+        except Exception as e:
+            logger.warning("Failed to record first_ex_spawn_at: %s", e)
 
     return {
         "ok": True,

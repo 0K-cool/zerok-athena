@@ -12547,11 +12547,15 @@
         }
       } catch (e) { console.warn('kpi/ttfs:', e.message); }
 
-      // ── MTTE KPI (single source: exploit-stats — always has data) ──
+      // ── MTTE KPI or TTFS-EX (sprint mode swaps MTTE → TTFS-EX) ──
       try {
         const mtteEl = document.getElementById('kpi-mtte');
-        if (mtteEl && es && es.mtte_display) {
-          mtteEl.textContent = es.mtte_display;
+        if (mtteEl && es) {
+          if (window._currentEvidenceMode === 'sprint' && es.ttfs_ex_display) {
+            mtteEl.textContent = es.ttfs_ex_display;
+          } else if (es.mtte_display) {
+            mtteEl.textContent = es.mtte_display;
+          }
         }
       } catch (e) { console.warn('kpi/mtte:', e.message); }
 
@@ -13129,6 +13133,24 @@
         // MTTE KPI is updated by loadDashboardFromAPI() via /api/kpi/mtte (Bug-A fix).
         // Removed redundant exploit-stats fetch here to avoid in-memory data overwriting
         // the Neo4j-persisted value on reload.
+
+        // Sprint mode: swap MTTE KPI → TTFS-EX (Time to First Shell from EX spawn)
+        window._currentEvidenceMode = summary.evidence_mode || 'exploitable';
+        if (summary.evidence_mode === 'sprint') {
+          var mtteLabel = document.querySelector('#kpi-mtte')?.closest('.stat-card')?.querySelector('.stat-label');
+          if (mtteLabel) mtteLabel.textContent = 'TTFS-EX';
+          if (summary.first_ex_spawn_at && summary.first_shell_at) {
+            var ttfsEx = Math.max(0, Math.round(summary.first_shell_at - summary.first_ex_spawn_at));
+            var mins = Math.floor(ttfsEx / 60);
+            var secs = ttfsEx % 60;
+            var ttfsExDisplay = mins > 0 ? mins + 'm ' + secs + 's' : secs + 's';
+            if (kpiMtte) kpiMtte.textContent = ttfsExDisplay;
+          }
+        } else {
+          // Standard mode: ensure label says MTTE
+          var mtteLabel2 = document.querySelector('#kpi-mtte')?.closest('.stat-card')?.querySelector('.stat-label');
+          if (mtteLabel2 && mtteLabel2.textContent === 'TTFS-EX') mtteLabel2.textContent = 'Mean Time to Exploit';
+        }
 
         // Update severity breakdown if available
         if (summary.severity) {
