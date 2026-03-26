@@ -11184,11 +11184,19 @@ async def start_engagement_ai(
     # Map evidence_mode → agent autonomy mode
     # "exploitable" (lab) → full autonomy, no CTF scoring
     # "ctf" → full autonomy + CTF scoring/timer
+    # "sprint" → full autonomy, race to first shell, 30-min hard stop
     # "observable" (client/production) → supervised (multi-agent with HITL)
+    is_sprint = False
     if mode == "ctf" or evidence_mode == "ctf":
         is_ctf = True
         mode = "ctf"
         logger.info("Engagement mode: CTF — evidence_mode=%s", evidence_mode)
+    elif evidence_mode == "sprint":
+        is_ctf = False
+        is_sprint = True
+        mode = "sprint"
+        _skip_agents |= {"PE", "RP", "PR"}  # Sprint skips post-exploitation, reporting, passive recon
+        logger.info("Engagement mode: Sprint — evidence_mode=%s, forced skip_agents=%s", evidence_mode, _skip_agents)
     elif evidence_mode == "exploitable":
         is_ctf = False
         mode = "autonomous"
@@ -11197,14 +11205,16 @@ async def start_engagement_ai(
         is_ctf = False
         logger.info("Engagement mode: Supervised (client) — evidence_mode=%s", evidence_mode)
 
-    mode_label = "CTF" if is_ctf else ("Autonomous" if mode == "autonomous" else "Supervised")
-    is_autonomous = is_ctf or mode == "autonomous"
+    mode_label = "CTF" if is_ctf else ("Sprint" if is_sprint else ("Autonomous" if mode == "autonomous" else "Supervised"))
+    is_autonomous = is_ctf or mode == "autonomous" or is_sprint  # Sprint is fully autonomous
     global _is_autonomous
     _is_autonomous = is_autonomous  # BUG-026: expose to scope expansion endpoint
 
     scope_info = f" Scope document loaded ({len(scope_doc)} chars)." if scope_doc else " No scope document — using target URL constraints only."
     if is_ctf:
         mode_msg = f"CTF MODE activated against {target}. Full AI autonomy — no HITL gates. Flag auto-detection and scoring enabled."
+    elif is_sprint:
+        mode_msg = f"SPRINT MODE activated against {target}. Racing to first shell — 30-minute hard stop. Full autonomy, no HITL gates. Agents: AR, DA, EX, VF only."
     elif mode == "autonomous":
         mode_msg = f"AUTONOMOUS MODE activated against {target}. Full AI autonomy — no HITL gates.{scope_info}"
     else:
@@ -11264,6 +11274,38 @@ Prioritize difficulty 1 challenges first for quick points.
 Start by reviewing the challenge list above, then assign agents to solve them.
 Request workers via POST http://localhost:8080/api/agents/request
 Body: {{"agent":"WV","task":"Solve challenge <name>: <description>. Target: <url>","priority":"high"}}
+"""
+    elif is_sprint:
+        # ── Sprint Mode — Race to First Shell ─────────────────────
+        st_context = f"""ENGAGEMENT: {eid}
+Target: {target}
+Type: {', '.join(engagement_types)}
+Backend: kali_{backend}
+Dashboard: http://localhost:8080
+
+MODE: SPRINT — Race to First Shell
+OBJECTIVE: Get a confirmed shell/RCE on {target} as FAST as possible.
+TIME LIMIT: 30 minutes hard stop. The engagement auto-terminates at 30 minutes.
+STRATEGY:
+  1. Spawn AR, DA, and EX simultaneously — do NOT wait for phases. Request all three NOW.
+  2. AR runs fast scan: naabu top-1000 ports, then nmap top-20 scripts on open ports only. Feed results to DA+EX immediately.
+  3. DA researches CVEs as AR discovers services. Feed exploit-ready CVEs to EX via bilateral messaging. Speed over depth.
+  4. EX targets ONLY the top 3 highest-severity findings. 60-second timeout per exploit attempt, 2 retries max, then move on.
+  5. STOP the engagement the moment EX confirms first shell. Post to /api/engagements/{eid}/first-shell.
+  6. Do NOT request PE, RP, or PR — they are DISABLED for sprint mode.
+
+AGENTS AVAILABLE: AR (recon), DA (analysis), EX (exploitation), VF (verification — only if shell needs independent confirmation)
+AGENTS DISABLED: PE, RP, PR — do NOT request them.
+
+START NOW — request all three agents simultaneously:
+POST http://localhost:8080/api/agents/request
+Body: {{"agent":"AR","task":"SPRINT SCAN: naabu top-1000 ports on {target}, then nmap -sV --top-ports 20 on open ports. 30s timeout per host. Feed results to DA+EX immediately via bilateral messaging.","priority":"critical"}}
+
+POST http://localhost:8080/api/agents/request
+Body: {{"agent":"DA","task":"SPRINT ANALYSIS: As AR discovers services, immediately research CVEs and known exploits. Feed exploit-ready CVEs to EX via bilateral messaging. Prioritize by CVSS severity. Speed over depth.","priority":"critical"}}
+
+POST http://localhost:8080/api/agents/request
+Body: {{"agent":"EX","task":"SPRINT EXPLOIT: Monitor bus for findings from AR/DA. Target top 3 highest-severity only. 60s timeout per attempt, 2 retries max. Race to first shell. When you get a shell, POST to /api/engagements/{eid}/first-shell immediately.","priority":"critical"}}
 """
     else:
         # ── Standard PTES Mode ────────────────────────────────────
@@ -11330,7 +11372,8 @@ Body: {{"agent":"{_start_agent}","task":"{_start_task}","priority":"high"}}
         backend=backend,
         dashboard_state=state,
         athena_root=athena_dir,
-        mode=mode if is_ctf else ("autonomous" if is_autonomous else "multi-agent"),
+        mode="sprint" if is_sprint else (mode if is_ctf else ("autonomous" if is_autonomous else "multi-agent")),
+        time_limit_minutes=30 if is_sprint else 0,  # Sprint: 30-min hard stop
         neo4j_driver=neo4j_driver,  # MED-3: inject driver, avoid circular import
     )
     _active_session_manager.set_event_callback(
@@ -12894,6 +12937,19 @@ async def record_first_shell(eid: str, request: Request):
                     return {"recorded": True, "ttfs_seconds": ttfs}
                 return {"recorded": False, "reason": "first_shell_at already set"}
         result = await neo4j_exec(_record)
+
+        # Sprint mode auto-stop: first shell = engagement complete
+        if result.get("recorded") and _active_session_manager and _active_session_manager.mode == "sprint":
+            logger.info("SPRINT: First shell confirmed on %s via %s — auto-stopping engagement %s", target, method, eid)
+            await state.add_event(AgentEvent(
+                id=str(uuid.uuid4())[:8],
+                type="system",
+                agent="ST",
+                content=f"SPRINT COMPLETE: First shell obtained via {method or 'exploit'}. TTFS: {result.get('ttfs_seconds', '?')}s. Auto-stopping engagement.",
+                timestamp=time.time(),
+            ))
+            asyncio.ensure_future(_active_session_manager.stop())
+
         return {"ok": True, **result}
     except Exception as e:
         return JSONResponse({"error": str(e)[:200]}, status_code=500)

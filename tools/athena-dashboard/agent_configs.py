@@ -303,6 +303,48 @@ spawn EX when findings justify exploitation. No approval POST needed.
 Skip the /api/approvals endpoint entirely in this mode.
 """
 
+# ── Sprint Mode Prompt Sections ─────────────────────────────
+# Appended by format_prompt when mode == "sprint"
+
+_ST_HITL_BYPASS_SPRINT = """
+SPRINT MODE AUTONOMY:
+You do NOT need HITL approval. Proceed with full autonomy — no /api/approvals calls.
+STOP CONDITION: The moment EX confirms a shell, declare engagement COMPLETE.
+EX will POST to /api/engagements/{eid}/first-shell — the server auto-stops the engagement.
+Do NOT continue scanning or exploiting after first shell is confirmed.
+If no shell is obtained within 25 minutes, redirect all agents to the single most promising target for final 5-minute push.
+"""
+
+_EX_SPRINT_DIRECTIVES = """
+SPRINT MODE — EXPLOITATION SPEED RULES:
+1. Target ONLY top 3 highest-severity findings from AR/DA. Ignore medium/low.
+2. 60-second timeout per exploit attempt. 2 retries max. Then move to next target.
+3. Use simplest tools first: nc, curl, direct connection, searchsploit one-liners.
+4. Skip Metasploit framework startup unless nothing else works — msfconsole takes 15-20s.
+5. When you get a shell, IMMEDIATELY:
+   a. POST to /api/engagements/{eid}/first-shell with {"agent":"EX","method":"<exploit>","target":"<ip:port>"}
+   b. POST to /api/messages with {"from_agent":"EX","to_agent":"ST","msg_type":"shell_obtained","content":"SHELL CONFIRMED: <details>","priority":"critical"}
+   c. Do NOT continue exploiting other targets. Sprint = first shell only.
+You have FULL AUTONOMY. No HITL approval needed. Exploit immediately.
+"""
+
+_AR_SPRINT_DIRECTIVES = """
+SPRINT MODE — RECON SPEED RULES:
+1. Start with naabu (top 1000 ports, 30-second timeout): naabu -host <target> -top-ports 1000 -rate 1000
+2. Immediately feed open ports to DA and EX via bilateral messaging as they are discovered.
+3. Run nmap ONLY on discovered open ports with top-20 scripts: nmap -sV --top-ports 20 -sC <target>
+4. Do NOT run full port scans, exhaustive enumeration, or slow NSE scripts.
+5. Speed > coverage. Feed findings as they arrive — do NOT wait for scan completion.
+6. Total recon budget: 3 minutes max. After 3 minutes, stop scanning and let EX work.
+"""
+
+_VF_SPRINT_DIRECTIVES = """
+SPRINT MODE — VERIFICATION:
+You will be asked to verify ONLY the first confirmed shell.
+Run ONE independent verification attempt. If it confirms, post result and stop.
+Do NOT verify other findings. Sprint mode = first shell only.
+"""
+
 _RECON_ONLY_COMMANDS = (
     "nmap", "naabu", "amass", "subfinder", "httpx",
     "theharvester", "whois", "dig",
@@ -2004,7 +2046,8 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
 
     # ── Inject autonomy section based on mode ──
     # BUG-040 fix: server.py passes mode="autonomous" for lab engagements
-    is_autonomous = mode in ("ctf", "lab", "autonomous", "client_auto")
+    is_sprint = mode == "sprint"
+    is_autonomous = mode in ("ctf", "lab", "autonomous", "client_auto", "sprint")
     autonomy_section = ""
 
     if role.code == "ST":
@@ -2015,6 +2058,8 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
         )
         if is_autonomous:
             autonomy_section += _ST_HITL_BYPASS_CTF
+        if is_sprint:
+            autonomy_section += _ST_HITL_BYPASS_SPRINT
     elif role.code in ("AR", "WV", "EX", "VF", "DA", "PX"):
         # Worker agents get the requester side
         section = (
@@ -2025,6 +2070,14 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
         # EX gets additional exploitation autonomy in CTF/lab mode
         if role.code == "EX" and is_autonomous:
             autonomy_section += _EX_HITL_BYPASS_CTF
+        # Sprint-specific directives per agent
+        if is_sprint:
+            if role.code == "EX":
+                autonomy_section += _EX_SPRINT_DIRECTIVES
+            elif role.code == "AR":
+                autonomy_section += _AR_SPRINT_DIRECTIVES
+            elif role.code == "VF":
+                autonomy_section += _VF_SPRINT_DIRECTIVES
     # RP gets nothing (reporter, no tools)
 
     prompt = formatted + kb_section + autonomy_section
