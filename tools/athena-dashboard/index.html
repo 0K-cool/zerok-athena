@@ -9168,8 +9168,8 @@
           addTimelineEvent(msg);
         }
         bumpAgentCount(msg.agent);
-        // Ensure KPI polling is active when tools are running (but don't override paused state)
-        if (_currentCtrlState === 'idle') setCtrlState('running');
+        // Ensure KPI polling is active when tools are running (but don't override stopped state)
+        if (_currentCtrlState === 'idle' && !window._engagementStopped && !window._stopRequested) setCtrlState('running');
         // Real-time matrix: transition none -> partial for instant visual feedback
         var toolStartName = msg.tool_name || (msg.metadata && msg.metadata.tool);
         if (toolStartName) {
@@ -9395,8 +9395,8 @@
         _completedPhases.add(msg.phase);
         updateScanCoverage();
         // Show pause/stop controls when engagement is running (handles CLI-started engagements)
-        // Don't override paused state — agent may still send phase updates while winding down
-        if (_currentCtrlState !== 'paused') setCtrlState('running');
+        // Don't override paused or stopped state — agent may still send phase updates while winding down
+        if (_currentCtrlState !== 'paused' && !window._engagementStopped) setCtrlState('running');
       }
 
       // Refresh all widgets when engagement completes
@@ -11280,6 +11280,7 @@
       else if (control === 'engagement_resumed') setCtrlState('running');
       else if (control === 'engagement_ended' || control === 'engagement_stopped') {
         window._stopRequested = false;
+        window._engagementStopped = true;  // Prevent late tool events from restarting clock
         setCtrlState('idle');
         // BUG-001: Reset Active Engagements KPI
         const kpiActive = document.getElementById('kpi-engagements');
@@ -11814,6 +11815,7 @@
       var backendOverride = 'external';  // Force external for Antsle bridge targets
       window._summaryGenerated = false;  // BUG-020: Reset summary guard for new engagement
       window._stopRequested = false;  // Reset stop flag for new engagement
+      window._engagementStopped = false;  // Reset stopped flag for new engagement
       resetAgentChips();  // Clear completed state from previous engagement so chips can pulse on re-engage
       resetEngagementClock();  // Clear any previous clock state before starting fresh
       setCtrlState('preparing');  // Show "Preparing..." immediately, WebSocket upgrades to "running"
