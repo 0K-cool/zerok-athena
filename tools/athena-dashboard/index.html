@@ -11711,7 +11711,7 @@
       if (state === 'idle') {
         const hitlOverlay = document.getElementById('hitlOverlay');
         if (hitlOverlay) hitlOverlay.classList.remove('visible');
-        resetEngagementClock();
+        stopEngagementClock();  // Freeze clock at final time, don't wipe it
       }
       // Mark running tool cards as "Paused" when engagement pauses
       if (state === 'paused') {

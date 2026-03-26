@@ -12978,6 +12978,14 @@ async def record_first_shell(eid: str, request: Request):
                 content=f"SPRINT COMPLETE: First shell obtained via {method or 'exploit'}. TTFS: {result.get('ttfs_seconds', '?')}s. Auto-stopping engagement.",
                 timestamp=time.time(),
             ))
+            # Broadcast engagement_stopped immediately so the frontend clock freezes NOW,
+            # before the session manager's slow cleanup runs.
+            await state.broadcast({
+                "type": "system",
+                "content": f"Engagement {eid} auto-stopped (Sprint: first shell confirmed).",
+                "metadata": {"control": "engagement_stopped"},
+                "timestamp": time.time(),
+            })
             asyncio.ensure_future(_active_session_manager.stop())
 
         return {"ok": True, **result}
