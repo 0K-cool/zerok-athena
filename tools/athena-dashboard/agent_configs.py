@@ -2136,4 +2136,6 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
     prompt = formatted + kb_section + autonomy_section
     # Replace {{AGENT_CODE}} with actual agent code for bus curl commands
     prompt = prompt.replace("{{AGENT_CODE}}", role.code)
+    # Replace {eid} in sprint directives with actual engagement ID
+    prompt = prompt.replace("{eid}", eid)
     return prompt
