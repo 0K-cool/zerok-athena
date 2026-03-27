@@ -12870,89 +12870,23 @@
         }
       } catch (e) { /* ignore agent restore failure */ }
 
-      // ── Restore PTES coverage from scans, findings, and reports ──
+      // ── Restore PTES coverage from actual agent status ──
       try {
-        const ptesScansRes = await fetch(`/api/scans?engagement=${currentEngagementId}`);
-        const ptesScans = await ptesScansRes.json();
-        if (Array.isArray(ptesScans) && ptesScans.length > 0) {
-          const covAgents = new Set();
-          ptesScans.filter(s => s.status === 'completed').forEach(s => {
-            if (s.agent) covAgents.add(s.agent);
-          });
-          // Strategy always runs if engagement has activity
-          if (ptesScans.length > 0) covAgents.add('ST');
-          // Web Vuln Scanner runs if we have findings with CVE or vuln analysis
-          if (_loadedFindingsCount > 0) covAgents.add('WV');
-          // Exploitation if any finding has evidence
-          const findingsRes2 = await fetch(`/api/engagements/${currentEngagementId}/findings`);
-          const findings2 = await findingsRes2.json();
-          if (Array.isArray(findings2) && findings2.some(f => f.evidence_count > 0)) {
-            covAgents.add('EX');
+        const ptesAgentMap = ['ST', 'AR', 'WV', 'DA', 'EX', 'PE', 'RP'];
+        const ptesAgRes = await fetch('/api/agents');
+        const ptesAgents = await ptesAgRes.json();
+        for (const code of ptesAgentMap) {
+          const agentInfo = ptesAgents[code] || ptesAgents[code.toLowerCase()];
+          if (!agentInfo) continue;
+          const st = (agentInfo.status || '').toLowerCase();
+          if (st === 'completed' || st === 'complete') {
+            updatePtesFromAgent(code, 'complete');
+          } else if (st === 'running') {
+            updatePtesFromAgent(code, 'running');
           }
-          // Post-Exploitation if attack chains or HITL approved
-          if (Array.isArray(findings2) && findings2.some(f =>
-            (f.category || '').toLowerCase().includes('authentication') ||
-            (f.title || '').toLowerCase().includes('post-exploitation')
-          )) {
-            covAgents.add('PE');
-          }
-          // Reporting if reports exist
-          const rptRes = await fetch(`/api/reports?engagement=${currentEngagementId}`);
-          const rpts = await rptRes.json();
-          if (Array.isArray(rpts) && rpts.length > 0) covAgents.add('RP');
-          // Apply to PTES matrix
-          covAgents.forEach(agent => updatePtesFromAgent(agent, 'complete'));
-        } else if (_loadedFindingsCount > 0) {
-          // No scans but findings exist — derive PTES coverage from findings
-          const ptesFallback = new Set(['ST']);  // Strategy always
-          const ptesFindings = await fetch(`/api/engagements/${currentEngagementId}/findings`);
-          const ptesFF = await ptesFindings.json();
-          if (Array.isArray(ptesFF) && ptesFF.length > 0) {
-            // Intel Gathering: findings imply recon was done
-            ptesFallback.add('AR');  // Active Recon
-            ptesFallback.add('WV');  // Web Vuln Scanner
-            // Port Scanner: check if services/ports were discovered
-            try {
-              const poSvc = await fetch(`/api/engagements/${currentEngagementId}/services-summary`);
-              const poData = await poSvc.json();
-              if (Array.isArray(poData) && poData.length > 0) ptesFallback.add('AR');
-            } catch (e) { /* ignore */ }
-            // Web Vuln Scanner: any web-related finding category
-            const webCats = ['injection', 'xss', 'cross-site', 'misconfiguration', 'cors',
-              'header', 'security misconfiguration', 'vulnerable component', 'broken',
-              'information disclosure', 'directory', 'ftp', 'api', 'endpoint'];
-            if (ptesFF.some(f => {
-              const blob = ((f.category || '') + ' ' + (f.title || '')).toLowerCase();
-              return webCats.some(kw => blob.includes(kw));
-            })) ptesFallback.add('WV');
-            // App Security: API or application-level findings
-            const appCats = ['api', 'endpoint', 'metrics', 'prometheus', 'graphql', 'rest', 'swagger'];
-            if (ptesFF.some(f => {
-              const blob = ((f.category || '') + ' ' + (f.title || '')).toLowerCase();
-              return appCats.some(kw => blob.includes(kw));
-            })) ptesFallback.add('ST');
-            // Exploitation: check exploit-stats API (not evidence_count heuristic)
-            try {
-                var esRes = await fetch('/api/engagements/' + currentEngagementId + '/exploit-stats');
-                var esData = await esRes.json();
-                if ((esData.confirmed_exploits || 0) > 0 || (esData.exploited_unverified || 0) > 0) {
-                    ptesFallback.add('EX');
-                }
-            } catch(e) {}
-            // Post-Exploitation: auth bypass, lateral movement, or post-exploit findings
-            if (ptesFF.some(f => {
-              const blob = ((f.category || '') + ' ' + (f.title || '')).toLowerCase();
-              return blob.includes('authentication') || blob.includes('post-exploitation') ||
-                     blob.includes('lateral') || blob.includes('privilege') || blob.includes('jwt');
-            })) ptesFallback.add('PE');
-          }
-          // Reporting: check if reports exist
-          const ptesRpt = await fetch(`/api/reports?engagement=${currentEngagementId}`);
-          const ptesRD = await ptesRpt.json();
-          if (Array.isArray(ptesRD) && ptesRD.length > 0) ptesFallback.add('RP');
-          ptesFallback.forEach(agent => updatePtesFromAgent(agent, 'complete'));
+          // idle/not_started → leave as "No Coverage" (default)
         }
-      } catch (e) { /* ignore PTES restore failure */ }
+      } catch(e) { console.warn('PTES restore error:', e); }
 
       // ── Restore AI Timeline from server event history ──
       try {
