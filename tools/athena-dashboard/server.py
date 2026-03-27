@@ -1080,6 +1080,8 @@ AGENT_COMM_RULES: dict[str, list[str]] = {
     "tool_request":      ["ST"],                        # Worker → strategy (novel tool approval)
     "tool_approval":     list(AGENT_NAMES.keys()),      # ST → any worker
     "tool_usage":        ["ST"],                        # Worker → strategy (CTF/sprint notify)
+    "debrief":           ["ST"],                        # Worker → strategy (mission debrief before completion)
+    "verification":      ["ST", "EX"],                  # VF → strategy + exploit (verification result)
 }
 
 # Rate limit: max messages per agent per engagement phase
