@@ -1539,7 +1539,21 @@ WORKFLOW:
 # Append real-time intel prompts to each agent
 # ──────────────────────────────────────────────
 
-_ST_PROMPT = _ST_PROMPT + _REALTIME_INTEL_ST
+_ST_RP_COMPLETION_GATE = """
+
+ENGAGEMENT COMPLETION RULES (MANDATORY):
+The report is the client deliverable. An engagement without a report is incomplete.
+
+1. Do NOT stop the engagement until RP (Reporting) has COMPLETED all reports.
+2. After all exploitation and verification phases are done, request RP to generate reports.
+3. WAIT for RP to finish — check agent status. Only when RP shows IDLE/DONE should you stop.
+4. If RP encounters errors, try re-requesting it once before giving up.
+5. The engagement is ONLY complete when reports have been generated.
+
+ORDER: AR/DA/EX/VF phases → PE (if applicable) → RP (MUST complete) → THEN stop.
+"""
+
+_ST_PROMPT = _ST_PROMPT + _REALTIME_INTEL_ST + _ST_RP_COMPLETION_GATE
 _AR_PROMPT = _AR_PROMPT + _REALTIME_INTEL_WORKER
 _WV_PROMPT = _WV_PROMPT + _REALTIME_INTEL_WORKER
 _EX_PROMPT = _EX_PROMPT + _REALTIME_INTEL_WORKER
