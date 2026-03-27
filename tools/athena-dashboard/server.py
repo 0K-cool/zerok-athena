@@ -1196,6 +1196,79 @@ async def post_agent_message(payload: AgentMessagePayload):
                     f"Or absorb it yourself?"
                 )
 
+    # Sprint auto-stop: if an EX agent reports shell/exploit via bus message,
+    # trigger first-shell recording as fallback (EX may use bus instead of /first-shell endpoint)
+    from agent_configs import resolve_role_code
+    _msg_base = resolve_role_code(payload.from_agent)
+    if _msg_base == "EX" and _active_session_manager and _active_session_manager.mode == "sprint":
+        _shell_keywords = ("shell", "root", "uid=0", "exploit succeeded", "exploit_confirmed", "shell_obtained", "rce confirmed", "command execution")
+        _content_lower = (payload.content or "").lower()
+        _type_lower = (payload.msg_type or "").lower()
+        if any(kw in _content_lower or kw in _type_lower for kw in _shell_keywords):
+            # Auto-record first shell via the first-shell endpoint logic
+            eid = _active_session_manager.engagement_id if _active_session_manager else (state.active_engagement_id or "")
+            if eid and neo4j_available and neo4j_driver:
+                try:
+                    _method = payload.content[:100] if payload.content else "bus_exploit"
+                    logger.info("SPRINT: Shell detected via bus message from %s — triggering first-shell for %s", payload.from_agent, eid)
+                    # Fire the first-shell endpoint internally
+                    import aiohttp
+                except ImportError:
+                    pass
+                try:
+                    # Direct inline recording (same as record_first_shell)
+                    import time as _t_shell
+                    _now = _t_shell.time()
+                    def _record_shell_from_bus():
+                        with neo4j_driver.session() as session:
+                            result = session.run("""
+                                MATCH (e:Engagement {id: $eid})
+                                WHERE e.first_shell_at IS NULL
+                                SET e.first_shell_at = $now,
+                                    e.first_shell_agent = $agent,
+                                    e.first_shell_method = $method,
+                                    e.first_shell_target = $target
+                                RETURN e.first_shell_at AS recorded, e.started_at AS started_at
+                            """, eid=eid, now=_now, agent=payload.from_agent, method=_method, target="")
+                            record = result.single()
+                            if record and record["recorded"]:
+                                return {"recorded": True, "ttfs_seconds": max(0, int(_now - (record["started_at"] or _now)))}
+                            return {"recorded": False}
+                    _shell_result = await neo4j_exec(_record_shell_from_bus)
+                    if _shell_result.get("recorded"):
+                        logger.info("SPRINT: First shell recorded from bus message. TTFS=%ss", _shell_result.get("ttfs_seconds"))
+                        await state.add_event(AgentEvent(
+                            id=str(uuid.uuid4())[:8], type="system", agent="ST",
+                            content=f"SPRINT COMPLETE: Shell detected via {payload.from_agent} bus message. Auto-stopping.",
+                            timestamp=time.time(),
+                        ))
+                        await state.broadcast({
+                            "type": "system",
+                            "content": f"Engagement {eid} auto-stopped (Sprint: shell from bus).",
+                            "metadata": {"control": "engagement_stopped"},
+                            "timestamp": time.time(),
+                        })
+                        _manager_to_stop = _active_session_manager
+                        _active_session_manager = None
+                        if state.engagement_task and not state.engagement_task.done():
+                            state.engagement_task.cancel()
+                        if neo4j_available and neo4j_driver:
+                            try:
+                                def _mark_done():
+                                    with neo4j_driver.session() as session:
+                                        session.run("MATCH (e:Engagement {id: $eid}) SET e.status = 'completed', e.completed_at = $now", eid=eid, now=time.time())
+                                await neo4j_exec(_mark_done)
+                            except Exception:
+                                pass
+                        for eng in state.engagements:
+                            if eng.id == eid:
+                                eng.status = "completed"
+                                break
+                        asyncio.ensure_future(_manager_to_stop.stop())
+                        asyncio.ensure_future(_generate_speed_report_card(eid))
+                except Exception as e:
+                    logger.warning("Sprint bus auto-stop failed: %s", str(e)[:200])
+
     return {
         "ok": True,
         "event_id": event.id,
