@@ -11508,11 +11508,13 @@ async def start_engagement_ai(
         def _set_active():
             try:
                 with neo4j_driver.session() as session:
-                    session.run(
-                        "MATCH (e:Engagement {id: $eid}) SET e.status = 'active', e.started_at = $started_at",
-                        eid=eid,
-                        started_at=_now_start,
-                    )
+                    session.run("""
+                        MATCH (e:Engagement {id: $eid})
+                        SET e.status = 'active', e.started_at = $started_at
+                        REMOVE e.first_shell_at, e.first_shell_agent,
+                               e.first_shell_method, e.first_shell_target,
+                               e.first_ex_spawn_at, e.completed_at, e.mtte_seconds
+                    """, eid=eid, started_at=_now_start)
             except Exception:
                 pass
         asyncio.get_event_loop().run_in_executor(None, _set_active)
