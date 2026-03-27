@@ -11540,19 +11540,18 @@ Body: {{"agent":"WV","task":"Solve challenge <name>: <description>. Target: <url
         _parallel_ex = _system_resources.get("parallel_ex", 1)
         if _parallel_ex >= 3:
             _sprint_ex_context = f"""PARALLEL EXPLOITATION (Performance tier — {_parallel_ex} EX agents available):
-Spawn 3 separate EX agents, each targeting ONE specific finding. First shell from any EX wins.
-After AR/DA report findings, pick the top 3 highest-severity and assign one per EX agent:
+Spawn 3 EX agents NOW — each uses a DIFFERENT exploitation strategy. First shell wins. Do NOT spawn regular "EX" — use EX-1, EX-2, EX-3 instead.
 
 POST http://localhost:8080/api/agents/request
-Body: {{"agent":"EX-1","task":"SPRINT EXPLOIT TARGET 1: <highest severity finding>. 60s timeout. Race to shell. POST to /api/engagements/{eid}/first-shell on success.","priority":"critical"}}
+Body: {{"agent":"EX-1","task":"SPRINT EXPLOIT via DIRECT CONNECTION: Try nc, telnet, curl against known backdoor ports (6200 vsftpd, 1524 bindshell, 6667 UnrealIRCd). 60s timeout per attempt. POST to /api/engagements/{eid}/first-shell on shell.","priority":"critical"}}
 
 POST http://localhost:8080/api/agents/request
-Body: {{"agent":"EX-2","task":"SPRINT EXPLOIT TARGET 2: <second highest finding>. 60s timeout. Race to shell. POST to /api/engagements/{eid}/first-shell on success.","priority":"critical"}}
+Body: {{"agent":"EX-2","task":"SPRINT EXPLOIT via DEFAULT CREDENTIALS: Try root/root, admin/admin, msfadmin/msfadmin, postgres/postgres on SSH(22), MySQL(3306), PostgreSQL(5432), Tomcat(8080). 60s timeout. POST to /api/engagements/{eid}/first-shell on shell.","priority":"critical"}}
 
 POST http://localhost:8080/api/agents/request
-Body: {{"agent":"EX-3","task":"SPRINT EXPLOIT TARGET 3: <third highest finding>. 60s timeout. Race to shell. POST to /api/engagements/{eid}/first-shell on success.","priority":"critical"}}
+Body: {{"agent":"EX-3","task":"SPRINT EXPLOIT via CVE EXPLOITS: Use searchsploit and known CVE PoCs for any services DA identifies. Try the highest-CVSS CVE first. 60s timeout. POST to /api/engagements/{eid}/first-shell on shell.","priority":"critical"}}
 
-IMPORTANT: Wait for AR to report at least 3 findings before spawning EX agents. Assign each EX agent a DIFFERENT finding — do not duplicate targets."""
+CRITICAL: Do NOT request agent "EX" — only use "EX-1", "EX-2", "EX-3". Spawn all 3 immediately alongside AR and DA. Do NOT wait for findings."""
         else:
             _sprint_ex_context = f"""SINGLE EXPLOITATION (resource tier: {_system_resources.get('tier', 'standard')}):
 POST http://localhost:8080/api/agents/request
@@ -11567,15 +11566,15 @@ MODE: SPRINT — Race to First Shell
 OBJECTIVE: Get a confirmed shell/RCE on {target} as FAST as possible.
 TIME LIMIT: 30 minutes hard stop. The engagement auto-terminates at 30 minutes.
 STRATEGY:
-  1. Spawn AR, DA, and EX simultaneously — do NOT wait for phases. Request all three NOW.
-  2. AR runs fast scan: naabu top-1000 ports, then nmap top-20 scripts on open ports only. Feed results to DA+EX immediately.
-  3. DA researches CVEs as AR discovers services. Feed exploit-ready CVEs to EX via bilateral messaging. Speed over depth.
-  4. EX targets ONLY the top 3 highest-severity findings. 60-second timeout per exploit attempt, 2 retries max, then move on.
-  5. STOP the engagement the moment EX confirms first shell. Post to /api/engagements/{eid}/first-shell.
+  1. Spawn AR, DA, and exploitation agents simultaneously — do NOT wait for phases. Request all NOW.
+  2. AR runs fast scan: naabu top-1000 ports, then nmap top-20 scripts on open ports only. Feed results immediately.
+  3. DA researches CVEs as AR discovers services. Feed exploit-ready CVEs via bilateral messaging. Speed over depth.
+  4. {'Spawn EX-1, EX-2, EX-3 (3 parallel exploitation agents) — each uses a DIFFERENT strategy (direct connect, default creds, CVE exploits). Do NOT spawn regular EX.' if _parallel_ex >= 3 else 'EX targets ONLY the top 3 highest-severity findings. 60-second timeout per exploit attempt, 2 retries max.'}
+  5. STOP the engagement the moment ANY EX agent confirms first shell. Post to /api/engagements/{eid}/first-shell.
   6. Do NOT request PE, RP, or PR — they are DISABLED for sprint mode.
 
-AGENTS AVAILABLE: AR (recon), DA (analysis), EX (exploitation), VF (verification — only if shell needs independent confirmation)
-AGENTS DISABLED: PE, RP, PR — do NOT request them.
+AGENTS AVAILABLE: AR (recon), DA (analysis), {'EX-1, EX-2, EX-3 (parallel exploitation)' if _parallel_ex >= 3 else 'EX (exploitation)'}, VF (verification — only if shell needs independent confirmation)
+AGENTS DISABLED: PE, RP, PR{', EX (use EX-1/2/3 instead)' if _parallel_ex >= 3 else ''} — do NOT request them.
 
 START NOW — request AR and DA immediately, then EX agent(s):
 POST http://localhost:8080/api/agents/request
