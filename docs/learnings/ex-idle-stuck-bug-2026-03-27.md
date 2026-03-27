@@ -49,8 +49,25 @@ EX's prompt has conflicting instructions:
 4. **First-shell registration:** After ANY successful exploit (not just in sprint),
    EX should call POST /api/engagements/{eid}/first-shell to register TTFS.
 
+## Key Insight: Prompt Compliance vs Server-Side Enforcement
+
+Speed optimization prompts already exist (commit 64d55d1):
+- "Monitor EX speed every 3-5 minutes, force redirect if stuck >5 min"
+- "60-second timeout per exploit attempt, 2 retries max"
+- ST has speed enforcement section
+
+But EX STILL got stuck at 5/150 for 10+ minutes. The prompts are there — agents don't always follow them. This is a known LLM limitation: longer prompts with many instructions lead to deprioritization.
+
+**The proper fix is server-side enforcement, not more prompt instructions:**
+- Server detects EX idle >120s → auto-sends redirect command to EX
+- Server detects 0 tool calls for 2 minutes → triggers ST to re-evaluate
+- Server-side is deterministic — prompts are probabilistic
+
+This applies to ALL agents, not just EX. Any agent that goes idle for too long should be redirected or terminated by the server, not by hoping ST notices and acts.
+
 ## Files to Modify
 
 - `agent_configs.py` — _EX_PROMPT: Add autonomous continuation instructions
 - `agent_configs.py` — ST prompt: Add EX idle detection and redirect logic
-- `server.py` — Consider adding an idle agent detection endpoint
+- `server.py` — Add server-side idle agent detection (RECOMMENDED over prompt fixes)
+- `agent_session_manager.py` — Idle watchdog: monitor tool call timestamps, auto-redirect after 120s
