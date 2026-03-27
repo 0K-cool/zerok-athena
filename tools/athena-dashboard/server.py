@@ -12198,9 +12198,21 @@ async def pause_engagement(eid: str):
 @app.post("/api/engagement/{eid}/resume")
 async def resume_engagement(eid: str):
     """Resume a paused engagement. Paused scans will be re-run by agents."""
+    # Check if session was already stopped (sprint auto-stop or manual stop)
+    if not _active_session_manager or not _active_session_manager.is_running:
+        await state.broadcast({
+            "type": "system",
+            "content": f"Cannot resume — engagement already completed or stopped. Start a new engagement.",
+            "metadata": {"control": "engagement_stopped"},
+            "timestamp": time.time(),
+        })
+        return JSONResponse(status_code=400, content={
+            "error": "No active session to resume. Engagement was already stopped.",
+            "suggestion": "Start a new engagement or re-engage with Engage AI."
+        })
+
     # Resume multi-agent session manager
-    if _active_session_manager and _active_session_manager.is_running:
-        await _active_session_manager.resume()
+    await _active_session_manager.resume()
 
     # Restore operator-paused agents to RUNNING so chips turn red again
     for code in AGENT_NAMES:
