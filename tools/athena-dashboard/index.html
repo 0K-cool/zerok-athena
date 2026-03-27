@@ -13371,7 +13371,7 @@
 
         // Restore engagement clock from persisted timestamps
         if (summary.completed_at && summary.started_at) {
-          // Completed engagement — show static final elapsed time
+          // Completed engagement — show static final elapsed time and force idle
           var elapsedSec = Math.floor(summary.completed_at - summary.started_at);
           if (elapsedSec > 0) {
             var clockEl = document.getElementById('engagementClock');
@@ -13380,8 +13380,16 @@
               clockEl.className = 'engagement-clock completed';
             }
           }
-        } else if (summary.started_at && !summary.completed_at) {
-          // Active engagement — restore live clock
+          // Force stop if clock was still running (catches missed WS broadcasts)
+          if (_currentCtrlState === 'running' || _currentCtrlState === 'paused') {
+            window._engagementStopped = true;
+            stopEngagementClock();
+            setCtrlState('idle');
+            var kpiEngComp = document.getElementById('kpi-engagements');
+            if (kpiEngComp) kpiEngComp.textContent = '0';
+          }
+        } else if (summary.started_at && !summary.completed_at && !window._engagementStopped) {
+          // Active engagement — restore live clock (but not if we already know it stopped)
           restoreEngagementClock(summary.started_at);
         }
       } catch (e) {
