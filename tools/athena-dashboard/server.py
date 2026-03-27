@@ -8843,11 +8843,16 @@ async def _generate_speed_report_card(eid: str) -> dict:
                 pass
 
         # Calculate benchmark comparison
+        # Note: CrowdStrike measures breakout time (initial access → lateral movement)
+        # with pre-existing access. ATHENA measures full autonomous attack (zero → shell)
+        # including recon, analysis, and exploitation from scratch.
         cs_breakout = 27  # CrowdStrike 2026 GTR fastest breakout
         if ttfs_s > 0 and ttfs_s <= cs_breakout:
-            benchmark = f"CrowdStrike fastest: {cs_breakout}s | ATHENA Sprint: {ttfs_s}s  *** MATCH ***"
+            benchmark = f"CrowdStrike breakout: {cs_breakout}s (with access) | ATHENA full autonomous: {ttfs_s}s (from zero) — FASTER"
+        elif ttfs_s > 0 and ttfs_ex_s > 0:
+            benchmark = f"CrowdStrike breakout: {cs_breakout}s (with pre-existing access) | ATHENA full autonomous: {ttfs_s}s, exploitation only: {ttfs_ex_s}s (from zero, includes recon + analysis)"
         elif ttfs_s > 0:
-            benchmark = f"CrowdStrike fastest: {cs_breakout}s | ATHENA Sprint: {ttfs_s}s  ({round(ttfs_s/cs_breakout, 1)}x slower)"
+            benchmark = f"CrowdStrike breakout: {cs_breakout}s (with access) | ATHENA full autonomous: {ttfs_s}s (from zero, includes recon + analysis)"
         else:
             benchmark = "No shell obtained — benchmark N/A"
 
@@ -8932,8 +8937,8 @@ async def _generate_speed_report_card(eid: str) -> dict:
             "summary": f"TTFS: {ttfs} | Method: {shell_method} | {benchmark}",
             "author": "ATHENA Sprint Mode",
             "content": report_md,
-            "created_at": time.time(),
-            "updated_at": time.time(),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
         }
         state._reports.append(report_obj)
 
