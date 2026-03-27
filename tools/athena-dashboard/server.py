@@ -1072,6 +1072,12 @@ AGENT_COMM_RULES: dict[str, list[str]] = {
     "strategy":       list(AGENT_NAMES.keys()),        # Strategy → anyone
     "pivot":          ["PR", "AR", "WV", "DA", "ST"],  # PostExploit → recon + deep analysis + strategy
     "code_finding":   ["VF", "EX", "ST"],              # DA → verify + exploit + strategy
+    "exploit_confirmed": ["ST", "VF"],                  # EX → strategy + verify (sprint auto-stop trigger)
+    "shell_obtained":    ["ST", "VF"],                  # EX → strategy + verify (sprint auto-stop trigger)
+    "exploit_result":    ["ST", "VF"],                  # EX → strategy + verify
+    "tool_request":      ["ST"],                        # Worker → strategy (novel tool approval)
+    "tool_approval":     list(AGENT_NAMES.keys()),      # ST → any worker
+    "tool_usage":        ["ST"],                        # Worker → strategy (CTF/sprint notify)
 }
 
 # Rate limit: max messages per agent per engagement phase
