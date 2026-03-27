@@ -1102,6 +1102,7 @@ async def post_agent_message(payload: AgentMessagePayload):
                "priority":"high","content":"Internal API at :8443/api/v2 — no auth required",
                "neo4j_ref":"svc-abc123"}'
     """
+    global _active_session_manager
     # Validate agents exist (resolve numbered agents like EX-1 → EX for validation)
     from agent_configs import resolve_role_code
     _from_base = resolve_role_code(payload.from_agent)
@@ -13298,6 +13299,7 @@ async def record_first_shell(eid: str, request: Request):
     """Record the timestamp of the first confirmed shell for TTFS calculation.
     Called by EX agent after first successful exploit. Idempotent — only records
     the first call, ignores subsequent calls (one source of truth)."""
+    global _active_session_manager
     if not neo4j_available or not neo4j_driver:
         return JSONResponse({"error": "Neo4j not available"}, status_code=503)
 
