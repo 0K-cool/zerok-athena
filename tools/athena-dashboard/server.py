@@ -2003,7 +2003,14 @@ async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: 
     Called via asyncio.ensure_future — never blocks the confirmation path.
     Mirrors the inline screenshot pattern in the VF result endpoint.
     """
+    # Fallback: if no target on finding, use engagement scope target
+    if not target and engagement_id:
+        for eng in state.engagements:
+            if eng.id == engagement_id:
+                target = getattr(eng, 'target', '') or getattr(eng, 'scope', '') or ''
+                break
     if not target or not kali_client:
+        logger.debug("Auto-screenshot skipped for %s: no target or no kali_client", finding_id)
         return
     try:
         import base64
