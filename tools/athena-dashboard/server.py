@@ -13300,7 +13300,7 @@ async def record_first_shell(eid: str, request: Request):
 
         def _record():
             with neo4j_driver.session() as session:
-                # Only set first_shell_at if not already set (idempotent)
+                # Set first_shell_at (only if not already set for TTFS accuracy)
                 result = session.run("""
                     MATCH (e:Engagement {id: $eid})
                     WHERE e.first_shell_at IS NULL
@@ -13314,8 +13314,18 @@ async def record_first_shell(eid: str, request: Request):
                 if record and record["recorded"]:
                     started = record["started_at"] or now
                     ttfs = max(0, int(now - started))
-                    return {"recorded": True, "ttfs_seconds": ttfs}
-                return {"recorded": False, "reason": "first_shell_at already set"}
+                    return {"recorded": True, "ttfs_seconds": ttfs, "first_call": True}
+                # Even if already set, return True for sprint auto-stop
+                # (another path may have set it but auto-stop may not have fired)
+                r2 = session.run("""
+                    MATCH (e:Engagement {id: $eid})
+                    RETURN e.first_shell_at AS shell, e.started_at AS started
+                """, eid=eid).single()
+                if r2 and r2["shell"]:
+                    started = r2["started"] or now
+                    ttfs = max(0, int(r2["shell"] - started))
+                    return {"recorded": True, "ttfs_seconds": ttfs, "first_call": False}
+                return {"recorded": False, "reason": "no engagement found"}
         result = await neo4j_exec(_record)
 
         # Sprint mode auto-stop: first shell = engagement complete
