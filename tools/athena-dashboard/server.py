@@ -6572,6 +6572,9 @@ async def get_exploit_stats(eid: str):
                     deduped_details = []
                     for ex in (record["exploit_details"] or []):
                         title = ex.get("title") or ""
+                        # Filter out batch summaries and noise
+                        if any(pat in title.lower() for pat in NOT_EXPLOIT_PATTERNS):
+                            continue
                         key = _dedup_key(title, ex.get("host_ip") or ex.get("target") or "")
                         if key and key not in seen_cve_keys:
                             seen_cve_keys.add(key)
@@ -6591,6 +6594,17 @@ async def get_exploit_stats(eid: str):
     # when Neo4j returned partial data (non-zero but lower than in-memory).
     # BUG-S2-004 fix: Exclude port/batch summary findings from discovered count.
     SUMMARY_PATTERNS = ('open tcp port', 'open udp port', 'open ports', 'cves confirmed', 'cves detected')
+    # Patterns that are NOT real exploits — summaries, batch reports, bus noise
+    NOT_EXPLOIT_PATTERNS = (
+        'strong signal (shell)',     # Raw bus JSON dumps
+        'vf verified',               # VF summary reports ("VF verified 11 findings...")
+        'false positive',            # FP corrections
+        'correction:',               # Finding corrections
+        'retracted',                 # Retracted findings
+        'cves detected',             # Batch CVE listings (not individual exploits)
+        'cve(s) detected',           # Variant of above
+        'new confirmed:',            # Batch confirmation summaries
+    )
     mem_findings = [f for f in state.findings if f.engagement == eid]
     mem_findings_clean = [
         f for f in mem_findings
@@ -6607,8 +6621,11 @@ async def get_exploit_stats(eid: str):
         verification = getattr(f, 'verification_status', '') or ''
         is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
         if is_confirmed:
-            # Multi-tier dedup: CVE → service:port → normalized title
             title = f.title or ""
+            # Filter out batch summaries and noise — not real individual exploits
+            if any(pat in title.lower() for pat in NOT_EXPLOIT_PATTERNS):
+                continue
+            # Multi-tier dedup: CVE → service → normalized title
             _host = getattr(f, 'target', '') or getattr(f, 'host_ip', '') or ''
             mem_key = _dedup_key(title, _host)
             if mem_key and mem_key in seen_mem_cve_keys:
