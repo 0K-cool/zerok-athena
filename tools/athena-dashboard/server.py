@@ -1102,10 +1102,13 @@ async def post_agent_message(payload: AgentMessagePayload):
                "priority":"high","content":"Internal API at :8443/api/v2 — no auth required",
                "neo4j_ref":"svc-abc123"}'
     """
-    # Validate agents exist
-    if payload.from_agent not in AGENT_NAMES:
+    # Validate agents exist (resolve numbered agents like EX-1 → EX for validation)
+    from agent_configs import resolve_role_code
+    _from_base = resolve_role_code(payload.from_agent)
+    _to_base = resolve_role_code(payload.to_agent)
+    if _from_base not in AGENT_NAMES:
         return JSONResponse(status_code=400, content={"error": f"Unknown sender: {payload.from_agent}"})
-    if payload.to_agent not in AGENT_NAMES:
+    if _to_base not in AGENT_NAMES:
         return JSONResponse(status_code=400, content={"error": f"Unknown recipient: {payload.to_agent}"})
     if payload.from_agent == payload.to_agent:
         return JSONResponse(status_code=400, content={"error": "Agent cannot message itself"})
@@ -1118,7 +1121,7 @@ async def post_agent_message(payload: AgentMessagePayload):
 
     # Validate communication rule (recipient allowed for this message type)
     allowed = AGENT_COMM_RULES[payload.msg_type]
-    if payload.to_agent not in allowed:
+    if _to_base not in allowed and payload.to_agent not in allowed:
         return JSONResponse(status_code=400, content={
             "error": f"{payload.from_agent} cannot send '{payload.msg_type}' to {payload.to_agent}. "
                      f"Allowed recipients: {allowed}"
