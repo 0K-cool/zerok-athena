@@ -2151,10 +2151,13 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
             "Use the Read tool to read each playbook file. Do NOT skip this step.\n"
         )
     if role.rag_queries and mode != "ctf":
-        query_lines = "\n".join(f'  - search_kb("{q}")' for q in role.rag_queries)
+        query_lines = "\n".join(
+            f'  - mcp__athena-knowledge-base__search_kb query="{q}" top_k=3'
+            for q in role.rag_queries
+        )
         kb_section += (
             "\nKNOWLEDGE BASE — MANDATORY FIRST ACTION:\n"
-            "Before starting your workflow, run these KB searches:\n"
+            "Before starting your workflow, run these KB searches using the MCP tool:\n"
             f"{query_lines}\n"
             "Read the results and use them to inform your approach. "
             "During your work, query the KB again whenever you encounter "
