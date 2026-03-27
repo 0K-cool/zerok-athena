@@ -10995,12 +10995,18 @@
           if (!countBadge) {
             countBadge = document.createElement('span');
             countBadge.className = 'parallel-count';
-            countBadge.style.cssText = 'position:absolute;top:2px;right:2px;background:var(--zerok-high);color:#fff;font-size:9px;font-weight:700;border-radius:50%;width:14px;height:14px;display:flex;align-items:center;justify-content:center;';
+            countBadge.style.cssText = 'position:absolute;top:2px;right:2px;background:#22c55e;color:#fff;font-size:9px;font-weight:700;border-radius:50%;width:14px;height:14px;display:flex;align-items:center;justify-content:center;';
             cell.style.position = 'relative';
             cell.appendChild(countBadge);
           }
           countBadge.textContent = runningCount > 0 ? runningCount : totalCount;
-          countBadge.style.background = runningCount > 0 ? 'var(--zerok-high)' : 'var(--zerok-info)';
+          if (runningCount > 0) {
+            countBadge.style.background = '#22d3ee';  // Cyan when running
+            countBadge.style.color = '#facc15';        // Yellow number (matches ST cyan/yellow)
+          } else {
+            countBadge.style.background = '#22c55e';  // Green when spawned/idle
+            countBadge.style.color = '#fff';
+          }
         } else if (countBadge) {
           countBadge.remove();
         }
