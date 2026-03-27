@@ -13252,7 +13252,30 @@ async def record_first_shell(eid: str, request: Request):
                 "metadata": {"control": "engagement_stopped"},
                 "timestamp": time.time(),
             })
-            asyncio.ensure_future(_active_session_manager.stop())
+            # Nullify global immediately so state_sync sends engagement_active: false on WS reconnect
+            _manager_to_stop = _active_session_manager
+            _active_session_manager = None
+            # Cancel engagement_task so both sides of state_sync formula go false
+            if state.engagement_task and not state.engagement_task.done():
+                state.engagement_task.cancel()
+            # Mark engagement as completed in Neo4j
+            if neo4j_available and neo4j_driver:
+                try:
+                    def _mark_completed():
+                        with neo4j_driver.session() as session:
+                            session.run("""
+                                MATCH (e:Engagement {id: $eid})
+                                SET e.status = 'completed', e.completed_at = $now
+                            """, eid=eid, now=time.time())
+                    await neo4j_exec(_mark_completed)
+                except Exception:
+                    pass
+            # Update in-memory engagement status
+            for eng in state.engagements:
+                if eng.id == eid:
+                    eng.status = "completed"
+                    break
+            asyncio.ensure_future(_manager_to_stop.stop())
             # Auto-generate Speed Report Card after sprint completion
             asyncio.ensure_future(_generate_speed_report_card(eid))
 
