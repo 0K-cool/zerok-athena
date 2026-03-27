@@ -316,15 +316,36 @@ If no shell is obtained within 25 minutes, redirect all agents to the single mos
 """
 
 _EX_SPRINT_DIRECTIVES = """
-SPRINT MODE — EXPLOITATION SPEED RULES:
-1. Target ONLY top 3 highest-severity findings from AR/DA. Ignore medium/low.
-2. 60-second timeout per exploit attempt. 2 retries max. Then move to next target.
-3. Use simplest tools first: nc, curl, direct connection, searchsploit one-liners.
-4. Skip Metasploit framework startup unless nothing else works — msfconsole takes 15-20s.
-5. When you get a shell, IMMEDIATELY:
-   a. POST to /api/engagements/{eid}/first-shell with {"agent":"EX","method":"<exploit>","target":"<ip:port>"}
-   b. POST to /api/messages with {"from_agent":"EX","to_agent":"ST","msg_type":"shell_obtained","content":"SHELL CONFIRMED: <details>","priority":"critical"}
-   c. Do NOT continue exploiting other targets. Sprint = first shell only.
+SPRINT MODE — EXPLOITATION SPEED RULES (v2):
+
+TIMING: You have 60 SECONDS per exploit attempt. If a command hangs or returns no result
+in 60 seconds, ABANDON IT and move to the next target. Do NOT retry the same exploit more
+than once. 2 attempts max per target, then move on. Speed is everything.
+
+TOOL PRIORITY (fastest first — use this exact order):
+1. Direct connection: nc <ip> <port>, telnet <ip> <port>, curl http://<ip>:<port>/
+2. Default credentials: try admin/admin, root/root, service-specific defaults
+3. Known backdoors: vsftpd 2.3.4 (port 6200), UnrealIRCd (AB;), bindshell (1524)
+4. searchsploit one-liners: searchsploit <service> then run the simplest PoC
+5. Manual exploitation: craft the exploit command yourself from CVE details
+6. Metasploit ONLY as last resort — msfconsole takes 15-20s to start
+
+DO NOT:
+- Start msfconsole unless all simpler methods failed
+- Run full vulnerability scanners (nuclei, nikto) — that's AR/DA's job
+- Spend more than 60 seconds on any single exploit attempt
+- Retry an exploit that already failed with the same parameters
+- Continue exploiting after first shell is confirmed
+
+WHEN YOU GET A SHELL — IMMEDIATELY:
+1. POST to /api/engagements/{eid}/first-shell with {"agent":"EX","method":"<exploit>","target":"<ip:port>"}
+2. POST to /api/messages with {"from_agent":"EX","to_agent":"ST","msg_type":"shell_obtained","content":"SHELL CONFIRMED: <details>","priority":"critical"}
+3. STOP. Do not exploit any more targets. Sprint = first shell only.
+
+PARALLEL ATTEMPTS: If you have multiple promising targets, try sending 2-3 exploit commands
+in a single tool call batch (multiple execute_command calls in one message). The Kali backend
+processes them — don't wait for one to finish before starting the next.
+
 You have FULL AUTONOMY. No HITL approval needed. Exploit immediately.
 """
 
@@ -1946,6 +1967,37 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
     ),
 }
 
+# Sprint Mode: Parallel EX agent variants (EX-1, EX-2, EX-3)
+# These share EX's base config but have unique codes for concurrent spawning.
+# Only used when system tier supports parallel EX (Performance/Beast).
+_ex_base = AGENT_ROLES["EX"]
+for _i in range(1, 4):
+    _code = f"EX-{_i}"
+    AGENT_ROLES[_code] = AgentRoleConfig(
+        code=_code,
+        name=f"Exploitation #{_i}",
+        model=_ex_base.model,
+        ptes_phase=_ex_base.ptes_phase,
+        max_tool_calls=60,   # Reduced: each EX instance targets 1 finding
+        max_cost_usd=4.00,   # Reduced: ~1/3 of full EX budget
+        max_turns_per_chunk=8,
+        allowed_tools=_ex_base.allowed_tools,
+        disallowed_tools=_ex_base.disallowed_tools,
+        system_prompt_template=_ex_base.system_prompt_template,
+        ctf_prompt_template=_ex_base.ctf_prompt_template,
+        playbooks=_ex_base.playbooks,
+        rag_queries=_ex_base.rag_queries,
+    )
+
+
+def resolve_role_code(code: str) -> str:
+    """Map numbered agent codes to their base role. E.g. 'EX-1' → 'EX', 'AR' → 'AR'."""
+    if code in AGENT_ROLES:
+        return code
+    # Strip numeric suffix: EX-1 → EX, EX-2 → EX
+    base = code.rsplit("-", 1)[0] if "-" in code else code
+    return base if base in AGENT_ROLES else code
+
 
 # BUG-006 fix: Agent codes allowed per engagement type
 # "universal" agents are always spawned regardless of type
@@ -2060,24 +2112,26 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
             autonomy_section += _ST_HITL_BYPASS_CTF
         if is_sprint:
             autonomy_section += _ST_HITL_BYPASS_SPRINT
-    elif role.code in ("AR", "WV", "EX", "VF", "DA", "PX"):
+    else:
         # Worker agents get the requester side
-        section = (
-            _NOVEL_TECHNIQUE_CTF if is_autonomous
-            else _NOVEL_TECHNIQUE_CLIENT
-        ).replace("{agent_code}", role.code)
-        autonomy_section = section
-        # EX gets additional exploitation autonomy in CTF/lab mode
-        if role.code == "EX" and is_autonomous:
-            autonomy_section += _EX_HITL_BYPASS_CTF
-        # Sprint-specific directives per agent
-        if is_sprint:
-            if role.code == "EX":
-                autonomy_section += _EX_SPRINT_DIRECTIVES
-            elif role.code == "AR":
-                autonomy_section += _AR_SPRINT_DIRECTIVES
-            elif role.code == "VF":
-                autonomy_section += _VF_SPRINT_DIRECTIVES
+        base_code = resolve_role_code(role.code)  # EX-1 → EX, AR → AR
+        if base_code in ("AR", "WV", "EX", "VF", "DA", "PX"):
+            section = (
+                _NOVEL_TECHNIQUE_CTF if is_autonomous
+                else _NOVEL_TECHNIQUE_CLIENT
+            ).replace("{agent_code}", role.code)
+            autonomy_section = section
+            # EX (and EX-N variants) get additional exploitation autonomy in CTF/lab mode
+            if base_code == "EX" and is_autonomous:
+                autonomy_section += _EX_HITL_BYPASS_CTF
+            # Sprint-specific directives per agent
+            if is_sprint:
+                if base_code == "EX":
+                    autonomy_section += _EX_SPRINT_DIRECTIVES
+                elif base_code == "AR":
+                    autonomy_section += _AR_SPRINT_DIRECTIVES
+                elif base_code == "VF":
+                    autonomy_section += _VF_SPRINT_DIRECTIVES
     # RP gets nothing (reporter, no tools)
 
     prompt = formatted + kb_section + autonomy_section

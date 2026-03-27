@@ -3874,6 +3874,10 @@
       background: color-mix(in srgb, var(--zerok-high) 15%, transparent);
       color: var(--zerok-high);
     }
+    .report-type-badge.speed {
+      background: rgba(249, 115, 22, 0.15);
+      color: #f97316;
+    }
 
     [data-report-status="generating"].active {
       border-color: var(--zerok-info);
@@ -7709,6 +7713,35 @@
                   <div class="config-edit-actions">
                     <button class="modal-btn modal-btn-primary" onclick="saveConfigSection('langfuse')">Save</button>
                     <button class="modal-btn modal-btn-cancel" onclick="toggleConfigEdit('langfuse')">Cancel</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Performance / Resource Scaling Card -->
+              <div class="config-detail-card" id="cfg-card-performance">
+                <div class="config-detail-header">
+                  <span class="config-detail-title">Performance</span>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <span class="config-status-badge enabled" id="cfg-perf-badge"><span class="config-status-dot"></span> Auto</span>
+                  </div>
+                </div>
+                <div class="config-detail-body" id="cfg-perf-body">
+                  <div class="config-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                    <div class="config-field"><span class="config-field-label">CPU Cores</span><span class="config-field-value" id="perf-cpu">—</span></div>
+                    <div class="config-field"><span class="config-field-label">RAM</span><span class="config-field-value" id="perf-ram">—</span></div>
+                    <div class="config-field"><span class="config-field-label">Tier</span><span class="config-field-value" id="perf-tier">—</span></div>
+                    <div class="config-field"><span class="config-field-label">Max Agents</span><span class="config-field-value" id="perf-max-agents">—</span></div>
+                    <div class="config-field"><span class="config-field-label">Parallel EX</span><span class="config-field-value" id="perf-parallel-ex">—</span></div>
+                    <div class="config-field">
+                      <span class="config-field-label">Override</span>
+                      <select id="perf-override" onchange="updatePerfTier(this.value)" style="background:var(--zerok-bg-alt);color:var(--zerok-text);border:1px solid var(--zerok-border);border-radius:4px;padding:4px 8px;font-size:0.85em;">
+                        <option value="auto">Auto-Detect</option>
+                        <option value="light">Light (3 agents)</option>
+                        <option value="standard">Standard (5 agents)</option>
+                        <option value="performance">Performance (8 agents, parallel EX)</option>
+                        <option value="beast">Beast (12 agents, 5x EX)</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -15801,6 +15834,31 @@
         setSecretDisplay('cfg-langfuse-pk-display', ed.LANGFUSE_PUBLIC_KEY);
         setSecretDisplay('cfg-langfuse-sk-display', ed.LANGFUSE_SECRET_KEY);
 
+        // --- Performance / Resource Scaling ---
+        fetch('/api/system/resources').then(function(r) { return r.json(); }).then(function(res) {
+          var cpuEl = document.getElementById('perf-cpu');
+          var ramEl = document.getElementById('perf-ram');
+          var tierEl = document.getElementById('perf-tier');
+          var maxEl = document.getElementById('perf-max-agents');
+          var pexEl = document.getElementById('perf-parallel-ex');
+          var overrideEl = document.getElementById('perf-override');
+          var badgeEl = document.getElementById('cfg-perf-badge');
+          if (cpuEl) cpuEl.textContent = res.cpu_cores || '?';
+          if (ramEl) ramEl.textContent = (res.ram_gb || '?') + ' GB';
+          if (tierEl) tierEl.textContent = (res.tier || 'auto').toUpperCase();
+          if (maxEl) maxEl.textContent = res.max_concurrent_agents || '?';
+          if (pexEl) pexEl.textContent = res.parallel_ex || 1;
+          if (overrideEl) overrideEl.value = res.override || 'auto';
+          if (badgeEl) {
+            badgeEl.className = 'config-status-badge enabled';
+            badgeEl.textContent = '';
+            var dot = document.createElement('span');
+            dot.className = 'config-status-dot';
+            badgeEl.appendChild(dot);
+            badgeEl.appendChild(document.createTextNode(' ' + (res.tier || 'auto').toUpperCase()));
+          }
+        }).catch(function() {});
+
         // --- RAG Knowledge Base ---
         var ragEnabled = cfg.rag && cfg.rag.enabled;
         var ragType = (cfg.rag && cfg.rag.type) || 'mcp-proxy';
@@ -15978,6 +16036,24 @@
       } finally {
         toggle.classList.remove('busy');
       }
+    }
+
+    function updatePerfTier(tier) {
+      fetch('/api/system/resources', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tier: tier})
+      }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.ok) {
+          var tierEl = document.getElementById('perf-tier');
+          var maxEl = document.getElementById('perf-max-agents');
+          var pexEl = document.getElementById('perf-parallel-ex');
+          if (tierEl) tierEl.textContent = (res.tier || 'auto').toUpperCase();
+          if (maxEl) maxEl.textContent = res.max_concurrent_agents || '?';
+          if (pexEl) pexEl.textContent = res.parallel_ex || 1;
+          showToast('success', 'Performance', 'Tier set to ' + (res.tier || 'auto').toUpperCase());
+        }
+      }).catch(function(e) { showToast('error', 'Performance', 'Failed: ' + e.message); });
     }
 
     function toggleConfigEdit(section) {

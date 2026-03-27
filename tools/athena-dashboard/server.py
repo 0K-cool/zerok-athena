@@ -3823,6 +3823,55 @@ async def get_ctf_scoreboard(engagement_id: str = ""):
     }
 
 
+# ── Resource-Aware Scaling ──────────────────────────────────────
+# Auto-detect host hardware at startup, calculate performance tier,
+# adjust max concurrent agents dynamically. Manual override via Settings.
+
+def _detect_system_resources() -> dict:
+    """Detect host CPU, RAM, and calculate performance tier."""
+    import os
+    cpu_cores = os.cpu_count() or 4
+    try:
+        # macOS + Linux: get total physical memory in bytes
+        mem_bytes = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+        ram_gb = round(mem_bytes / (1024 ** 3), 1)
+    except (ValueError, AttributeError):
+        ram_gb = 8.0  # fallback
+
+    # Performance tiers based on CPU cores and RAM
+    if cpu_cores <= 4 and ram_gb <= 8:
+        tier = "light"
+        max_agents = 3
+        parallel_ex = 1
+    elif cpu_cores <= 8 and ram_gb <= 16:
+        tier = "standard"
+        max_agents = 5
+        parallel_ex = 1
+    elif cpu_cores <= 16 and ram_gb <= 32:
+        tier = "performance"
+        max_agents = 8
+        parallel_ex = 3
+    else:
+        tier = "beast"
+        max_agents = 12
+        parallel_ex = 5
+
+    return {
+        "cpu_cores": cpu_cores,
+        "ram_gb": ram_gb,
+        "tier": tier,
+        "max_concurrent_agents": max_agents,
+        "parallel_ex": parallel_ex,
+        "override": None,  # None = auto-detected, string = manual override
+    }
+
+_system_resources = _detect_system_resources()
+logger.info("System resources detected: %s cores, %.1f GB RAM → tier=%s, max_agents=%d, parallel_ex=%d",
+            _system_resources["cpu_cores"], _system_resources["ram_gb"],
+            _system_resources["tier"], _system_resources["max_concurrent_agents"],
+            _system_resources["parallel_ex"])
+
+
 # ── F5: Cost Optimization & Early-Stopping ────────────────────
 
 # Per-agent budget allocation (from MAPTA research: failed attempts cost 5x more)
@@ -8678,6 +8727,147 @@ async def get_reports(engagement: Optional[str] = None, include_archived: bool =
     return reports
 
 
+async def _generate_speed_report_card(eid: str) -> dict:
+    """Generate a one-page Speed Report Card after a Sprint engagement completes."""
+    try:
+        summary = await get_engagement_summary(eid)
+        exploit_stats = await get_exploit_stats(eid)
+
+        ttfs = exploit_stats.get("ttfs_display", "—")
+        ttfs_s = exploit_stats.get("ttfs_seconds", 0)
+        ttfs_ex = exploit_stats.get("ttfs_ex_display", "—")
+        ttfs_ex_s = exploit_stats.get("ttfs_ex_seconds", 0)
+
+        # Extract first shell details from Neo4j
+        shell_method = "unknown"
+        shell_target_ip = ""
+        shell_agent = "EX"
+        if neo4j_available and neo4j_driver:
+            try:
+                def _get_shell():
+                    with neo4j_driver.session() as session:
+                        r = session.run("""
+                            MATCH (e:Engagement {id: $eid})
+                            RETURN e.first_shell_method AS method, e.first_shell_target AS target,
+                                   e.first_shell_agent AS agent, e.target AS eng_target, e.name AS name
+                        """, eid=eid).single()
+                        return dict(r) if r else {}
+                shell_data = await neo4j_exec(_get_shell)
+                shell_method = shell_data.get("method") or "unknown"
+                shell_target_ip = shell_data.get("target") or shell_data.get("eng_target") or ""
+                shell_agent = shell_data.get("agent") or "EX"
+            except Exception:
+                pass
+
+        # Calculate benchmark comparison
+        cs_breakout = 27  # CrowdStrike 2026 GTR fastest breakout
+        if ttfs_s > 0 and ttfs_s <= cs_breakout:
+            benchmark = f"CrowdStrike fastest: {cs_breakout}s | ATHENA Sprint: {ttfs_s}s  *** MATCH ***"
+        elif ttfs_s > 0:
+            benchmark = f"CrowdStrike fastest: {cs_breakout}s | ATHENA Sprint: {ttfs_s}s  ({round(ttfs_s/cs_breakout, 1)}x slower)"
+        else:
+            benchmark = "No shell obtained — benchmark N/A"
+
+        # Agent cost breakdown
+        total_cost = summary.get("duration_seconds", 0)
+        sev = summary.get("severity", {})
+
+        eng_name = ""
+        try:
+            eng_obj = next((e for e in state.engagements if e.id == eid), None)
+            eng_name = eng_obj.name if eng_obj else eid
+        except Exception:
+            eng_name = eid
+
+        from datetime import datetime
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M AST")
+
+        report_md = f"""# ATHENA Speed Assessment Report
+
+**Target:** {shell_target_ip}
+**Engagement:** {eng_name} ({eid})
+**Mode:** Sprint
+**Date:** {now_str}
+
+---
+
+## Time to First Shell: {ttfs}
+
+| Phase | Time | Details |
+|-------|------|---------|
+| End-to-End (TTFS) | **{ttfs}** | Engagement start to confirmed shell |
+| Exploitation Only (TTFS-EX) | **{ttfs_ex}** | EX agent spawn to confirmed shell |
+
+## Attack Path
+
+**Method:** {shell_method}
+**Agent:** {shell_agent}
+**Target:** {shell_target_ip}
+
+## Findings Summary
+
+| Severity | Count |
+|----------|-------|
+| Critical | {sev.get('critical', 0)} |
+| High | {sev.get('high', 0)} |
+| Medium | {sev.get('medium', 0)} |
+| Low | {sev.get('low', 0)} |
+| **Total** | **{summary.get('findings', 0)}** |
+
+## Benchmark Comparison
+
+{benchmark}
+
+> If your team cannot detect and respond in under {ttfs_s}s,
+> this attack path succeeds against your infrastructure.
+
+## Recommendations
+
+1. Patch or mitigate the exploited service ({shell_method}) immediately
+2. Deploy EDR with sub-{max(10, ttfs_s // 2)}s detection latency for this attack vector
+3. Enable automated network containment (isolate on first shell indicator)
+4. Schedule a comprehensive penetration test (Standard mode) for full coverage
+
+---
+
+*Generated by ATHENA Sprint Mode | {now_str}*
+"""
+
+        # Register the report
+        report_id = f"speed-{eid}-{int(time.time())}"
+        report_obj = {
+            "id": report_id,
+            "engagement_id": eid,
+            "type": "speed",
+            "title": "Speed Assessment Report",
+            "status": "final",
+            "format": "MD",
+            "pages": 1,
+            "findings_included": summary.get("findings", 0),
+            "exploits_confirmed": exploit_stats.get("confirmed_exploits", 0),
+            "severity": sev,
+            "summary": f"TTFS: {ttfs} | Method: {shell_method} | {benchmark}",
+            "author": "ATHENA Sprint Mode",
+            "content": report_md,
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
+        state._reports.append(report_obj)
+
+        await state.broadcast({
+            "type": "report_created",
+            "report": {"id": report_id, "type": "speed", "title": "Speed Assessment Report"},
+            "timestamp": time.time(),
+        })
+
+        logger.info("Speed Report Card generated for engagement %s: TTFS=%s", eid, ttfs)
+        return report_obj
+
+    except Exception as e:
+        logger.warning("Failed to generate Speed Report Card: %s", str(e)[:200])
+        return {}
+
+
 @app.post("/api/reports")
 async def create_report(payload: dict):
     """Register a report from an AI agent or manual creation."""
@@ -8692,6 +8882,7 @@ async def create_report(payload: dict):
         "technical": "technical", "technical report": "technical",
         "executive": "executive", "executive summary": "executive",
         "remediation": "remediation", "remediation roadmap": "remediation",
+        "speed": "speed", "speed report": "speed", "speed report card": "speed", "speed assessment": "speed",
     }
     report_type = _type_normalize.get(report_type.lower().strip(), report_type.lower().strip())
     existing_report = None
@@ -9692,6 +9883,33 @@ def _save_config():
         config_path.chmod(0o600)
     except Exception as e:
         logger.error(f"Failed to write athena-config.yaml: {e}")
+
+
+@app.get("/api/system/resources")
+async def get_system_resources():
+    """Return detected host resources and performance tier."""
+    return _system_resources
+
+
+@app.post("/api/system/resources")
+async def update_system_resources(request: Request):
+    """Override the auto-detected performance tier."""
+    global _system_resources
+    payload = await request.json()
+    override_tier = payload.get("tier")
+    valid_tiers = {"light": (3, 1), "standard": (5, 1), "performance": (8, 3), "beast": (12, 5)}
+    if override_tier == "auto":
+        _system_resources = _detect_system_resources()
+        return {"ok": True, "message": "Reset to auto-detected tier", **_system_resources}
+    if override_tier not in valid_tiers:
+        return JSONResponse(status_code=400, content={"error": f"Invalid tier. Valid: auto, {', '.join(valid_tiers)}"})
+    max_agents, parallel_ex = valid_tiers[override_tier]
+    _system_resources["tier"] = override_tier
+    _system_resources["max_concurrent_agents"] = max_agents
+    _system_resources["parallel_ex"] = parallel_ex
+    _system_resources["override"] = override_tier
+    logger.info("System resources overridden: tier=%s, max_agents=%d, parallel_ex=%d", override_tier, max_agents, parallel_ex)
+    return {"ok": True, **_system_resources}
 
 
 @app.get("/api/config/features")
@@ -11315,6 +11533,27 @@ Body: {{"agent":"WV","task":"Solve challenge <name>: <description>. Target: <url
 """
     elif is_sprint:
         # ── Sprint Mode — Race to First Shell ─────────────────────
+        # Resource-aware: spawn parallel EX agents if tier supports it
+        _parallel_ex = _system_resources.get("parallel_ex", 1)
+        if _parallel_ex >= 3:
+            _sprint_ex_context = f"""PARALLEL EXPLOITATION (Performance tier — {_parallel_ex} EX agents available):
+Spawn 3 separate EX agents, each targeting ONE specific finding. First shell from any EX wins.
+After AR/DA report findings, pick the top 3 highest-severity and assign one per EX agent:
+
+POST http://localhost:8080/api/agents/request
+Body: {{"agent":"EX-1","task":"SPRINT EXPLOIT TARGET 1: <highest severity finding>. 60s timeout. Race to shell. POST to /api/engagements/{eid}/first-shell on success.","priority":"critical"}}
+
+POST http://localhost:8080/api/agents/request
+Body: {{"agent":"EX-2","task":"SPRINT EXPLOIT TARGET 2: <second highest finding>. 60s timeout. Race to shell. POST to /api/engagements/{eid}/first-shell on success.","priority":"critical"}}
+
+POST http://localhost:8080/api/agents/request
+Body: {{"agent":"EX-3","task":"SPRINT EXPLOIT TARGET 3: <third highest finding>. 60s timeout. Race to shell. POST to /api/engagements/{eid}/first-shell on success.","priority":"critical"}}
+
+IMPORTANT: Wait for AR to report at least 3 findings before spawning EX agents. Assign each EX agent a DIFFERENT finding — do not duplicate targets."""
+        else:
+            _sprint_ex_context = f"""SINGLE EXPLOITATION (resource tier: {_system_resources.get('tier', 'standard')}):
+POST http://localhost:8080/api/agents/request
+Body: {{"agent":"EX","task":"SPRINT EXPLOIT: Monitor bus for findings from AR/DA. Target top 3 highest-severity only. 60s timeout per attempt, 2 retries max. Race to first shell. When you get a shell, POST to /api/engagements/{eid}/first-shell immediately.","priority":"critical"}}"""
         st_context = f"""ENGAGEMENT: {eid}
 Target: {target}
 Type: {', '.join(engagement_types)}
@@ -11335,15 +11574,14 @@ STRATEGY:
 AGENTS AVAILABLE: AR (recon), DA (analysis), EX (exploitation), VF (verification — only if shell needs independent confirmation)
 AGENTS DISABLED: PE, RP, PR — do NOT request them.
 
-START NOW — request all three agents simultaneously:
+START NOW — request AR and DA immediately, then EX agent(s):
 POST http://localhost:8080/api/agents/request
 Body: {{"agent":"AR","task":"SPRINT SCAN: naabu top-1000 ports on {target}, then nmap -sV --top-ports 20 on open ports. 30s timeout per host. Feed results to DA+EX immediately via bilateral messaging.","priority":"critical"}}
 
 POST http://localhost:8080/api/agents/request
 Body: {{"agent":"DA","task":"SPRINT ANALYSIS: As AR discovers services, immediately research CVEs and known exploits. Feed exploit-ready CVEs to EX via bilateral messaging. Prioritize by CVSS severity. Speed over depth.","priority":"critical"}}
 
-POST http://localhost:8080/api/agents/request
-Body: {{"agent":"EX","task":"SPRINT EXPLOIT: Monitor bus for findings from AR/DA. Target top 3 highest-severity only. 60s timeout per attempt, 2 retries max. Race to first shell. When you get a shell, POST to /api/engagements/{eid}/first-shell immediately.","priority":"critical"}}
+{_sprint_ex_context}
 """
     else:
         # ── Standard PTES Mode ────────────────────────────────────
@@ -12525,19 +12763,22 @@ async def request_agent_spawn(payload: AgentRequestPayload):
         })
 
     # BUG-006 fix: Gate agent requests by engagement type
+    # Resolve numbered agents (EX-1 → EX) for permission check
+    from agent_configs import resolve_role_code
+    _base_agent = resolve_role_code(payload.agent)
     allowed = set()
     for t in _engagement_types:
         allowed |= _AGENTS_BY_TYPE.get(t, {"ST", "PR", "AR", "WV", "DA", "PX", "EX", "PE", "VF", "RP"})
     allowed -= _skip_agents  # Remove skipped agents
-    if payload.agent not in allowed:
+    if _base_agent not in allowed:
         return JSONResponse(status_code=400, content={
-            "error": f"Agent {payload.agent} not allowed for engagement type(s) {_engagement_types}. Allowed: {sorted(allowed)}"
+            "error": f"Agent {payload.agent} (base: {_base_agent}) not allowed for engagement type(s) {_engagement_types}. Allowed: {sorted(allowed)}"
         })
 
     _active_session_manager.request_agent(payload.agent, payload.task, payload.priority)
 
     # Sprint mode: record first EX spawn timestamp for TTFS-EX calculation
-    if payload.agent == "EX" and _active_session_manager.mode == "sprint" and neo4j_available and neo4j_driver:
+    if _base_agent == "EX" and _active_session_manager.mode == "sprint" and neo4j_available and neo4j_driver:
         try:
             import time as _time_ex
             def _record_ex_spawn():
@@ -13010,6 +13251,8 @@ async def record_first_shell(eid: str, request: Request):
                 "timestamp": time.time(),
             })
             asyncio.ensure_future(_active_session_manager.stop())
+            # Auto-generate Speed Report Card after sprint completion
+            asyncio.ensure_future(_generate_speed_report_card(eid))
 
         return {"ok": True, **result}
     except Exception as e:

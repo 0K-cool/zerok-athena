@@ -1484,6 +1484,21 @@ class AgentSessionManager:
                 {"warning": True, "deferred_spawn": code})
             return
 
+        # Resource-aware concurrency limit — check before spawning
+        try:
+            from server import _system_resources
+            max_agents = _system_resources.get("max_concurrent_agents", 12)
+            running_count = sum(1 for a in self.agents.values() if a.is_running)
+            if running_count >= max_agents:
+                logger.warning("Concurrency limit reached (%d/%d) — queueing agent %s", running_count, max_agents, code)
+                await self._emit("system", "OR",
+                    f"Agent {code} queued — {running_count}/{max_agents} agents running (tier: {_system_resources.get('tier', '?')}). Will spawn when a slot opens.",
+                    {"warning": True, "queued": True})
+                self._agent_request_queue.append({"code": code, "task": task_prompt, "priority": "high"})
+                return
+        except ImportError:
+            pass  # Fallback: no limit if import fails
+
         if code in self.agents and self.agents[code].is_running:
             existing = self.agents[code]
             task = self._agent_tasks.get(code)
