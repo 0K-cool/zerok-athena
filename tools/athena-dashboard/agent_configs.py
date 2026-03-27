@@ -1550,7 +1550,7 @@ The report is the client deliverable. An engagement without a report is incomple
 4. If RP encounters errors, try re-requesting it once before giving up.
 5. The engagement is ONLY complete when reports have been generated.
 
-ORDER: AR/DA/EX/VF phases → PE (if applicable) → RP (MUST complete) → THEN stop.
+ORDER: AR/WV/DA/PX/EX/VF phases → PE (if applicable) → RP (MUST complete) → THEN stop.
 """
 
 _ST_PROMPT = _ST_PROMPT + _REALTIME_INTEL_ST + _ST_RP_COMPLETION_GATE
