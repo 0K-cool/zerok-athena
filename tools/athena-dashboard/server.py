@@ -9678,10 +9678,13 @@ async def delete_engagement_graph(eid: str):
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
-                session.run(
-                    "MATCH (e:Engagement {id: $eid}) SET e.engagement_cost = 0",
-                    eid=eid,
-                )
+                session.run("""
+                    MATCH (e:Engagement {id: $eid})
+                    SET e.engagement_cost = 0
+                    REMOVE e.first_shell_at, e.first_shell_agent, e.first_shell_method,
+                           e.first_shell_target, e.first_ex_spawn_at,
+                           e.completed_at, e.mtte_seconds, e.findings_count, e.phase
+                """, eid=eid)
         except Exception:
             pass
 
