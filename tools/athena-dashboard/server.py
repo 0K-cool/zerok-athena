@@ -4037,7 +4037,7 @@ def _detect_system_resources() -> dict:
         parallel_ex = 1
     elif cpu_cores <= 8 and ram_gb <= 16:
         tier = "standard"
-        max_agents = 5
+        max_agents = 7  # Full PTES needs ST+AR+DA+EX+VF+PE+RP (not all concurrent)
         parallel_ex = 1
     elif cpu_cores <= 16 and ram_gb <= 32:
         tier = "performance"
@@ -7412,39 +7412,76 @@ async def create_engagement_finding(eid: str, payload: FindingPayload):
 
 @app.patch("/api/engagements/{eid}/findings/{fid}")
 async def patch_finding(eid: str, fid: str, request: Request):
-    """Allow agents to update status and evidence on existing findings."""
-    payload = await request.json()
-    allowed = {"status", "evidence", "verification_status", "confirmed_at", "exploited_by"}
+    """Allow agents (especially VF) to update status and evidence on existing findings.
+
+    Accepted fields: status, evidence, verification_status, confirmed_at, exploited_by, verified.
+    When status="confirmed", auto-sets confirmed_at and verified=true.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
+
+    allowed = {"status", "evidence", "verification_status", "confirmed_at", "exploited_by", "verified"}
     updates = {k: v for k, v in payload.items() if k in allowed}
     if not updates:
-        return JSONResponse(status_code=400, content={"error": "No valid fields to update"})
+        return JSONResponse(status_code=400, content={"error": f"No valid fields. Allowed: {sorted(allowed)}"})
+
+    # Map "status" to fields the Finding model actually has
+    # "status" is stored on the Neo4j node but Finding model uses verification_status
+    if "status" in updates:
+        status_val = updates["status"]
+        updates["verification_status"] = status_val
+        if status_val in ("confirmed", "likely"):
+            updates["verified"] = True
+
+    # Auto-set confirmed_at when status transitions to confirmed
+    auto_confirmed_at = None
+    if updates.get("verification_status") == "confirmed":
+        auto_confirmed_at = time.time()
+        updates["confirmed_at"] = auto_confirmed_at
 
     # Update in-memory state
+    found = False
     for f in state.findings:
         if f.id == fid and f.engagement == eid:
+            found = True
             for k, v in updates.items():
-                setattr(f, k, v)
-            # Set confirmed_at if status becoming confirmed
-            if updates.get("status") == "confirmed" and not f.confirmed_at:
-                import time as _t
-                f.confirmed_at = _t.time()
+                if hasattr(f, k):
+                    setattr(f, k, v)
+            if auto_confirmed_at and not f.confirmed_at:
+                f.confirmed_at = auto_confirmed_at
             break
 
     # Update Neo4j
     if neo4j_available and neo4j_driver and updates:
         def _patch_neo4j():
-            set_clauses = ", ".join(f"f.{k} = ${k}" for k in updates)
+            # Build SET clause for all update fields + status field for Neo4j
+            neo4j_updates = dict(updates)
+            if auto_confirmed_at:
+                neo4j_updates["confirmed_at"] = auto_confirmed_at
+            set_clauses = ", ".join(f"f.{k} = ${k}" for k in neo4j_updates)
             with neo4j_driver.session() as session:
                 session.run(
                     f"MATCH (f:Finding {{id: $id, engagement_id: $eid}}) SET {set_clauses}",
-                    id=fid, eid=eid, **updates
+                    id=fid, eid=eid, **neo4j_updates
                 )
         try:
             await neo4j_exec(_patch_neo4j)
         except Exception as e:
-            logger.warning("Finding PATCH Neo4j error: %s", str(e)[:100])
+            logger.warning("Finding PATCH Neo4j error: %s", str(e)[:200])
 
-    return {"ok": True, "updated": fid, "fields": list(updates.keys())}
+    # Broadcast finding_updated event
+    await state.broadcast({
+        "type": "finding_updated",
+        "finding_id": fid,
+        "engagement_id": eid,
+        "updates": {k: str(v)[:100] for k, v in updates.items()},
+        "timestamp": time.time(),
+    })
+
+    return {"ok": True, "updated": fid, "fields": list(updates.keys()),
+            "confirmed_at": auto_confirmed_at, "found_in_memory": found}
 
 
 @app.delete("/api/engagements/{eid}/findings")
@@ -10170,7 +10207,7 @@ async def update_system_resources(request: Request):
     global _system_resources
     payload = await request.json()
     override_tier = payload.get("tier")
-    valid_tiers = {"light": (3, 1), "standard": (5, 1), "performance": (8, 3), "beast": (12, 5)}
+    valid_tiers = {"light": (3, 1), "standard": (7, 1), "performance": (8, 3), "beast": (12, 5)}
     if override_tier == "auto":
         _system_resources = _detect_system_resources()
         return {"ok": True, "message": "Reset to auto-detected tier", **_system_resources}
