@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from agent_configs import AGENT_ROLES, AgentRoleConfig, format_prompt, get_role
+from finding_utils import _compute_finding_fingerprint
 from langfuse_integration import trace_engagement, is_enabled as langfuse_enabled
 from message_bus import MessageBus
 from sdk_agent import AthenaAgentSession
@@ -385,6 +386,10 @@ class AgentSessionManager:
         # BUG-033: Heartbeat timer — send ST periodic status when workers are active
         self._last_heartbeat: float = 0.0
         self._heartbeat_interval: float = 60.0  # seconds between heartbeats
+        # BUG-028b: Track ST tool call start time for auto-cancel on long-running tool calls
+        self._st_tool_call_started_at: float | None = None
+        # Worker idle watchdog: track last tool_start time per worker code
+        self._worker_last_tool_call: dict[str, float] = {}
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to dashboard.
@@ -465,14 +470,43 @@ class AgentSessionManager:
                     return  # Legacy: skip low/medium noise
 
                 try:
-                    import hashlib
                     from uuid import uuid4 as _uuid4
 
                     target = msg.target or ""
                     data = msg.data or {}
-                    fingerprint = hashlib.sha256(
-                        f"{msg.summary}:{target}:{msg.from_agent}".encode()
-                    ).hexdigest()[:16]
+
+                    # Extract parameters for vulnerability-identity fingerprint
+                    _cve_list = data.get("cve", [])
+                    _cve = (_cve_list[0] if isinstance(_cve_list, list) and _cve_list
+                            else _cve_list if isinstance(_cve_list, str) and _cve_list
+                            else None)
+                    _host_ip = None
+                    _ip_match = __import__("re").search(
+                        r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', target
+                    )
+                    if _ip_match:
+                        _host_ip = _ip_match.group(1)
+                    if not _host_ip:
+                        _ports = data.get("ports", [])
+                        for _p in _ports:
+                            if _p.get("host"):
+                                _host_ip = _p["host"]
+                                break
+                    _service_port = data.get("port")
+                    if not _service_port:
+                        _ports = data.get("ports", [])
+                        if _ports:
+                            _service_port = _ports[0].get("port")
+                    if _service_port is not None:
+                        try:
+                            _service_port = int(_service_port)
+                        except (TypeError, ValueError):
+                            _service_port = None
+
+                    fingerprint = _compute_finding_fingerprint(
+                        eid, msg.summary[:200], target,
+                        _cve, _host_ip, _service_port,
+                    )
                     finding_id = f"bus-{fingerprint}"
 
                     def _persist():
@@ -485,21 +519,28 @@ class AgentSessionManager:
                             finding_severity = data.get("severity", msg.priority)
 
                             sess.run(
-                                "MERGE (f:Finding {id: $id}) "
+                                "MERGE (f:Finding {fingerprint: $fingerprint, engagement_id: $eid}) "
+                                "ON CREATE SET f.id = $id, f.discovered_at = datetime(), f.status = 'open' "
+                                "WITH f, "
+                                "    {info: 0, low: 1, medium: 2, high: 3, critical: 4} AS ranks "
                                 "SET f.title = $title, "
-                                "    f.severity = $severity, "
+                                "    f.severity = CASE WHEN f.severity IS NULL OR "
+                                "        coalesce(ranks[f.severity], 0) < coalesce(ranks[$severity], 0) "
+                                "        THEN $severity ELSE f.severity END, "
                                 "    f.category = $category, "
                                 "    f.finding_type = $finding_type, "
                                 "    f.confidence = $confidence, "
                                 "    f.state = $state, "
                                 "    f.target = $target, "
-                                "    f.agent = $agent, "
                                 "    f.description = $description, "
-                                "    f.engagement_id = $eid, "
                                 "    f.fingerprint = $fingerprint, "
                                 "    f.discovery_source = 'bus', "
                                 "    f.bus_type = $bus_type, "
                                 "    f.unvalidated = $unvalidated, "
+                                "    f.contributing_agents = "
+                                "        CASE WHEN $agent IN coalesce(f.contributing_agents, []) "
+                                "        THEN f.contributing_agents "
+                                "        ELSE coalesce(f.contributing_agents, []) + [$agent] END, "
                                 "    f.timestamp = datetime()",
                                 id=finding_id,
                                 title=msg.summary[:200],
@@ -932,6 +973,25 @@ class AgentSessionManager:
         st_task = self._agent_tasks.get("ST")
         # BUG-H4: Also check task.done() — is_running goes False in finally before task completes
         if st and (st.is_running or (st_task and not st_task.done())):
+            # Auto-cancel if ST has a tool call running >30s when operator sends any command
+            if st.is_running and st._query_task and not st._query_task.done():
+                tool_call_age = (
+                    time.time() - self._st_tool_call_started_at
+                    if self._st_tool_call_started_at is not None
+                    else 0
+                )
+                if tool_call_age > 30:
+                    logger.warning(
+                        "Operator command during long tool call (%.1fs) — force-cancelling ST: %s",
+                        tool_call_age, command[:80]
+                    )
+                    st._query_task.cancel()
+                    self._st_tool_call_started_at = None
+                    # Queue command with high priority marker for re-spawn
+                    self._pending_commands.append(
+                        f"OPERATOR COMMAND (HIGH PRIORITY — interrupted long-running operation):\n{command}"
+                    )
+                    return "Interrupted long-running operation — ST will process your command immediately."
             blocking = _is_blocking_command(command)
             if blocking and st.session_id and st._query_task and not st._query_task.done():
                 # BLOCKING: Signal _run_query to break at next message chunk boundary.
@@ -1261,6 +1321,7 @@ class AgentSessionManager:
         for code in completed:
             self.bus.unregister(code)
             del self._agent_tasks[code]
+            self._worker_last_tool_call.pop(code, None)
 
         # Auto-spawn RP if it was blocked and all workers are now done
         if self._pending_rp_request:
@@ -1285,6 +1346,7 @@ class AgentSessionManager:
         # but when ST budget-exhausts, workers keep running with no coordinator.
         # Now: ST completion = engagement over. Stop any remaining workers.
         if "ST" in completed and not self._paused:
+            self._st_tool_call_started_at = None  # Clear on ST session end
             # BUG-038 FIX: ST's idle timeout fires while workers are ACTIVELY running.
             # Previously killed all workers immediately. Now: check if workers are active.
             # If active, re-spawn ST to coordinate. If all done, end engagement.
@@ -1346,6 +1408,30 @@ class AgentSessionManager:
         # Prevents ST from timing out (300s idle) while scans are running.
         if "ST" not in completed:
             await self._maybe_send_heartbeat()
+
+        # Worker idle watchdog — redirect agents stuck with no tool calls for 120s
+        _WORKER_IDLE_TIMEOUT = 120.0
+        now = time.time()
+        for code, session in list(self._agents.items()):
+            if code in ("ST", "CR") or not session.is_running:
+                continue
+            last_call = self._worker_last_tool_call.get(code)
+            if last_call is None:
+                continue
+            idle_secs = now - last_call
+            if idle_secs > _WORKER_IDLE_TIMEOUT:
+                if code == "EX":
+                    redirect = (
+                        "REDIRECT: You appear idle. Query Neo4j for remaining HIGH/CRITICAL "
+                        "findings and continue exploitation. Do NOT stop after one exploit."
+                    )
+                else:
+                    redirect = (
+                        "REDIRECT: You appear idle. Check Neo4j for remaining tasks and continue."
+                    )
+                logger.warning("IDLE WATCHDOG: %s no tool calls for %.0fs — redirecting", code, idle_secs)
+                self._worker_last_tool_call[code] = now  # Reset to avoid repeated redirects
+                await session.send_command(redirect)
 
     async def _maybe_send_heartbeat(self):
         """Fallback keepalive: only fires when no bus traffic for 60s.
@@ -1555,7 +1641,31 @@ class AgentSessionManager:
 
         # Wire event callback (same pipeline as single-agent mode)
         if self._event_callback:
-            session.set_event_callback(self._event_callback)
+            if code == "ST":
+                # Wrap ST's callback to track tool call start/end times for auto-cancel
+                _outer_cb = self._event_callback
+                _manager_ref = self
+
+                async def _st_tracking_callback(event: dict):
+                    evt_type = event.get("type")
+                    if evt_type == "tool_start":
+                        _manager_ref._st_tool_call_started_at = time.time()
+                    elif evt_type == "tool_complete":
+                        _manager_ref._st_tool_call_started_at = None
+                    await _outer_cb(event)
+
+                session.set_event_callback(_st_tracking_callback)
+            else:
+                _outer_cb_w = self._event_callback
+                _mgr = self
+                _code = code
+
+                async def _worker_tracking_callback(event: dict):
+                    if event.get("type") == "tool_start":
+                        _mgr._worker_last_tool_call[_code] = time.time()
+                    await _outer_cb_w(event)
+
+                session.set_event_callback(_worker_tracking_callback)
         else:
             logger.error(
                 "CRITICAL: Spawning agent %s with no event callback — "

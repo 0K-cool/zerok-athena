@@ -1,0 +1,134 @@
+"""Shared finding utilities for ATHENA deduplication.
+
+Extracted from server.py so agent_session_manager.py (bus pipeline)
+can use the same 5-tier fingerprint logic as /api/findings.
+"""
+
+import hashlib
+import re as _re_fp
+
+
+def _compute_finding_fingerprint(
+    engagement_id: str, title: str, target: str,
+    cve: str | None, host_ip: str | None, service_port: int | None,
+) -> str:
+    """Compute a stable fingerprint for finding deduplication.
+
+    5-tier strategy (based on Faraday/DefectDojo research):
+      Tier 1: CVE + host + port (strongest — deterministic across agents)
+      Tier 2: CVE + host (when port unknown)
+      Tier 3: CVE only (single-target engagements)
+      Tier 4: Service canonical name + host + port (non-CVE: default creds, backdoors)
+      Tier 5: Normalized title + target (last resort)
+
+    Returns 16-char hex digest (collision probability ~1 in 2^64).
+
+    Key principle: same vulnerability on same host = same fingerprint,
+    regardless of which agent reports it or how they phrase the title.
+    """
+    title_lower = (title or "").lower()
+
+    # Auto-extract CVE from title if not explicitly provided
+    if not cve:
+        cve_match = _re_fp.search(r'CVE-\d{4}-\d+', title, _re_fp.IGNORECASE)
+        if cve_match:
+            cve = cve_match.group(0)
+
+    # Auto-extract host_ip from target if not provided
+    if not host_ip and target:
+        ip_match = _re_fp.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', target)
+        if ip_match:
+            host_ip = ip_match.group(1)
+
+    # Auto-extract port from target or title if not provided
+    if not service_port:
+        port_match = _re_fp.search(r':(\d{1,5})\b', target or '') or \
+                     _re_fp.search(r'port\s*(\d{1,5})', title_lower)
+        if port_match:
+            p = int(port_match.group(1))
+            if 1 <= p <= 65535:
+                service_port = p
+
+    # Tier 1: CVE + host + port (strongest — cross-agent, deterministic)
+    if cve and host_ip and service_port:
+        key = f"{engagement_id}|{cve.upper()}|{host_ip}|{service_port}"
+        return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+    # Tier 2: CVE + host (port unknown but host known)
+    if cve and host_ip:
+        key = f"{engagement_id}|{cve.upper()}|{host_ip}"
+        return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+    # Tier 3: CVE only (single-target engagement, host implicit)
+    if cve:
+        key = f"{engagement_id}|{cve.upper()}"
+        return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+    # Tier 4: Service-based dedup for non-CVE findings (default creds, backdoors, misconfigs)
+    # Two strategies: (A) well-known port → service, (B) keyword → service
+    #
+    # Strategy A: Port-based service identification (works for ANY environment)
+    # IANA well-known ports — not hardcoded to any specific target
+    _PORT_TO_SERVICE = {
+        21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 53: "dns",
+        80: "http", 110: "pop3", 111: "rpc", 135: "msrpc", 139: "netbios",
+        143: "imap", 443: "https", 445: "smb", 465: "smtps", 587: "smtp",
+        993: "imaps", 995: "pop3s", 1433: "mssql", 1521: "oracle",
+        1524: "ingreslock", 2049: "nfs", 2121: "ftp", 3306: "mysql",
+        3389: "rdp", 3632: "distccd", 5432: "postgresql", 5900: "vnc",
+        5985: "winrm", 5986: "winrm", 6379: "redis", 6667: "irc",
+        8080: "http-proxy", 8443: "https-alt", 8787: "rmi",
+        8888: "http-alt", 9200: "elasticsearch", 11211: "memcached",
+        27017: "mongodb", 6380: "redis",
+    }
+    # Strategy B: Keyword-based service identification (catches service names in titles)
+    # Ordered by specificity — longer/more specific keywords first
+    _KEYWORD_TO_SERVICE = [
+        ("apache tomcat", "tomcat"), ("tomcat", "tomcat"),
+        ("postgresql", "postgresql"), ("postgres", "postgresql"), ("psql", "postgresql"),
+        ("microsoft sql", "mssql"), ("mssql", "mssql"),
+        ("mysql", "mysql"), ("mariadb", "mysql"),
+        ("mongodb", "mongodb"), ("redis", "redis"),
+        ("elasticsearch", "elasticsearch"), ("memcached", "memcached"),
+        ("openssh", "ssh"), ("ssh", "ssh"),
+        ("vsftpd", "ftp"), ("proftpd", "ftp"), ("pureftpd", "ftp"), ("ftp", "ftp"),
+        ("samba", "smb"), ("smb", "smb"), ("cifs", "smb"),
+        ("telnet", "telnet"),
+        ("ingreslock", "ingreslock"), ("bindshell", "ingreslock"), ("bind shell", "ingreslock"),
+        ("unrealircd", "irc"), ("irc", "irc"),
+        ("distccd", "distccd"), ("distcc", "distccd"),
+        ("nfs", "nfs"), ("vnc", "vnc"), ("rdp", "rdp"),
+        ("rmi", "rmi"), ("java rmi", "rmi"), ("ruby drb", "rmi"),
+        ("winrm", "winrm"), ("wmi", "wmi"),
+        ("ldap", "ldap"), ("active directory", "ldap"),
+        ("kerberos", "kerberos"), ("snmp", "snmp"),
+        ("smtp", "smtp"), ("pop3", "pop3"), ("imap", "imap"),
+        ("php", "php"), ("webdav", "webdav"),
+        ("jenkins", "jenkins"), ("jboss", "jboss"), ("weblogic", "weblogic"),
+        ("iis", "iis"), ("nginx", "nginx"), ("apache", "apache"),
+        ("docker", "docker"), ("kubernetes", "kubernetes"), ("k8s", "kubernetes"),
+        ("aws", "aws"), ("azure", "azure"), ("gcloud", "gcloud"),
+    ]
+
+    service = ""
+    # Try port-based identification first (most reliable for any environment)
+    if service_port and service_port in _PORT_TO_SERVICE:
+        service = _PORT_TO_SERVICE[service_port]
+    # Fall back to keyword matching in title
+    if not service:
+        for keyword, canonical in _KEYWORD_TO_SERVICE:
+            if keyword in title_lower:
+                service = canonical
+                break
+
+    if service:
+        host_part = host_ip or ""
+        port_part = str(service_port) if service_port else ""
+        key = f"{engagement_id}|{service}|{host_part}|{port_part}"
+        return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+    # Tier 5: Normalized title fallback (last resort — different titles = different findings)
+    title_norm = " ".join(title_lower.split())
+    target_norm = (target or "").lower().strip()
+    key = f"{engagement_id}|{title_norm}|{target_norm}"
+    return hashlib.sha256(key.encode()).hexdigest()[:16]

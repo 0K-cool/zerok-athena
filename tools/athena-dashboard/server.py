@@ -1047,7 +1047,10 @@ async def post_event(payload: EventPayload):
                 asyncio.create_task(_auto_stop_with_rp_gate(eid))
     # Phase F2: Bilateral message events (posted via /api/messages, but also renderable here)
     elif payload.type == "agent_message":
-        await state.update_agent_status(payload.agent, AgentStatus.RUNNING, payload.content)
+        # BUG-005b: Don't downgrade an agent that's already COMPLETED
+        current = state.agent_statuses.get(payload.agent, AgentStatus.IDLE)
+        if current != AgentStatus.COMPLETED:
+            await state.update_agent_status(payload.agent, AgentStatus.RUNNING, payload.content)
 
     return {"ok": True, "event_id": event.id}
 
@@ -1282,6 +1285,18 @@ async def post_agent_message(payload: AgentMessagePayload):
                         asyncio.ensure_future(_generate_speed_report_card(eid))
                 except Exception as e:
                     logger.warning("Sprint bus auto-stop failed: %s", str(e)[:200])
+
+    # BUG-005: RP debrief → mark RP COMPLETED and trigger auto-stop if ST also done
+    from agent_configs import resolve_role_code as _rcf
+    if payload.msg_type == "debrief" and _rcf(payload.from_agent) == "RP":
+        await state.update_agent_status(payload.from_agent, AgentStatus.COMPLETED, payload.content)
+        st_done = state.agent_statuses.get("ST") == AgentStatus.COMPLETED
+        rp_done = state.agent_statuses.get("RP") == AgentStatus.COMPLETED
+        if st_done and rp_done:
+            eid = state.active_engagement_id
+            if eid and _active_session_manager and _active_session_manager.is_running:
+                logger.info("BUG-005: RP debrief received — both ST+RP done. Auto-stopping %s.", eid)
+                asyncio.create_task(_auto_stop_with_rp_gate(eid))
 
     return {
         "ok": True,
@@ -1980,137 +1995,63 @@ def _safe_extract_host(raw: str) -> str:
     return ""
 
 
+# ── BUG-004: Auto-screenshot helper ────────────────────────
+
+async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: str, agent: str):
+    """Fire-and-forget screenshot capture for any confirmed finding path.
+
+    Called via asyncio.ensure_future — never blocks the confirmation path.
+    Mirrors the inline screenshot pattern in the VF result endpoint.
+    """
+    if not target or not kali_client:
+        return
+    try:
+        import base64
+        import io as _io
+        url = target if target.startswith(('http://', 'https://')) else f'http://{target}'
+        client = await kali_client._get_client()
+        for name, backend in kali_client.backends.items():
+            if not backend.available:
+                continue
+            try:
+                resp = await client.post(
+                    f"{backend.base_url}/api/tools/screenshot",
+                    json={"url": url},
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    image_b64 = data.get("image_b64") or data.get("image") or data.get("screenshot")
+                    if image_b64:
+                        image_bytes = base64.b64decode(image_b64)
+                        dashboard_base = _DASHBOARD_URL if '_DASHBOARD_URL' in globals() and _DASHBOARD_URL else "http://localhost:8080"
+                        await client.post(
+                            f"{dashboard_base}/api/artifacts",
+                            data={
+                                "finding_id": finding_id,
+                                "engagement_id": engagement_id,
+                                "type": "screenshot",
+                                "caption": f"Auto-captured confirmation ({agent}) — {target}",
+                                "agent": agent,
+                                "capture_mode": "exploitable",
+                            },
+                            files={"file": (f"{agent.lower()}-{finding_id[:8]}.png", _io.BytesIO(image_bytes), "image/png")},
+                        )
+                        logger.info("Auto-screenshot captured for finding %s (agent=%s)", finding_id, agent)
+                        break
+            except Exception as e:
+                logger.warning("Screenshot from backend %s failed: %s", name, str(e)[:100])
+    except Exception as e:
+        logger.warning("Auto-screenshot task failed for finding %s: %s", finding_id, str(e)[:100])
+
+
 # ── BUG-013: Finding Deduplication ────────────────────────
 
 _SEV_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 _STATUS_RANK = {"open": 0, "discovered": 1, "confirmed": 2}
 
 
-def _compute_finding_fingerprint(
-    engagement_id: str, title: str, target: str,
-    cve: str | None, host_ip: str | None, service_port: int | None,
-) -> str:
-    """Compute a stable fingerprint for finding deduplication.
-
-    5-tier strategy (based on Faraday/DefectDojo research):
-      Tier 1: CVE + host + port (strongest — deterministic across agents)
-      Tier 2: CVE + host (when port unknown)
-      Tier 3: CVE only (single-target engagements)
-      Tier 4: Service canonical name + host + port (non-CVE: default creds, backdoors)
-      Tier 5: Normalized title + target (last resort)
-
-    Returns 16-char hex digest (collision probability ~1 in 2^64).
-
-    Key principle: same vulnerability on same host = same fingerprint,
-    regardless of which agent reports it or how they phrase the title.
-    """
-    import re as _re_fp
-    title_lower = (title or "").lower()
-
-    # Auto-extract CVE from title if not explicitly provided
-    if not cve:
-        cve_match = _re_fp.search(r'CVE-\d{4}-\d+', title, _re_fp.IGNORECASE)
-        if cve_match:
-            cve = cve_match.group(0)
-
-    # Auto-extract host_ip from target if not provided
-    if not host_ip and target:
-        ip_match = _re_fp.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', target)
-        if ip_match:
-            host_ip = ip_match.group(1)
-
-    # Auto-extract port from target or title if not provided
-    if not service_port:
-        port_match = _re_fp.search(r':(\d{1,5})\b', target or '') or \
-                     _re_fp.search(r'port\s*(\d{1,5})', title_lower)
-        if port_match:
-            p = int(port_match.group(1))
-            if 1 <= p <= 65535:
-                service_port = p
-
-    # Tier 1: CVE + host + port (strongest — cross-agent, deterministic)
-    if cve and host_ip and service_port:
-        key = f"{engagement_id}|{cve.upper()}|{host_ip}|{service_port}"
-        return hashlib.sha256(key.encode()).hexdigest()[:16]
-
-    # Tier 2: CVE + host (port unknown but host known)
-    if cve and host_ip:
-        key = f"{engagement_id}|{cve.upper()}|{host_ip}"
-        return hashlib.sha256(key.encode()).hexdigest()[:16]
-
-    # Tier 3: CVE only (single-target engagement, host implicit)
-    if cve:
-        key = f"{engagement_id}|{cve.upper()}"
-        return hashlib.sha256(key.encode()).hexdigest()[:16]
-
-    # Tier 4: Service-based dedup for non-CVE findings (default creds, backdoors, misconfigs)
-    # Two strategies: (A) well-known port → service, (B) keyword → service
-    #
-    # Strategy A: Port-based service identification (works for ANY environment)
-    # IANA well-known ports — not hardcoded to any specific target
-    _PORT_TO_SERVICE = {
-        21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 53: "dns",
-        80: "http", 110: "pop3", 111: "rpc", 135: "msrpc", 139: "netbios",
-        143: "imap", 443: "https", 445: "smb", 465: "smtps", 587: "smtp",
-        993: "imaps", 995: "pop3s", 1433: "mssql", 1521: "oracle",
-        1524: "ingreslock", 2049: "nfs", 2121: "ftp", 3306: "mysql",
-        3389: "rdp", 3632: "distccd", 5432: "postgresql", 5900: "vnc",
-        5985: "winrm", 5986: "winrm", 6379: "redis", 6667: "irc",
-        8080: "http-proxy", 8443: "https-alt", 8787: "rmi",
-        8888: "http-alt", 9200: "elasticsearch", 11211: "memcached",
-        27017: "mongodb", 6380: "redis",
-    }
-    # Strategy B: Keyword-based service identification (catches service names in titles)
-    # Ordered by specificity — longer/more specific keywords first
-    _KEYWORD_TO_SERVICE = [
-        ("apache tomcat", "tomcat"), ("tomcat", "tomcat"),
-        ("postgresql", "postgresql"), ("postgres", "postgresql"), ("psql", "postgresql"),
-        ("microsoft sql", "mssql"), ("mssql", "mssql"),
-        ("mysql", "mysql"), ("mariadb", "mysql"),
-        ("mongodb", "mongodb"), ("redis", "redis"),
-        ("elasticsearch", "elasticsearch"), ("memcached", "memcached"),
-        ("openssh", "ssh"), ("ssh", "ssh"),
-        ("vsftpd", "ftp"), ("proftpd", "ftp"), ("pureftpd", "ftp"), ("ftp", "ftp"),
-        ("samba", "smb"), ("smb", "smb"), ("cifs", "smb"),
-        ("telnet", "telnet"),
-        ("ingreslock", "ingreslock"), ("bindshell", "ingreslock"), ("bind shell", "ingreslock"),
-        ("unrealircd", "irc"), ("irc", "irc"),
-        ("distccd", "distccd"), ("distcc", "distccd"),
-        ("nfs", "nfs"), ("vnc", "vnc"), ("rdp", "rdp"),
-        ("rmi", "rmi"), ("java rmi", "rmi"), ("ruby drb", "rmi"),
-        ("winrm", "winrm"), ("wmi", "wmi"),
-        ("ldap", "ldap"), ("active directory", "ldap"),
-        ("kerberos", "kerberos"), ("snmp", "snmp"),
-        ("smtp", "smtp"), ("pop3", "pop3"), ("imap", "imap"),
-        ("php", "php"), ("webdav", "webdav"),
-        ("jenkins", "jenkins"), ("jboss", "jboss"), ("weblogic", "weblogic"),
-        ("iis", "iis"), ("nginx", "nginx"), ("apache", "apache"),
-        ("docker", "docker"), ("kubernetes", "kubernetes"), ("k8s", "kubernetes"),
-        ("aws", "aws"), ("azure", "azure"), ("gcloud", "gcloud"),
-    ]
-
-    service = ""
-    # Try port-based identification first (most reliable for any environment)
-    if service_port and service_port in _PORT_TO_SERVICE:
-        service = _PORT_TO_SERVICE[service_port]
-    # Fall back to keyword matching in title
-    if not service:
-        for keyword, canonical in _KEYWORD_TO_SERVICE:
-            if keyword in title_lower:
-                service = canonical
-                break
-
-    if service:
-        host_part = host_ip or ""
-        port_part = str(service_port) if service_port else ""
-        key = f"{engagement_id}|{service}|{host_part}|{port_part}"
-        return hashlib.sha256(key.encode()).hexdigest()[:16]
-
-    # Tier 5: Normalized title fallback (last resort — different titles = different findings)
-    title_norm = " ".join(title_lower.split())
-    target_norm = (target or "").lower().strip()
-    key = f"{engagement_id}|{title_norm}|{target_norm}"
-    return hashlib.sha256(key.encode()).hexdigest()[:16]
+from finding_utils import _compute_finding_fingerprint
 
 
 @app.post("/api/findings")
@@ -2281,6 +2222,12 @@ async def create_finding(payload: FindingPayload):
                 if merge_confirmed_at is not None and not f.confirmed_at:
                     f.confirmed_at = merge_confirmed_at
                 break
+
+        # BUG-004: Auto-screenshot on merge confirmation
+        if merge_confirmed_at is not None:
+            asyncio.ensure_future(_trigger_auto_screenshot(finding_id, payload.target, payload.engagement, payload.agent))
+            # BUG-006: Auto-record first shell on merge confirmation
+            asyncio.ensure_future(_auto_record_first_shell(payload.engagement, payload.agent, "finding_merge", payload.target or ""))
 
         # Broadcast update so dashboard reflects the merge
         await state.broadcast({
@@ -2948,8 +2895,11 @@ async def submit_verification_result(verification_id: str, result: VerificationR
     if result.status == "confirmed":
         confirmed_ts = time.time()
         for f in state.findings:
-            if f.id == result.finding_id and not f.confirmed_at:
-                f.confirmed_at = confirmed_ts
+            if f.id == result.finding_id:
+                if not getattr(f, 'confirmed_at', None):
+                    f.confirmed_at = confirmed_ts
+                f.verification_status = "confirmed"
+                f.verified = True
                 break
 
     # Auto-capture screenshot for confirmed findings (fire-and-forget)
@@ -3001,6 +2951,11 @@ async def submit_verification_result(verification_id: str, result: VerificationR
                 except Exception as e:
                     logger.warning("Auto-screenshot task failed: %s", str(e)[:100])
             asyncio.ensure_future(_auto_screenshot())
+
+    # BUG-006: Auto-record first shell on VF confirmation
+    if result.status == "confirmed":
+        _vf_eid = v.get("engagement_id", state.active_engagement_id or "")
+        asyncio.ensure_future(_auto_record_first_shell(_vf_eid, "VF", "vf_confirmed", _finding_target or ""))
 
     # Update Neo4j Finding node with verification data
     if neo4j_available and neo4j_driver and result.status in ("confirmed", "likely"):
@@ -3203,10 +3158,21 @@ async def report_canary_callback(verification_id: str, callback: dict):
 
     # Fix 2: propagate confirmed_at into in-memory Finding
     _canary_confirmed_ts = time.time()
+    _canary_target = None
     for f in state.findings:
-        if f.id == v["finding_id"] and not f.confirmed_at:
-            f.confirmed_at = _canary_confirmed_ts
+        if f.id == v["finding_id"]:
+            _canary_target = getattr(f, 'target', None)
+            if not f.confirmed_at:
+                f.confirmed_at = _canary_confirmed_ts
             break
+
+    # BUG-004: Auto-screenshot on canary confirmation
+    # Use target from in-memory finding (most reliable); fall back to v["finding_target"]
+    _canary_screenshot_target = _canary_target or v.get("finding_target")
+    _canary_eid = state.active_engagement_id or ""
+    asyncio.ensure_future(_trigger_auto_screenshot(v["finding_id"], _canary_screenshot_target, _canary_eid, "VF"))
+    # BUG-006: Auto-record first shell on canary confirmation
+    asyncio.ensure_future(_auto_record_first_shell(_canary_eid, "VF", "canary_callback", _canary_target or ""))
 
     # Update Neo4j
     if neo4j_available and neo4j_driver:
@@ -6705,9 +6671,9 @@ async def get_exploit_stats(eid: str):
                                {title: x.title, severity: x.severity, timestamp: x.timestamp}] AS exploit_details
                 """, eid=eid)
                 record = result.single()
-                if record and record["total_findings"] > 0:
-                    discovered = record["total_findings"]
-                    confirmed = record["exploit_count"]
+                if record:
+                    discovered = record.get("total_findings", 0)
+                    confirmed = record.get("exploit_count", 0)
                     # CVE-level dedup: same CVE on same host = 1 confirmed exploit
                     import re as _re_dedup
                     seen_cve_keys = set()
@@ -7445,15 +7411,23 @@ async def patch_finding(eid: str, fid: str, request: Request):
 
     # Update in-memory state
     found = False
+    _patch_target = None
     for f in state.findings:
         if f.id == fid and f.engagement == eid:
             found = True
+            _patch_target = getattr(f, 'target', None)
             for k, v in updates.items():
                 if hasattr(f, k):
                     setattr(f, k, v)
             if auto_confirmed_at and not f.confirmed_at:
                 f.confirmed_at = auto_confirmed_at
             break
+
+    # BUG-004: Auto-screenshot on PATCH confirmation
+    if auto_confirmed_at:
+        asyncio.ensure_future(_trigger_auto_screenshot(fid, _patch_target, eid, "server"))
+        # BUG-006: Auto-record first shell on PATCH confirmation
+        asyncio.ensure_future(_auto_record_first_shell(eid, "server", "patch_confirmed", _patch_target or ""))
 
     # Update Neo4j
     if neo4j_available and neo4j_driver and updates:
@@ -12143,7 +12117,7 @@ async def _auto_stop_with_rp_gate(eid: str):
             )
 
     # BUG-025: Before stopping, wait for ALL agents to finish (not just RP)
-    ALL_DONE_TIMEOUT_S = 300  # 5 minutes max wait
+    ALL_DONE_TIMEOUT_S = 60  # BUG-005: 1 minute max wait (was 5 min)
     deadline_all = time.time() + ALL_DONE_TIMEOUT_S
     while time.time() < deadline_all:
         running_agents = [
@@ -13619,3 +13593,35 @@ async def record_first_shell(eid: str, request: Request):
         return {"ok": True, **result}
     except Exception as e:
         return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
+async def _auto_record_first_shell(eid: str, agent: str, method: str, target: str = "") -> bool:
+    """Record first-shell timestamp for an engagement. Idempotent — WHERE IS NULL
+    ensures only the first call writes. Returns True if written, False otherwise."""
+    if not neo4j_available or not neo4j_driver or not eid:
+        return False
+    try:
+        import time as _t_shell
+        _now = _t_shell.time()
+        def _record_shell():
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (e:Engagement {id: $eid})
+                    WHERE e.first_shell_at IS NULL
+                    SET e.first_shell_at = $now,
+                        e.first_shell_agent = $agent,
+                        e.first_shell_method = $method,
+                        e.first_shell_target = $target
+                    RETURN e.first_shell_at AS recorded
+                """, eid=eid, now=_now, agent=agent, method=method, target=target)
+                rec = result.single()
+                return bool(rec and rec["recorded"])
+        recorded = await neo4j_exec(_record_shell)
+        if recorded:
+            logger.info("_auto_record_first_shell: wrote first_shell for %s (agent=%s method=%s)", eid, agent, method)
+        else:
+            logger.warning("_auto_record_first_shell: first_shell already set for %s — skipped", eid)
+        return recorded
+    except Exception as _e:
+        logger.warning("_auto_record_first_shell error for %s: %s", eid, str(_e)[:100])
+        return False

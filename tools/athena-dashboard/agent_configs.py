@@ -603,6 +603,16 @@ internal network on web-app-only test), request scope expansion:
 This triggers a HITL popup for the operator. On approval, new agents are unlocked automatically.
 NEVER test out-of-scope targets without operator approval — this is a legal/ethical requirement.
 
+WAITING RULES (MANDATORY — NEVER BLOCK):
+NEVER use `sleep` for more than 5 seconds under any circumstances.
+When waiting for a worker agent to finish:
+  1. Check status: GET {dashboard_url}/api/agents/status
+  2. If still running: POST {dashboard_url}/api/events  Body: {{"type":"strategy_decision","agent":"ST","content":"Waiting for <AGENT> to complete. Will check again in 30 seconds."}}
+  3. Then: sleep 5 (maximum — then re-check)
+  4. Repeat until the agent shows running=false
+  DO NOT sleep for 60, 120, 300, or any duration over 5 seconds.
+  The operator must be able to reach you at all times. Operator commands are HIGHEST PRIORITY.
+
 COMPLETION:
 When all exploitation and verification phases are done:
 
@@ -856,32 +866,35 @@ EXPLOIT PRIORITIZATION ORDER:
   5. Other HIGH/CRITICAL findings — attempt after higher-priority targets
 
 WORKFLOW:
-1. Light up your LED: POST /api/events with agent="EX", status="running"
-2. Query Neo4j for HIGH/CRITICAL findings from vuln scanning and DA's CVE research
-3. SORT by priority order above. Start with the easiest, most reliable targets.
+1. Light up your LED: POST {dashboard_url}/api/events with agent="EX", status="running"
+2. Query Neo4j for HIGH/CRITICAL findings from vuln scanning and DA's CVE research.
+   Retrieve ALL findings in one query. Build your full target list upfront.
+3. SORT by priority: known-CVE with public exploit > default credentials > service-specific > other.
 4. EXPLOIT DB CHECK — For each target, verify exploit availability:
    - searchsploit <CVE-ID or service+version> (Exploit-DB local mirror)
    - msfconsole: search type:exploit <service> (Metasploit modules)
    - Check if DA already flagged exploit_available=true in finding metadata
-   - Query KB for known techniques: GET {dashboard_url}/api/knowledge/search?q=<service+version>&top_k=3
-5. For each exploitable finding:
+   - Query KB: GET {dashboard_url}/api/knowledge/search?q=<service+version>&agent=EX&top_k=3
+5. EXPLOITATION LOOP — Repeat for EACH finding in your sorted list:
    a. Request HITL approval BEFORE exploiting:
       POST {dashboard_url}/api/approvals
       Body: {{"agent":"EX","action":"Exploit <vuln>","description":"<plan>","risk_level":"high","target":"<specific target>"}}
    b. Poll for approval: GET {dashboard_url}/api/approvals/<id>
-   c. If approved: execute exploit, capture evidence
-   d. If denied: skip and move to next finding
-   e. **Capture Visual Evidence** (REQUIRED after every successful exploit):
-      - Call `screenshot_terminal` with {{"command": "<exploit command>", "output": "<output proving success>", "tool_name": "<tool>"}}
-      - If the exploit targets a web URL, also call `screenshot_web` with {{"url": "<the vulnerable URL>"}}
-      - Upload each returned base64 image via POST /api/artifacts (type=screenshot, finding_id=<finding_id>)
-5. Write exploitation results to the dashboard findings API (MANDATORY — this is how findings get into Neo4j):
-   POST {dashboard_url}/api/engagements/{eid}/findings
-   Body: {{"title":"<CVE or vuln name>","severity":"critical","description":"<exploit output + proof>",
-          "agent":"EX","target":"<target_ip:port>","category":"exploitation","engagement":"{eid}",
-          "cve":"<CVE-ID if known>","evidence":"<proof — uid=0, shell banner, session opened, etc.>"}}
-   IMPORTANT: Always include "agent":"EX" in the body. Without it, the finding won't be counted as an exploit.
-6. When done, set idle
+   c. If approved: execute exploit, capture evidence (MANDATORY screenshot — see below)
+   d. If denied: skip this target and move to next finding — do NOT stop
+   e. RECORD FIRST SHELL (call after EVERY successful shell — API is idempotent):
+      POST {dashboard_url}/api/engagements/{eid}/first-shell
+      Body: {{"agent":"EX","method":"<exploit used>","target":"<target_ip:port>"}}
+   f. Update the finding:
+      POST {dashboard_url}/api/findings with full details (title, severity, target, evidence)
+   g. NOTIFY agents after each successful exploit:
+      POST {dashboard_url}/api/messages — to VF (exploit_confirmed), PE (shell_obtained), ST (exploit_confirmed)
+   h. **Return to step 5a with the NEXT finding. Do NOT stop after one exploit.**
+6. COMPLETION — You are DONE only when ALL of these are true:
+   - Every HIGH/CRITICAL finding has been attempted (success, failure, or HITL denial)
+   - OR your remaining tool call budget is below 10 calls
+   After meeting this criterion: send debrief to ST, then:
+   POST {dashboard_url}/api/events with agent="EX", status="completed"
 
 FINDING DEDUP RULE: Do NOT create rollup or summary findings (e.g., "Default Credentials",
 "Multiple Weak Passwords", "Credential Reuse Summary"). Each exploit result should update
@@ -904,11 +917,6 @@ PIPELINED NOTIFICATIONS — After EACH successful exploit, notify ALL relevant a
   POST {dashboard_url}/api/messages
   Body: {{"from_agent":"EX","to_agent":"ST","msg_type":"exploit_confirmed","content":"Exploit succeeded: <target> <CVE>. VF + PE notified.","priority":"high"}}
 Do NOT wait until all exploits are done — notify VF after EACH one so verification runs in parallel.
-
-  RECORD FIRST SHELL (once per engagement):
-  POST {dashboard_url}/api/engagements/{eid}/first-shell
-  Body: {{"agent":"EX","method":"<exploit used>","target":"<target_ip:port>"}}
-  This is idempotent — only the FIRST call is recorded. Call it after EVERY successful exploit.
 
 NEO4J CONSTRAINT: Engagement "{eid}" already exists. Pass engagement_id="{eid}" to every call.
 
