@@ -9955,7 +9955,12 @@
 
     // ── Agent Chips ──
     function updateAgentChip(code, status) {
-      const chip = document.querySelector('.agent-chip[data-agent="' + code + '"]');
+      // Map numbered agents (EX-1, EX-2, EX-3) to base chip (EX)
+      var chipCode = code;
+      if (code.includes('-') && !document.querySelector('.agent-chip[data-agent="' + code + '"]')) {
+        chipCode = code.split('-')[0];
+      }
+      const chip = document.querySelector('.agent-chip[data-agent="' + chipCode + '"]');
       if (!chip) return;
       // If going idle but was previously active, show as completed
       let effectiveStatus = status;
@@ -10956,7 +10961,12 @@
     function updateAgentStatusTile(agent, status) {
       const grid = document.getElementById('agent-status-grid');
       if (!grid) return;
-      const cell = grid.querySelector('[data-agent="' + agent + '"]');
+      // Map numbered agents (EX-1, EX-2, EX-3) to base tile (EX)
+      var tileAgent = agent;
+      if (agent.includes('-') && !grid.querySelector('[data-agent="' + agent + '"]')) {
+        tileAgent = agent.split('-')[0];
+      }
+      const cell = grid.querySelector('[data-agent="' + tileAgent + '"]');
       if (!cell) return;
       const statusSpan = cell.querySelector('.layer-blocks');
       if (!statusSpan) return;
