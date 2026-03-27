@@ -701,6 +701,19 @@
       color: #22c55e;
     }
 
+    .engagement-mode-badge.tier-performance {
+      display: inline-block;
+      background: rgba(34, 211, 238, 0.15);
+      color: #22d3ee;
+      font-size: 9px;
+    }
+    .engagement-mode-badge.tier-beast {
+      display: inline-block;
+      background: rgba(250, 204, 21, 0.15);
+      color: #facc15;
+      font-size: 9px;
+    }
+
     /* Engagement Cost Badge (header bar, next to clock) */
     .engagement-cost-badge {
       display: inline-block;
@@ -6219,6 +6232,7 @@
             <span>Pentest Running</span>
           </span>
           <span class="engagement-mode-badge" id="engagementModeBadge"></span>
+          <span class="engagement-mode-badge" id="engagementTierBadge" style="display:none;"></span>
           <span class="engagement-clock" id="engagementClock"></span>
           <span class="engagement-cost-badge" id="kpi-cost" title="Total AI API cost (LLM tokens + tool calls)">$0.00</span>
           <button class="icon-btn" id="searchBtn" title="Search">
@@ -13310,6 +13324,25 @@
           else if (em === 'exploitable') { modeBadge.classList.add('autonomous'); modeBadge.textContent = 'AUTO'; }
           else if (em === 'observable') { modeBadge.classList.add('supervised'); modeBadge.textContent = 'SUPERVISED'; }
         }
+        // Update tier badge — show only for Performance/Beast
+        var tierBadge = document.getElementById('engagementTierBadge');
+        if (tierBadge) {
+          fetch('/api/system/resources').then(function(r) { return r.json(); }).then(function(res) {
+            tierBadge.className = 'engagement-mode-badge';
+            if (res.tier === 'performance') {
+              tierBadge.classList.add('tier-performance');
+              tierBadge.textContent = 'PERF';
+              tierBadge.style.display = '';
+            } else if (res.tier === 'beast') {
+              tierBadge.classList.add('tier-beast');
+              tierBadge.textContent = 'BEAST';
+              tierBadge.style.display = '';
+            } else {
+              tierBadge.style.display = 'none';
+            }
+          }).catch(function() {});
+        }
+
         if (summary.evidence_mode === 'sprint') {
           var mtteLabel = document.querySelector('#kpi-mtte')?.closest('.stat-card')?.querySelector('.stat-label');
           if (mtteLabel) mtteLabel.textContent = 'Time to Exploit';
