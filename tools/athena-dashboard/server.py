@@ -13319,6 +13319,9 @@ async def record_first_shell(eid: str, request: Request):
         result = await neo4j_exec(_record)
 
         # Sprint mode auto-stop: first shell = engagement complete
+        logger.info("SPRINT DEBUG: recorded=%s, manager=%s, mode=%s",
+                     result.get("recorded"), _active_session_manager is not None,
+                     _active_session_manager.mode if _active_session_manager else "N/A")
         if result.get("recorded") and _active_session_manager and _active_session_manager.mode == "sprint":
             logger.info("SPRINT: First shell confirmed on %s via %s — auto-stopping engagement %s", target, method, eid)
             await state.add_event(AgentEvent(
