@@ -2003,14 +2003,35 @@ async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: 
     Called via asyncio.ensure_future — never blocks the confirmation path.
     Mirrors the inline screenshot pattern in the VF result endpoint.
     """
-    # Fallback: if no target on finding, use engagement scope target
+    # Resolve target: finding.target → extract IP from finding title → engagement first host
+    if not target:
+        # Try to extract a specific host IP from the finding's in-memory record
+        import re as _re_ss
+        for f in state.findings:
+            if f.id == finding_id:
+                # Check title/description for an IP address
+                _text = (getattr(f, 'title', '') or '') + ' ' + (getattr(f, 'description', '') or '')
+                _ip_m = _re_ss.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', _text)
+                if _ip_m:
+                    target = _ip_m.group(1)
+                # Check affected_hosts
+                elif getattr(f, 'affected_hosts', None):
+                    hosts = f.affected_hosts
+                    if isinstance(hosts, list) and hosts:
+                        target = hosts[0]
+                break
+    # Last resort: engagement scope — but only if it's a single host (not a CIDR range)
     if not target and engagement_id:
+        import re as _re_ss2
         for eng in state.engagements:
             if eng.id == engagement_id:
-                target = getattr(eng, 'target', '') or getattr(eng, 'scope', '') or ''
+                scope = getattr(eng, 'target', '') or getattr(eng, 'scope', '') or ''
+                # Only use if it's a single IP (not /24, /16, or comma-separated)
+                if scope and _re_ss2.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/32)?$', scope.strip()):
+                    target = scope.strip().replace('/32', '')
                 break
     if not target or not kali_client:
-        logger.debug("Auto-screenshot skipped for %s: no target or no kali_client", finding_id)
+        logger.debug("Auto-screenshot skipped for %s: no resolvable target", finding_id)
         return
     try:
         import base64
