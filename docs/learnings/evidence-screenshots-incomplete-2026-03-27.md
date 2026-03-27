@@ -41,6 +41,18 @@ Every confirmed exploit should have:
 3. **Evidence validation:** Flag findings with "confirmed" status but no screenshot as incomplete in the Evidence Gallery
 4. **Coverage target:** Display "evidence completeness" percentage in the engagement summary
 
+## Key Insight: Prompt Compliance Fails — Need Server-Side Enforcement
+
+Changed screenshot prompt from "use them AFTER confirming" to "MANDATORY — NON-NEGOTIABLE for client deliverables." Result: still only 1 screenshot. Same pattern as EX speed prompts and RAG KB queries — agents deprioritize instructions in long prompts.
+
+**The proper fix is server-side auto-capture:**
+1. When a finding's status changes to "confirmed" via PATCH, server auto-triggers screenshot request to Kali backend
+2. Server calls Kali screenshot endpoint with target URL/command
+3. Server uploads the artifact automatically — no agent action needed
+4. Deterministic: every confirmed exploit gets a screenshot, period
+
+This pattern applies broadly: anything that MUST happen should be server-enforced, not agent-requested.
+
 ## Impact on Client Work
 
 Without visual evidence:
