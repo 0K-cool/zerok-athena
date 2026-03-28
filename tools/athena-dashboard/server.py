@@ -6775,16 +6775,12 @@ async def get_exploit_stats(eid: str):
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
+                # Unverified = agent is EX, status is confirmed, but verified is not true
                 result = session.run("""
                     MATCH (f:Finding {engagement_id: $eid})
-                    WHERE f.agent = 'EX'
-                      AND (
-                        (f.evidence IS NOT NULL AND f.evidence <> '')
-                        OR EXISTS { (f)-[:HAS_ARTIFACT]->(:Artifact) }
-                        OR EXISTS { (f)-[:EVIDENCED_BY]->(:EvidencePackage) }
-                      )
+                    WHERE f.status = 'confirmed'
+                      AND f.agent = 'EX'
                       AND (f.verified IS NULL OR f.verified = false)
-                      AND (f.verification_status IS NULL OR (f.verification_status <> 'confirmed' AND f.verification_status <> 'likely'))
                     RETURN count(f) AS cnt
                 """, eid=eid)
                 rec = result.single()
@@ -6802,11 +6798,13 @@ async def get_exploit_stats(eid: str):
         is_ex = agent_val == 'EX' or (isinstance(agent_val, list) and 'EX' in agent_val)
         if not is_ex:
             continue
-        has_evidence = bool(f.evidence) or getattr(f, 'evidence_count', 0) > 0
-        has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
-        verification = getattr(f, 'verification_status', '') or ''
-        is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
-        if has_evidence and not is_confirmed:
+        # Unverified = EX confirmed but VF hasn't verified
+        is_ex_unverified = (
+            str(getattr(f, 'agent', '')).upper() == 'EX'
+            and getattr(f, 'status', '') == 'confirmed'
+            and not (getattr(f, 'verified', False) is True)
+        )
+        if is_ex_unverified:
             # CVE dedup with host:port fallback for 0-days
             title = getattr(f, 'title', '') or ''
             cve_match = _re_unver.search(r'CVE-\d{4}-\d+', title, _re_unver.IGNORECASE)
@@ -6828,6 +6826,11 @@ async def get_exploit_stats(eid: str):
 
     total_exploited = confirmed + exploited_unverified
     success_rate = round((confirmed / max(discovered, 1)) * 100, 1)
+    # Count HIGH+CRITICAL findings (the exploitable vulnerability pool)
+    high_critical_count = sum(
+        1 for f in mem_findings
+        if str(getattr(f, 'severity', '')).lower() in ('high', 'critical')
+    )
 
     # MTTE: estimate from timestamp spread of findings (simplified)
     # BUG-S2-001 fix: Filter to EX-agent findings with actual exploitation evidence only.
@@ -6977,6 +6980,7 @@ async def get_exploit_stats(eid: str):
         "total_exploited": total_exploited,
         "success_rate": success_rate,
         "by_severity": by_severity,
+        "high_critical_count": high_critical_count,
         "mtte_seconds": mtte_seconds,
         "mtte_display": mtte_display,
         "per_finding": per_finding_times[:10],
@@ -7417,6 +7421,16 @@ async def patch_finding(eid: str, fid: str, request: Request):
         payload = await request.json()
     except Exception:
         return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
+
+    # BUG-#2: Only EX, VF, and server can set confirmed status
+    # DA, AR, WV, PR, PX findings are downgraded to "analyzed"
+    NON_CONFIRM_AGENTS = {"DA", "AR", "WV", "PR", "PX"}
+    req_agent = payload.get("agent", "")
+    req_status = payload.get("status", "")
+    if req_status == "confirmed" and req_agent.upper() in NON_CONFIRM_AGENTS:
+        payload["status"] = "analyzed"
+        if "verification_status" in payload:
+            payload["verification_status"] = "analyzed"
 
     allowed = {"status", "evidence", "verification_status", "confirmed_at", "exploited_by", "verified"}
     updates = {k: v for k, v in payload.items() if k in allowed}
