@@ -2378,7 +2378,8 @@ async def create_finding(payload: FindingPayload):
                     ON CREATE SET f.id = $id, f.discovered_at = $discovered_at, f.status = 'open'
                     SET f.title = $title, f.severity = $severity,
                         f.category = $category, f.target = $target,
-                        f.agent = $agent, f.description = $description,
+                        f.agent = CASE WHEN f.status = 'confirmed' AND $agent IN ['DA','AR','WV','PR','PX']
+                               THEN f.agent ELSE $agent END, f.description = $description,
                         f.cvss = $cvss, f.cve = $cve, f.evidence = $evidence,
                         f.timestamp = $timestamp, f.engagement_id = $engagement,
                         f.fingerprint = $fingerprint

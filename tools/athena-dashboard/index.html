@@ -8402,8 +8402,10 @@
             const outerRadius = meta.data[0] ? meta.data[0].outerRadius : 0;
             if (!outerRadius) return;
 
-            const lineLen1 = 12;  // radial segment
-            const lineLen2 = 18;  // horizontal segment
+            const lineLen1 = 14;  // radial segment
+            const lineLen2 = 22;  // horizontal segment
+            const minLabelGap = 12;
+            const usedY = [];
             const colors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'];
             const labels = data.labels;
 
@@ -8413,6 +8415,9 @@
 
             meta.data.forEach((arc, i) => {
               if (dataset.data[i] === 0) return;
+              // Skip tiny segments that can't label cleanly
+              const arcSpan = arc.endAngle - arc.startAngle;
+              if (arcSpan < 0.087) return;
               const midAngle = (arc.startAngle + arc.endAngle) / 2;
               const cos = Math.cos(midAngle);
               const sin = Math.sin(midAngle);
@@ -8445,6 +8450,10 @@
 
               // Label text + count
               const textX = x3 + dir * 4;
+              // Collision guard: skip if too close to previous label
+              var tooClose = usedY.some(function(py) { return Math.abs(py - y3) < minLabelGap; });
+              if (tooClose) return;
+              usedY.push(y3);
               if (dir >= 0) {
                 // Right side: "Label Count"
                 ctx.textAlign = 'left';
@@ -9796,7 +9805,12 @@
 
         delete runningTools[toolId];
       } else {
-        // Fallback: tool_complete without a tracked tool_start — create completed card
+        // Fallback: tool_complete without a tracked tool_start
+        // Skip JSON-only responses — no useful display value
+        var _fc = (msg.content || (msg.metadata && msg.metadata.output) || '').trim();
+        if (!_fc || _fc.startsWith('{') || _fc.startsWith('[')) {
+          return;
+        }
         renderCompletedToolCard(msg);
       }
     }
