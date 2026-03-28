@@ -1117,9 +1117,15 @@ class AgentSessionManager:
         exhaustion. The manager loop picks this up and stops the agent
         gracefully, then notifies ST.
         """
-        if agent_code != "ST":  # Never early-stop the coordinator
-            self._early_stop_queue.add(agent_code)
-            logger.info("Early-stop queued for %s (budget exhausted)", agent_code)
+        if agent_code == "ST":
+            return  # Never stop the coordinator
+        # Budget kills only in hard-cap modes (CTF/Sprint). Client/autonomous modes use soft warnings.
+        HARD_CAP_MODES = {"ctf", "sprint"}
+        if self.mode not in HARD_CAP_MODES:
+            logger.info("Budget signal_early_stop ignored for %s in mode=%s (soft-warning mode)", agent_code, self.mode)
+            return
+        self._early_stop_queue.add(agent_code)
+        logger.info("Early-stop queued for %s (budget exhausted)", agent_code)
 
     def request_agent(self, agent_code: str, task: str,
                       priority: str = "medium"):
