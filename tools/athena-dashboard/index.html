@@ -12691,15 +12691,15 @@
           ? Math.round((es.confirmed_exploits / es.discovered_vulns) * 100)
           : 0;
         updateExploitGauge(derivedRate, es.confirmed_exploits, es.discovered_vulns, es.exploited_unverified || 0);
-        // Set Confirmed Exploits KPI from authoritative server count
+        // BUG-#5: kpi-criticals = exploitable pool (HIGH+CRITICAL findings)
         const kpiExploitsEl = document.getElementById('kpi-criticals');
-        // Don't decrease Confirmed Exploits during active engagement (prevent flicker)
-        // BUG-050: Use total_exploited (confirmed + likely) not just confirmed_exploits
-        const totalExploited = es.total_exploited !== undefined ? es.total_exploited : es.confirmed_exploits;
-        if (kpiExploitsEl && totalExploited !== undefined) {
-          const newExploits = parseInt(totalExploited) || 0;
-          const curExploits = parseInt(kpiExploitsEl.textContent) || 0;
-          if (newExploits >= curExploits) kpiExploitsEl.textContent = totalExploited;
+        const highCriticalPool = es.high_critical_count !== undefined
+            ? es.high_critical_count
+            : (es.discovered_vulns || 0);
+        if (kpiExploitsEl && highCriticalPool !== undefined) {
+            const newVal = parseInt(highCriticalPool) || 0;
+            const curVal = parseInt(kpiExploitsEl.textContent) || 0;
+            if (newVal >= curVal) kpiExploitsEl.textContent = highCriticalPool;
         }
         // Update MTTE sparkline (exploit-stats still used for per-finding sparkline data)
         if (mtteSparkline && es.per_finding && es.per_finding.length > 0) {
@@ -13236,11 +13236,13 @@
           // BUG-026: Don't hide badge if it was already showing during engagement
         }
 
-        // Update Confirmed Exploits KPI — don't decrease during active engagement
+        // BUG-#5: Show HIGH+CRITICAL finding count
         if (kpiCriticals) {
-          const summaryExploits = summary.exploits !== undefined ? summary.exploits : (summary.severity ? summary.severity.critical || 0 : 0);
+          const highCritPool = (summary.severity
+            ? (summary.severity.critical || 0) + (summary.severity.high || 0)
+            : 0);
           const curExploitsVal = parseInt(kpiCriticals.textContent) || 0;
-          if (summaryExploits >= curExploitsVal) kpiCriticals.textContent = summaryExploits;
+          if (highCritPool >= curExploitsVal) kpiCriticals.textContent = highCritPool;
         }
         // MTTE KPI is updated by loadDashboardFromAPI() via /api/kpi/mtte (Bug-A fix).
         // Removed redundant exploit-stats fetch here to avoid in-memory data overwriting
