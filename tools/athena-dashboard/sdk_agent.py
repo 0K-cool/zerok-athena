@@ -1133,7 +1133,7 @@ class AthenaAgentSession:
             model = role.model
             allowed = list(role.allowed_tools)
             disallowed = list(role.disallowed_tools)
-            budget = role.max_cost_usd
+            budget = role.max_cost_usd * 10  # SDK cap is 10x estimate — safety net only (server-side enforces mode-aware stop)
             turns = role.max_turns_per_chunk
 
             # Build role-specific prompt with engagement context

@@ -4323,8 +4323,14 @@ async def record_budget_tool_call(agent: str, finding: bool = False):
     # despite a 200-call limit. Actual cost enforcement is handled
     # exclusively by /api/budget/actual-cost endpoint.
     if budget["tool_calls"] >= budget["max_tool_calls"]:
-        budget["exhausted"] = True
-        response["early_stop"] = True
+        budget["exhausted"] = True  # Keep for dashboard display
+        HARD_CAP_MODES = {"ctf", "sprint"}
+        eng_mode = _active_session_manager.mode if _active_session_manager else "multi-agent"
+        if eng_mode in HARD_CAP_MODES:
+            response["early_stop"] = True
+        else:
+            response["early_stop"] = False
+            response["warning"] = "budget_exceeded"
 
         if budget["warnings_sent"] < 2:
             budget["warnings_sent"] = 2
@@ -11503,20 +11509,36 @@ async def _sdk_event_to_dashboard(event: dict, eid: str):
         if _engagement_cost_live >= ENGAGEMENT_COST_CAP:
             if not getattr(state, '_engagement_cap_warned', False):
                 state._engagement_cap_warned = True
-                await _emit("system", "ST",
-                    f"ENGAGEMENT COST CAP REACHED: ${_engagement_cost_live:.2f} >= "
-                    f"${ENGAGEMENT_COST_CAP:.2f}. All agents should wrap up.",
-                    {"engagement_cap": True, "cost": round(_engagement_cost_live, 4)})
-                await state.broadcast({
-                    "type": "engagement_budget_exhausted",
-                    "engagement_cost": round(_engagement_cost_live, 4),
-                    "cap": ENGAGEMENT_COST_CAP,
-                    "timestamp": time.time(),
-                })
-                # F5: Signal early-stop for all running non-ST agents
-                if _active_session_manager and _active_session_manager.is_running:
-                    for ac in list(_active_session_manager.agents.keys()):
-                        _active_session_manager.signal_early_stop(ac)
+                HARD_CAP_MODES = {"ctf", "sprint"}
+                eng_mode = _active_session_manager.mode if _active_session_manager else "multi-agent"
+                if eng_mode in HARD_CAP_MODES:
+                    # Hard stop — kill all agents immediately
+                    await _emit("system", "ST",
+                        f"ENGAGEMENT COST CAP REACHED: ${_engagement_cost_live:.2f} >= "
+                        f"${ENGAGEMENT_COST_CAP:.2f}. All agents should wrap up.",
+                        {"engagement_cap": True, "cost": round(_engagement_cost_live, 4)})
+                    await state.broadcast({
+                        "type": "engagement_budget_exhausted",
+                        "engagement_cost": round(_engagement_cost_live, 4),
+                        "cap": ENGAGEMENT_COST_CAP,
+                        "timestamp": time.time(),
+                    })
+                    # F5: Signal early-stop for all running non-ST agents
+                    if _active_session_manager and _active_session_manager.is_running:
+                        for ac in list(_active_session_manager.agents.keys()):
+                            _active_session_manager.signal_early_stop(ac)
+                else:
+                    # Soft warning — tell ST but don't kill agents
+                    await _emit("system", "ST",
+                        f"ENGAGEMENT CAP WARNING: Cost ${_engagement_cost_live:.2f} exceeded cap "
+                        f"${ENGAGEMENT_COST_CAP:.2f}. Agents continuing. Consider wrapping up.",
+                        {"engagement_cap_warning": True, "cost": round(_engagement_cost_live, 4)})
+                    await state.broadcast({
+                        "type": "engagement_budget_exhausted",
+                        "engagement_cost": round(_engagement_cost_live, 4),
+                        "cap": ENGAGEMENT_COST_CAP,
+                        "timestamp": time.time(),
+                    })
 
         # Broadcast cost_update every 5 tool calls per agent
         if budget["tool_calls"] % 5 == 0:
