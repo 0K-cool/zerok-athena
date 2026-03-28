@@ -123,3 +123,38 @@ This validates: per-host dedup, per-host TTFS, multi-host reports, scope parsing
 4. RP prompt doesn't clearly mandate all 3 reports in sequence
 
 **Action:** Beta test again when API is stable. If RP still only writes 1, trace the RP session in server logs.
+
+## PRIORITY ESCALATION — March 28, 2026
+
+**Kelvin's direction:** "ATHENA is meant for pentest networks with thousands of endpoints. Rarely do clients request to pentest one host."
+
+This changes the priority from "Monday improvement" to **ARCHITECTURAL BLOCKER**. Every design decision since March has been validated against a single Metasploitable 2 host. The following are NOT edge cases — they are the PRIMARY use case:
+
+### What "Real Client Engagement" Looks Like
+
+| Engagement Type | Hosts | Expected Findings | Report Size |
+|---|---|---|---|
+| Small external pentest | 10-50 hosts | 200-500 | 20-40 pages |
+| Medium corporate network | 100-500 hosts | 1,000-5,000 | 50-100 pages |
+| Large enterprise | 1,000-10,000 hosts | 10,000-50,000 | 100+ pages, multiple reports |
+| Cloud infrastructure (AWS/Azure) | 500+ resources | 2,000-10,000 | Resource-based, not host-based |
+
+### Components That Will Break at Scale
+
+1. **RP (Reporting)** — Cannot hold 1,000+ findings in context. N+1 queries. Budget scales linearly.
+2. **Finding dedup** — 10,000 findings × fingerprint computation = slow. Cross-host dedup needed.
+3. **Neo4j queries** — exploit-stats scans ALL findings per request. O(n) on every dashboard poll.
+4. **Dashboard rendering** — Evidence Gallery with 10,000 artifacts. Findings table with 5,000 rows.
+5. **EX exploitation loop** — "query Neo4j for remaining HIGH/CRITICAL findings" returns 5,000 results.
+6. **Agent concurrency** — 7 agents on M1 Air. 1,000 hosts needs parallel agent teams per subnet.
+7. **Bus pipeline** — Every finding fires WebSocket + Neo4j write + fingerprint + screenshot check.
+8. **Attack Graph** — vis.js collapses at 500+ nodes.
+
+### Required Architecture Changes
+
+- **Subnet-based agent teams** — break scope into subnets, each gets its own AR/DA/EX/VF team
+- **Paginated/chunked reporting** — per-host sections, parallel RP agents, pre-aggregated data
+- **Indexed Neo4j queries** — exploit-stats must use indexed queries, not full scans
+- **Streaming dashboard** — virtual scrolling for findings/evidence tables
+- **Finding budget per host** — not global per engagement
+- **Report templates with pagination** — executive summary auto-generated from aggregate stats
