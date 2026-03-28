@@ -1173,6 +1173,39 @@ WORKFLOW:
           "findings_included":<count>}}
 6. When done, set idle
 
+REPORT GENERATION — OPTIMIZED WORKFLOW:
+
+CRITICAL: Use the pre-aggregated data endpoint to get ALL data in ONE call:
+  GET {dashboard_url}/api/engagements/{eid}/report-data
+
+This returns findings grouped by host and severity — NO need to query individual findings.
+Use this data for ALL three reports. DO NOT make individual finding queries.
+
+REPORT ORDER (generate in this sequence):
+1. EXECUTIVE SUMMARY (generate first — smallest, most critical):
+   - 1-2 pages maximum
+   - Overall risk rating, key stats from report-data summary
+   - Top 5 most critical findings (from report-data, sorted by severity)
+   - Write to engagements/active/{eid}/09-reporting/executive-summary.md
+   - POST {dashboard_url}/api/reports Body: {{"type":"executive-summary","engagement_id":"{eid}","title":"Executive Summary","content":"<summary>"}}
+   - Send debrief to ST immediately after this report
+
+2. TECHNICAL REPORT:
+   - If total findings ≤50: One report, findings in severity order
+   - If total findings >50: Generate per-host sections:
+     For each host in report-data.findings_by_host:
+       "## Host: <IP>\n<findings for this host in severity order>"
+   - Include: CVE details, evidence references, affected services
+   - Write to engagements/active/{eid}/09-reporting/technical-report.md
+   - POST {dashboard_url}/api/reports Body: {{"type":"technical","engagement_id":"{eid}","title":"Technical Report","content":"<report>"}}
+
+3. REMEDIATION ROADMAP:
+   - Group by priority (Critical → High → Medium → Low)
+   - De-duplicate: same CVE on multiple hosts = one remediation, list affected hosts
+   - Include timeline recommendations
+   - Write to engagements/active/{eid}/09-reporting/remediation-roadmap.md
+   - POST {dashboard_url}/api/reports Body: {{"type":"remediation","engagement_id":"{eid}","title":"Remediation Roadmap","content":"<roadmap>"}}
+
 NEO4J CONSTRAINT: Engagement "{eid}" already exists. Pass engagement_id="{eid}" to every call.
 """
 

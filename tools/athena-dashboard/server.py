@@ -9731,6 +9731,114 @@ async def delete_all_reports(engagement: Optional[str] = None):
     return {"ok": True, "deleted": deleted}
 
 
+@app.get("/api/engagements/{eid}/report-data")
+async def get_report_data(eid: str):
+    """Pre-aggregated data for report generation.
+
+    Returns ALL data RP needs in one response — no N+1 queries.
+    Grouped by host, then by severity. Includes summary stats,
+    credentials, and attack chain data.
+    """
+    report_data = {
+        "engagement_id": eid,
+        "generated_at": time.time(),
+        "summary": {},
+        "findings_by_host": {},
+        "credentials": [],
+        "attack_chains": [],
+    }
+
+    # 1. Summary stats
+    try:
+        eng = next((e for e in state.engagements if e.id == eid), None)
+        if eng:
+            raw_scope = getattr(eng, 'target', '') or getattr(eng, 'scope', '') or ''
+            targets = parse_scope(raw_scope)
+            scale = estimate_engagement_scale(targets)
+            report_data["summary"]["scope"] = raw_scope
+            report_data["summary"]["scale"] = scale
+    except Exception:
+        pass
+
+    # 2. Findings grouped by host + severity (single Neo4j query)
+    if neo4j_available and neo4j_driver:
+        def _get_findings():
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (f:Finding {engagement_id: $eid})
+                    WITH coalesce(f.host_ip, 'unknown') AS host,
+                         f.severity AS severity,
+                         collect({
+                             id: f.id, title: f.title, severity: f.severity,
+                             status: f.status, cve: f.cve, agent: f.agent,
+                             description: f.description, target: f.target,
+                             host_ip: f.host_ip, verified: f.verified,
+                             verification_status: f.verification_status
+                         }) AS findings
+                    RETURN host, severity, findings, size(findings) AS count
+                    ORDER BY host, severity
+                """, eid=eid)
+                return [dict(rec) for rec in result]
+        try:
+            rows = await neo4j_exec(_get_findings)
+            for row in rows:
+                host = row["host"]
+                if host not in report_data["findings_by_host"]:
+                    report_data["findings_by_host"][host] = {"total": 0, "by_severity": {}, "findings": []}
+                report_data["findings_by_host"][host]["total"] += row["count"]
+                sev = row["severity"] or "info"
+                report_data["findings_by_host"][host]["by_severity"][sev] = row["count"]
+                report_data["findings_by_host"][host]["findings"].extend(row["findings"])
+        except Exception as e:
+            logger.warning("report-data findings query error: %s", e)
+
+    # Fallback to in-memory
+    if not report_data["findings_by_host"]:
+        for f in state.findings:
+            if f.engagement == eid:
+                host = getattr(f, 'host_ip', '') or 'unknown'
+                if host not in report_data["findings_by_host"]:
+                    report_data["findings_by_host"][host] = {"total": 0, "by_severity": {}, "findings": []}
+                report_data["findings_by_host"][host]["total"] += 1
+                sev = (f.severity.value if hasattr(f.severity, 'value') else str(f.severity)).lower()
+                report_data["findings_by_host"][host]["by_severity"][sev] = report_data["findings_by_host"][host]["by_severity"].get(sev, 0) + 1
+                report_data["findings_by_host"][host]["findings"].append({
+                    "id": f.id, "title": f.title, "severity": sev,
+                    "status": getattr(f, 'status', 'open'),
+                    "description": f.description or "",
+                })
+
+    # 3. Summary counts
+    total_findings = sum(h["total"] for h in report_data["findings_by_host"].values())
+    total_confirmed = sum(
+        1 for h in report_data["findings_by_host"].values()
+        for f in h["findings"]
+        if f.get("status") == "confirmed" or f.get("verified") is True
+    )
+    report_data["summary"]["total_findings"] = total_findings
+    report_data["summary"]["total_confirmed"] = total_confirmed
+    report_data["summary"]["total_hosts"] = len(report_data["findings_by_host"])
+
+    # 4. Credentials (from Neo4j or in-memory)
+    if neo4j_available and neo4j_driver:
+        def _get_creds():
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (c:Credential)-[:HARVESTED_FROM]->(h:Host)
+                    WHERE EXISTS { (h)-[:SCOPED_TO]->(:Engagement {id: $eid}) }
+                    RETURN c.username AS username, c.password AS password,
+                           h.ip AS host, c.service AS service
+                    ORDER BY h.ip
+                """, eid=eid)
+                return [dict(rec) for rec in result]
+        try:
+            report_data["credentials"] = await neo4j_exec(_get_creds)
+        except Exception:
+            pass
+
+    return report_data
+
+
 @app.get("/api/approvals")
 async def get_approvals(status: Optional[str] = None):
     """Get approval requests with optional status filter."""
