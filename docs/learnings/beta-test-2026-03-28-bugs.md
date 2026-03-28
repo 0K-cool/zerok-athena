@@ -218,3 +218,29 @@ Or use `contributing_agents` list (already tracked) and keep the original confir
 
 ### Impact
 Cosmetic only — the confirmed count, exploit rate, TTFS, and unverified count all work correctly. Only the "by agent" breakdown in detailed reports would show DA as the confirming agent instead of EX.
+
+## BUG: RP Stalls on Technical Report — Executive Summary Only
+
+**Severity:** HIGH — Client deliverable incomplete
+**Status:** DOCUMENTED
+**Evidence:** eng-8899fe, March 28, 2026
+
+### What Happened
+- RP spawned 3 times, stalled each time on technical report generation
+- Only delivered executive summary (7.9KB)
+- 73 findings too large for RP to process in single context window
+- Executive summary was generated successfully (covers all findings at high level)
+- Technical report (per-finding detail) never completed
+
+### Why RP Stalls on Technical Report
+1. RP queries each of 73 findings individually from Neo4j (N+1 pattern)
+2. Each finding query = 1 tool call + response fills context
+3. After ~30-40 findings, context window full
+4. RP either exhausts budget or exceeds max_turns_per_chunk
+5. Respawn starts fresh but hits same wall
+
+### Fix Required
+- **Chunked technical report:** Generate per-host or per-severity sections independently
+- **Pre-aggregated report data:** Single `/api/report-data` endpoint returns all findings formatted for report, not N+1 queries
+- **Template-based generation:** RP fills a template with data, not free-form report writing
+- Part of the multi-target scalability architecture
