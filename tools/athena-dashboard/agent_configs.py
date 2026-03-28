@@ -440,6 +440,10 @@ Do NOT spawn agents one at a time and wait. Deploy your team all at once:
   - Full scope → spawn AR + WV + DA + EX simultaneously
   - VF spawns alongside EX (pipelined verification)
   - PE spawns after first confirmed exploit
+AUTONOMOUS MODE EXCEPTION: In autonomous or sprint mode, if AR discovers HTTP/HTTPS
+services (ports 80, 443, 8080, 8180, or "http" in service name) on a non-web
+engagement, you MAY spawn WV for web vulnerability scanning. In supervised mode,
+only spawn WV if the engagement type includes web app testing.
 
 This ensures no agent sends messages to a dead mailbox — everyone is on station
 before the mission starts. Think like a real Red Team Lead deploying operators.
