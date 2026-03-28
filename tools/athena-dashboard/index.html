@@ -12879,6 +12879,23 @@
           const agentInfo = ptesAgents[code] || ptesAgents[code.toLowerCase()];
           if (!agentInfo) continue;
           const st = (agentInfo.status || '').toLowerCase();
+          // BUG-009: Gate RP coverage on actual report output, not just agent status
+          if (code === 'RP') {
+            let rpReportsCount = 0;
+            try {
+              const rpRpt = await fetch('/api/reports?engagement=' + currentEngagementId);
+              const rpRptData = await rpRpt.json();
+              rpReportsCount = Array.isArray(rpRptData) ? rpRptData.length
+                             : (rpRptData.reports ? rpRptData.reports.length : 0);
+            } catch(e) {}
+            if (rpReportsCount > 0 && (st === 'completed' || st === 'complete')) {
+              updatePtesFromAgent(code, 'complete');
+            } else if (st === 'running') {
+              updatePtesFromAgent(code, 'running');
+            }
+            // completed but 0 reports → leave as "No Coverage"
+            continue;
+          }
           if (st === 'completed' || st === 'complete') {
             updatePtesFromAgent(code, 'complete');
           } else if (st === 'running') {

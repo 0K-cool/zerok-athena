@@ -390,6 +390,8 @@ class AgentSessionManager:
         self._st_tool_call_started_at: float | None = None
         # Worker idle watchdog: track last tool_start time per worker code
         self._worker_last_tool_call: dict[str, float] = {}
+        # BUG-006: Respawn counter — prevent infinite budget-exhaustion loops
+        self._agent_respawn_counts: dict[str, int] = {}
 
     def set_event_callback(self, callback: Callable):
         """Set async callback for streaming events to dashboard.
@@ -1179,10 +1181,20 @@ class AgentSessionManager:
                     self.total_cost_usd += session._total_cost_usd
                     self.total_tool_calls += session._tool_count
                     self._cost_aggregated.add(code)
-                await self._emit("agent_status", code, "completed",
-                    {"status": "completed", "reason": "budget_exhausted",
+                await self._emit("agent_status", code, "budget_exhausted",
+                    {"status": "budget_exhausted", "reason": "budget_exhausted",
                      "cost_usd": round(session._total_cost_usd, 4),
                      "tool_calls": session._tool_count})
+                # BUG-006: Respawn cap — after MAX_AGENT_RESPAWNS exhaustions, stop retrying
+                MAX_AGENT_RESPAWNS = 2
+                self._agent_respawn_counts[code] = self._agent_respawn_counts.get(code, 0) + 1
+                if self._agent_respawn_counts[code] > MAX_AGENT_RESPAWNS:
+                    logger.warning(
+                        "RESPAWN CAP: %s exhausted budget %d times — no more respawns",
+                        code, self._agent_respawn_counts[code])
+                    self.bus.unregister(code)
+                    self._early_stop_queue.discard(code)
+                    continue
                 # Notify ST (or re-spawn if ST died)
                 early_stop_msg = (
                     f"Agent {code} was EARLY-STOPPED (budget exhausted). "
