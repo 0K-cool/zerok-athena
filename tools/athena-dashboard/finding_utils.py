@@ -132,3 +132,12 @@ def _compute_finding_fingerprint(
     target_norm = (target or "").lower().strip()
     key = f"{engagement_id}|{title_norm}|{target_norm}"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _canonical_cve(cve_input) -> str | None:
+    """Normalize CVE input (str, list, or None) to a single uppercase canonical CVE ID."""
+    if isinstance(cve_input, list):
+        cve_input = cve_input[0] if cve_input else None
+    if isinstance(cve_input, str) and cve_input.strip():
+        return cve_input.strip().upper()
+    return None

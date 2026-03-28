@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from agent_configs import AGENT_ROLES, AgentRoleConfig, format_prompt, get_role
-from finding_utils import _compute_finding_fingerprint
+from finding_utils import _compute_finding_fingerprint, _canonical_cve
 from langfuse_integration import trace_engagement, is_enabled as langfuse_enabled
 from message_bus import MessageBus
 from sdk_agent import AthenaAgentSession
@@ -477,11 +477,22 @@ class AgentSessionManager:
                     target = msg.target or ""
                     data = msg.data or {}
 
+                    # Fix C: Enrich target before fingerprint computation using bus data fields
+                    if not target:
+                        import re as _re_tgt
+                        for _field in [data.get("affected_hosts", ""), data.get("host", ""), data.get("target_ip", "")]:
+                            if _field:
+                                _m = _re_tgt.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', str(_field))
+                                if _m:
+                                    target = _m.group(1)
+                                    break
+                        if not target:
+                            _m = _re_tgt.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', msg.summary or "")
+                            if _m:
+                                target = _m.group(1)
+
                     # Extract parameters for vulnerability-identity fingerprint
-                    _cve_list = data.get("cve", [])
-                    _cve = (_cve_list[0] if isinstance(_cve_list, list) and _cve_list
-                            else _cve_list if isinstance(_cve_list, str) and _cve_list
-                            else None)
+                    _cve = _canonical_cve(data.get("cve"))
                     _host_ip = None
                     _ip_match = __import__("re").search(
                         r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', target
@@ -505,8 +516,10 @@ class AgentSessionManager:
                         except (TypeError, ValueError):
                             _service_port = None
 
+                    # Normalize title: prefer structured data.title over raw bus summary
+                    _fp_title = (data.get("title") or data.get("summary") or msg.summary or "")[:200]
                     fingerprint = _compute_finding_fingerprint(
-                        eid, msg.summary[:200], target,
+                        eid, _fp_title, target,
                         _cve, _host_ip, _service_port,
                     )
                     finding_id = f"bus-{fingerprint}"

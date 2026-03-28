@@ -2143,7 +2143,7 @@ _SEV_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 _STATUS_RANK = {"open": 0, "discovered": 1, "confirmed": 2}
 
 
-from finding_utils import _compute_finding_fingerprint
+from finding_utils import _compute_finding_fingerprint, _canonical_cve
 
 
 @app.post("/api/findings")
@@ -2211,7 +2211,7 @@ async def create_finding(payload: FindingPayload):
     # BUG-013: Compute fingerprint for deduplication
     fingerprint = _compute_finding_fingerprint(
         payload.engagement, payload.title, payload.target,
-        payload.cve, host_ip, svc_port,
+        _canonical_cve(payload.cve), host_ip, svc_port,
     )
 
     # BUG-013: Check for existing finding with same fingerprint
@@ -2355,7 +2355,9 @@ async def create_finding(payload: FindingPayload):
         def _write_finding():
             with neo4j_driver.session() as session:
                 # Step 1: Create Finding node with fingerprint
-                session.run("""
+                # Fix A3: RETURN f.id so we get the actual ID (handles TOCTOU race
+                # where a concurrent insert already created the node before us)
+                result = session.run("""
                     MERGE (f:Finding {fingerprint: $fingerprint, engagement_id: $engagement})
                     ON CREATE SET f.id = $id, f.discovered_at = $discovered_at, f.status = 'open'
                     SET f.title = $title, f.severity = $severity,
@@ -2364,6 +2366,7 @@ async def create_finding(payload: FindingPayload):
                         f.cvss = $cvss, f.cve = $cve, f.evidence = $evidence,
                         f.timestamp = $timestamp, f.engagement_id = $engagement,
                         f.fingerprint = $fingerprint
+                    RETURN f.id AS actual_id
                 """, id=finding_id, title=payload.title,
                      severity=payload.severity, category=payload.category,
                      target=payload.target, agent=payload.agent,
@@ -2371,6 +2374,8 @@ async def create_finding(payload: FindingPayload):
                      cve=payload.cve, evidence=payload.evidence,
                      timestamp=timestamp, engagement=payload.engagement,
                      fingerprint=fingerprint, discovered_at=timestamp)
+                record = result.single()
+                actual_finding_id = record["actual_id"] if record else finding_id
 
                 # Step 2: Auto-create Host + FOUND_ON edge (MERGE = idempotent)
                 if host_ip:
@@ -2384,7 +2389,7 @@ async def create_finding(payload: FindingPayload):
                         MATCH (f:Finding {id: $finding_id})
                         MERGE (f)-[:FOUND_ON]->(h)
                     """, host_ip=host_ip, engagement=payload.engagement,
-                         finding_id=finding_id)
+                         finding_id=actual_finding_id)
 
                 # Step 3: Auto-create Service + HAS_SERVICE + link Finding to Service
                 if host_ip and svc_port:
@@ -2404,14 +2409,14 @@ async def create_finding(payload: FindingPayload):
                         MERGE (f)-[:AFFECTS]->(s)
                     """, host_ip=host_ip, port=svc_port, svc_name=svc_name,
                          protocol=svc_proto, engagement=payload.engagement,
-                         finding_id=finding_id)
+                         finding_id=actual_finding_id)
 
                 # Step 4: Link Finding to originating Scan (Fix 5b)
                 if payload.scan_id:
                     session.run(
                         "MATCH (s:Scan {id: $sid}), (f:Finding {id: $fid}) "
                         "MERGE (s)-[:HAS_FINDING]->(f)",
-                        sid=payload.scan_id, fid=finding_id
+                        sid=payload.scan_id, fid=actual_finding_id
                     )
                     session.run(
                         "MATCH (s:Scan {id: $sid}) "
