@@ -4199,8 +4199,8 @@ AGENT_BUDGETS: dict[str, dict] = {
     "PE": {"max_tool_calls": 100, "max_cost": 3.00, "label": "Post-Exploitation"},
     # Verification — focused re-testing
     "VF": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Verification"},
-    # Reporting — writing-heavy (Opus)
-    "RP": {"max_tool_calls": 150, "max_cost": 8.33, "label": "Reporting"},
+    # Reporting — writing-heavy, scales with finding count
+    "RP": {"max_tool_calls": 250, "max_cost": 15.00, "label": "Reporting"},
 }
 
 # Default budget for unlisted agents
