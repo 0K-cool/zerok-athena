@@ -2200,13 +2200,12 @@ async def create_finding(payload: FindingPayload):
         else:
             payload.agent = "EX"  # Default to EX for unclassified exploitation findings
 
-    # BUG-002: DA/AR/WV/PR cannot create confirmed findings via POST /api/findings
+    # BUG-002 / BUG-A: Flag non-confirm agents — used by merge branch to prevent
+    # propagating confirmed status when DA/AR/WV/PR/PX re-POSTs a matching fingerprint.
+    # NOTE: The old hasattr(payload, 'status') check was dead code — FindingPayload has
+    # no status field — so it has been replaced with this flag for merge-branch enforcement.
     _NON_CONFIRM_AGENTS_POST = {"DA", "AR", "WV", "PR", "PX"}
-    if payload.agent and payload.agent.upper() in _NON_CONFIRM_AGENTS_POST:
-        if hasattr(payload, 'status') and getattr(payload, 'status', '') == 'confirmed':
-            payload.status = 'analyzed'
-        if hasattr(payload, 'verification_status') and getattr(payload, 'verification_status', '') == 'confirmed':
-            payload.verification_status = 'analyzed'
+    _is_non_confirm_agent = bool(payload.agent and payload.agent.upper() in _NON_CONFIRM_AGENTS_POST)
 
     timestamp = time.time()
 
@@ -2276,6 +2275,15 @@ async def create_finding(payload: FindingPayload):
         old_status = existing.get("status", "open")
         merged_status = new_status if _STATUS_RANK.get(new_status, 0) > \
             _STATUS_RANK.get(old_status, 0) else old_status
+
+        # BUG-A: Non-confirm agents cannot propagate confirmed status through merge.
+        # If a DA/AR/WV/PR/PX re-POSTs a fingerprint match against an already-confirmed
+        # finding, merged_status would resolve to old_status == "confirmed", making it
+        # appear DA confirmed the finding. Revert to old_status (keep existing) instead.
+        _NON_CONFIRM_AGENTS_DEDUP = {"DA", "AR", "WV", "PR", "PX"}
+        if _is_non_confirm_agent:
+            if merged_status == "confirmed":
+                merged_status = old_status  # Keep existing status; DA cannot propagate confirmed
 
         # BUG-017: Set confirmed_at when status upgrades to confirmed during merge
         merge_confirmed_at = None
@@ -7069,6 +7077,8 @@ async def get_exploit_stats(eid: str):
     # TTFS: Time to First Shell — read from Engagement node
     ttfs_seconds = 0
     ttfs_display = "—"
+    ttfs_data = None  # BUG-B: Initialize before try block to prevent NameError when
+                      # neo4j_available is False or the try block raises before assignment
     if neo4j_available and neo4j_driver:
         try:
             def _get_ttfs():
