@@ -6535,8 +6535,15 @@ async def get_findings(severity: Optional[str] = None, engagement: Optional[str]
 
 
 @app.get("/api/engagements/{eid}/findings")
-async def get_engagement_findings(eid: str):
-    """Get findings for engagement from Neo4j or fallback."""
+async def get_engagement_findings(eid: str, host_ip: str = None, severity: str = None, status: str = None, limit: int = 100, offset: int = 0):
+    """Get findings for engagement from Neo4j or fallback.
+
+    Optional query params:
+    - host_ip: filter to findings on a specific host IP
+    - severity: filter by severity (critical/high/medium/low/info)
+    - status: filter by status (open/confirmed/discovered/etc.)
+    - limit/offset: pagination (default limit=100, offset=0)
+    """
     if neo4j_available and neo4j_driver:
         try:
             def _query():
@@ -6553,13 +6560,27 @@ async def get_engagement_findings(eid: str):
                     except Exception:
                         pass
 
-                    result = session.run("""
-                        MATCH (f:Finding {engagement_id: $eid})
+                    # Build optional WHERE filters
+                    extra_filters = ""
+                    params = {"eid": eid, "limit": limit, "offset": offset}
+                    if host_ip:
+                        extra_filters += " AND f.host_ip = $host_ip"
+                        params["host_ip"] = host_ip
+                    if severity:
+                        extra_filters += " AND toLower(f.severity) = toLower($severity)"
+                        params["severity"] = severity
+                    if status:
+                        extra_filters += " AND f.status = $status"
+                        params["status"] = status
+
+                    result = session.run(f"""
+                        MATCH (f:Finding {{engagement_id: $eid}})
+                        WHERE true{extra_filters}
                         OPTIONAL MATCH (f)-[:FOUND_ON]->(h:Host)
                         WITH f, collect(DISTINCT h.ip) AS affected_hosts
                         OPTIONAL MATCH (f)-[:EVIDENCED_BY]->(ep:EvidencePackage)
                         OPTIONAL MATCH (f)-[:HAS_ARTIFACT]->(art:Artifact)
-                        OPTIONAL MATCH (prop_art:Artifact {finding_id: f.id})
+                        OPTIONAL MATCH (prop_art:Artifact {{finding_id: f.id}})
                         RETURN f.id AS id, f.title AS title, f.severity AS severity,
                                f.cvss AS cvss, f.status AS status, f.category AS category,
                                f.description AS description, f.target AS target,
@@ -6567,7 +6588,8 @@ async def get_engagement_findings(eid: str):
                                f.agent AS agent, f.timestamp AS timestamp,
                                count(DISTINCT ep) + count(DISTINCT art) + count(DISTINCT prop_art) AS evidence_count
                         ORDER BY f.cvss DESC
-                    """, eid=eid)
+                        SKIP $offset LIMIT $limit
+                    """, **params)
                     findings = []
                     for record in result:
                         # Derive affected_hosts from target if no AFFECTS relationships
@@ -6644,17 +6666,28 @@ async def get_engagement_findings(eid: str):
                     mem_findings = [f for f in state.findings if f.engagement == eid]
                     for f in mem_findings:
                         if f.id not in neo4j_ids:
+                            # Apply same filters as Neo4j query
+                            if host_ip and getattr(f, 'host_ip', '') != host_ip:
+                                continue
+                            f_sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
+                            if severity and f_sev != severity.lower():
+                                continue
+                            f_status = getattr(f, 'status', 'open') or 'open'
+                            if status and f_status != status:
+                                continue
                             findings.append({
                                 "id": f.id,
                                 "title": f.title,
-                                "severity": f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower(),
+                                "severity": f_sev,
                                 "cvss": f.cvss,
-                                "status": "open",
+                                "status": f_status,
                                 "category": f.category,
                                 "description": f.description,
                                 "affected_hosts": [f.target],
                                 "evidence_count": 1 if f.evidence else 0,
                             })
+                    # Apply pagination to merged result (Neo4j already paginated,
+                    # but in-memory additions may push past limit)
                     return findings
             findings = await neo4j_exec(_query)
             if findings:
@@ -6663,14 +6696,21 @@ async def get_engagement_findings(eid: str):
             print(f"Neo4j findings query error: {e}")
             # Fall through to in-memory
 
-    # Fallback: filter in-memory findings
+    # Fallback: filter in-memory findings and apply pagination
     results = [f for f in state.findings if f.engagement == eid]
+    if host_ip:
+        results = [f for f in results if getattr(f, 'host_ip', '') == host_ip]
+    if severity:
+        results = [f for f in results if (f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()) == severity.lower()]
+    if status:
+        results = [f for f in results if (getattr(f, 'status', 'open') or 'open') == status]
+    results = results[offset: offset + limit]
     return [{
         "id": f.id,
         "title": f.title,
         "severity": f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower(),
         "cvss": f.cvss,
-        "status": "open",
+        "status": getattr(f, 'status', 'open') or 'open',
         "category": f.category,
         "description": f.description,
         "affected_hosts": [f.target],
@@ -6814,8 +6854,12 @@ def _dedup_key(title: str, host: str = "") -> str:
 
 
 @app.get("/api/engagements/{eid}/exploit-stats")
-async def get_exploit_stats(eid: str):
-    """Get exploitation statistics: discovered vulns, confirmed exploits, MTTE."""
+async def get_exploit_stats(eid: str, host_ip: str = None):
+    """Get exploitation statistics: discovered vulns, confirmed exploits, MTTE.
+
+    Optional query params:
+    - host_ip: scope all stats to a specific host IP
+    """
     # Patterns that are NOT real exploits — summaries, batch reports, bus noise
     NOT_EXPLOIT_PATTERNS = (
         'strong signal (shell)',     # Raw bus JSON dumps
@@ -6839,9 +6883,14 @@ async def get_exploit_stats(eid: str):
                 # BUG-031 fix: Only count VF-confirmed findings as confirmed exploits.
                 # Previous query was too broad (any high severity or EX agent counted).
                 # Confirmed = verified by VF agent OR has EXPLOITS edge in graph.
-                result = session.run("""
-                    MATCH (e:Engagement {id: $eid})
-                    OPTIONAL MATCH (f:Finding {engagement_id: $eid})
+                host_filter = "AND f.host_ip = $host_ip" if host_ip else ""
+                neo4j_params = {"eid": eid}
+                if host_ip:
+                    neo4j_params["host_ip"] = host_ip
+                result = session.run(f"""
+                    MATCH (e:Engagement {{id: $eid}})
+                    OPTIONAL MATCH (f:Finding {{engagement_id: $eid}})
+                    WHERE f IS NULL OR (true {host_filter})
                     WITH e, collect(f) AS all_findings
                     RETURN size(all_findings) AS total_findings,
                            size([x IN all_findings WHERE
@@ -6855,8 +6904,8 @@ async def get_exploit_stats(eid: str):
                                x.verification_status = 'confirmed' OR
                                x.verification_status = 'likely' OR
                                x.status = 'confirmed' |
-                               {title: x.title, severity: x.severity, timestamp: x.timestamp}] AS exploit_details
-                """, eid=eid)
+                               {{title: x.title, severity: x.severity, timestamp: x.timestamp}}] AS exploit_details
+                """, **neo4j_params)
                 record = result.single()
                 if record:
                     discovered = record.get("total_findings", 0)
@@ -6891,6 +6940,9 @@ async def get_exploit_stats(eid: str):
     # BUG-S2-004 fix: Exclude port/batch summary findings from discovered count.
     SUMMARY_PATTERNS = ('open tcp port', 'open udp port', 'open ports', 'cves confirmed', 'cves detected')
     mem_findings = [f for f in state.findings if f.engagement == eid]
+    # Apply host_ip filter to in-memory findings when provided
+    if host_ip:
+        mem_findings = [f for f in mem_findings if getattr(f, 'host_ip', '') == host_ip]
     mem_findings_clean = [
         f for f in mem_findings
         if not any(pat in (f.title or '').lower() for pat in SUMMARY_PATTERNS)
@@ -6936,13 +6988,18 @@ async def get_exploit_stats(eid: str):
         try:
             with neo4j_driver.session() as session:
                 # Unverified = agent is EX, status is confirmed, but verified is not true
-                result = session.run("""
-                    MATCH (f:Finding {engagement_id: $eid})
+                unver_host_filter = "AND f.host_ip = $host_ip" if host_ip else ""
+                unver_params = {"eid": eid}
+                if host_ip:
+                    unver_params["host_ip"] = host_ip
+                result = session.run(f"""
+                    MATCH (f:Finding {{engagement_id: $eid}})
                     WHERE f.status = 'confirmed'
                       AND f.agent = 'EX'
                       AND (f.verified IS NULL OR f.verified = false)
+                      {unver_host_filter}
                     RETURN count(f) AS cnt
-                """, eid=eid)
+                """, **unver_params)
                 rec = result.single()
                 if rec:
                     exploited_unverified = rec["cnt"]
@@ -6996,11 +7053,16 @@ async def get_exploit_stats(eid: str):
     if high_critical_count == 0 and neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
-                r = session.run("""
-                    MATCH (f:Finding {engagement_id: $eid})
+                hc_host_filter = "AND f.host_ip = $host_ip" if host_ip else ""
+                hc_params = {"eid": eid}
+                if host_ip:
+                    hc_params["host_ip"] = host_ip
+                r = session.run(f"""
+                    MATCH (f:Finding {{engagement_id: $eid}})
                     WHERE f.severity IN ['high', 'critical', 'High', 'Critical', 'HIGH', 'CRITICAL']
+                    {hc_host_filter}
                     RETURN count(f) AS cnt
-                """, eid=eid)
+                """, **hc_params)
                 rec = r.single()
                 if rec and rec["cnt"] > 0:
                     high_critical_count = rec["cnt"]
@@ -7075,10 +7137,14 @@ async def get_exploit_stats(eid: str):
                 return 0.0
 
             # BUG-S2-001 fix: Filter to EX agent only; remove severity-based matching.
+            _mtte_host_filter = "AND f.host_ip = $host_ip" if host_ip else ""
+            _mtte_params = {"eid": eid}
+            if host_ip:
+                _mtte_params["host_ip"] = host_ip
             def _mtte_query():
                 with neo4j_driver.session() as session:
-                    result = session.run("""
-                        MATCH (f:Finding {engagement_id: $eid})
+                    result = session.run(f"""
+                        MATCH (f:Finding {{engagement_id: $eid}})
                         WHERE f.timestamp IS NOT NULL
                           AND (
                             f.agent = 'EX'
@@ -7089,9 +7155,10 @@ async def get_exploit_stats(eid: str):
                             ))
                           )
                           AND (f.evidence IS NOT NULL OR f.confirmed_at IS NOT NULL)
+                          {_mtte_host_filter}
                         RETURN f.title AS title, f.timestamp AS ts
                         ORDER BY f.timestamp ASC
-                    """, eid=eid)
+                    """, **_mtte_params)
                     return [dict(record) for record in result]
             records = await neo4j_exec(_mtte_query)
             all_ts = []
@@ -7193,6 +7260,42 @@ async def get_exploit_stats_by_host(eid: str):
             logger.warning("by-host exploit-stats error: %s", e)
             result = []
     return {"engagement_id": eid, "hosts": result}
+
+
+@app.get("/api/engagements/{eid}/hosts")
+async def get_engagement_hosts(eid: str):
+    """List all unique hosts discovered in this engagement."""
+    hosts = []
+    if neo4j_available and neo4j_driver:
+        def _query():
+            with neo4j_driver.session() as session:
+                r = session.run("""
+                    MATCH (h:Host)-[:SCOPED_TO]->(e:Engagement {id: $eid})
+                    RETURN h.ip AS ip, h.hostname AS hostname, h.os AS os,
+                           size([(h)<-[:FOUND_ON]-(f:Finding) | f]) AS finding_count,
+                           size([(h)<-[:FOUND_ON]-(f:Finding) WHERE f.status = 'confirmed' | f]) AS confirmed_count
+                    ORDER BY confirmed_count DESC, finding_count DESC
+                """, eid=eid)
+                return [dict(rec) for rec in r]
+        try:
+            hosts = await neo4j_exec(_query)
+        except Exception as e:
+            logger.warning("hosts query error: %s", e)
+
+    # Fallback: extract unique host_ips from in-memory findings
+    if not hosts:
+        host_map = {}
+        for f in state.findings:
+            if f.engagement == eid and getattr(f, 'host_ip', ''):
+                hip = f.host_ip
+                if hip not in host_map:
+                    host_map[hip] = {"ip": hip, "hostname": None, "os": None, "finding_count": 0, "confirmed_count": 0}
+                host_map[hip]["finding_count"] += 1
+                if getattr(f, 'status', '') == 'confirmed':
+                    host_map[hip]["confirmed_count"] += 1
+        hosts = list(host_map.values())
+
+    return {"engagement_id": eid, "hosts": hosts, "total": len(hosts)}
 
 
 @app.get("/api/engagements/{eid}/services-summary")
