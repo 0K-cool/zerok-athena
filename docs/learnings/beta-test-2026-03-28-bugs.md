@@ -122,3 +122,51 @@ RP (Reporting) spawns with $12.00 budget on Opus model. With 50+ findings, repor
 ### Files to Modify
 - `agent_configs.py` — RP budget, RP model selection, ST respawn logic
 - `agent_session_manager.py` — respawn counter, budget-exhaustion detection
+
+## BUG: Auto-Screenshots Capture Wrong Content (Web Page Instead of Exploit Evidence)
+
+**Severity:** HIGH — Evidence useless for client reports
+**Status:** DOCUMENTED
+
+### Problem
+All 21 auto-screenshots capture `http://10.1.1.25` (Apache default page) regardless of what exploit was confirmed. A web screenshot of the homepage proves nothing about a vsftpd backdoor, Samba RCE, or PostgreSQL default creds. Additionally, many screenshots are 0 bytes (possibly failing silently).
+
+### What We Capture vs What Client Needs
+
+| Exploit | What We Screenshot | What Client Needs |
+|---|---|---|
+| vsftpd backdoor (port 21) | http://10.1.1.25 (web page) | Terminal: `nc 10.1.1.25 6200` → `uid=0(root)` |
+| Samba RCE (port 445) | http://10.1.1.25 (web page) | Terminal: msfconsole exploit output |
+| PostgreSQL default creds | http://10.1.1.25 (web page) | Terminal: `psql -U postgres` → connected |
+| Tomcat manager (port 8180) | http://10.1.1.25 (homepage) | http://10.1.1.25:8180/manager/ (the actual vuln page) |
+
+### Root Cause
+`_trigger_auto_screenshot` constructs `http://{target_ip}` and calls Kali's web screenshot endpoint. This:
+1. Always hits port 80 regardless of which service was exploited
+2. Captures a web page when most exploits are terminal-based
+3. Doesn't know WHAT was exploited — just knows the target IP
+
+### Proposed Fix
+
+**Option A: Agent-driven evidence (BEST)**
+Agents (EX/VF) capture their own evidence — they know what they just did. 
+- EX: After exploit, call `screenshot_terminal` with the command + output
+- VF: After verification, capture the terminal proving independent confirmation
+- Server auto-capture becomes a fallback, not the primary method
+
+**Option B: Smart screenshot routing**
+In `_trigger_auto_screenshot`, check the finding's service/port:
+- Web finding (port 80, 443, 8080, 8180) → `screenshot_web` with correct port/path
+- Terminal finding (SSH, FTP, netcat) → `screenshot_terminal` with exploit command
+- Requires finding metadata to include service/port info
+
+**Option C: Command output AS evidence (already working)**
+The 63 `command_output` artifacts from EX/VF are the REAL evidence. They contain actual exploit commands and results. Prioritize these in reports over screenshots.
+
+### Recommendation
+Option A + C. Agent-driven terminal screenshots + command_output as primary evidence. Server auto-capture web screenshots only for web vulnerabilities.
+
+### Files to Modify
+- `server.py` — `_trigger_auto_screenshot` routing logic
+- `agent_configs.py` — EX/VF prompts to mandate `screenshot_terminal` after every exploit
+- Report templates — prioritize command_output evidence over web screenshots
