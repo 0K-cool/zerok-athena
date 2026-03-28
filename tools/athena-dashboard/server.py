@@ -6782,12 +6782,14 @@ async def get_exploit_stats(eid: str):
                            size([x IN all_findings WHERE
                                x.verified = true OR
                                x.verification_status = 'confirmed' OR
-                               x.verification_status = 'likely'
+                               x.verification_status = 'likely' OR
+                               x.status = 'confirmed'
                            ]) AS exploit_count,
                            [x IN all_findings WHERE
                                x.verified = true OR
                                x.verification_status = 'confirmed' OR
-                               x.verification_status = 'likely' |
+                               x.verification_status = 'likely' OR
+                               x.status = 'confirmed' |
                                {title: x.title, severity: x.severity, timestamp: x.timestamp}] AS exploit_details
                 """, eid=eid)
                 record = result.single()
@@ -6837,7 +6839,8 @@ async def get_exploit_stats(eid: str):
         sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
         verification = getattr(f, 'verification_status', '') or ''
-        is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
+        finding_status = getattr(f, 'status', '') or ''
+        is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely') or finding_status == 'confirmed'
         if is_confirmed:
             title = f.title or ""
             # Filter out batch summaries and noise — not real individual exploits
@@ -6920,9 +6923,24 @@ async def get_exploit_stats(eid: str):
     success_rate = round((confirmed / max(discovered, 1)) * 100, 1)
     # Count HIGH+CRITICAL findings (the exploitable vulnerability pool)
     high_critical_count = sum(
-        1 for f in mem_findings
-        if str(getattr(f, 'severity', '')).lower() in ('high', 'critical')
+        1 for f in mem_findings_clean
+        if (f.severity.value if hasattr(f.severity, 'value') else str(f.severity or '')).lower()
+           in ('high', 'critical')
     )
+    # Fallback to Neo4j if in-memory is empty (e.g., after server restart)
+    if high_critical_count == 0 and neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                r = session.run("""
+                    MATCH (f:Finding {engagement_id: $eid})
+                    WHERE f.severity IN ['high', 'critical', 'High', 'Critical', 'HIGH', 'CRITICAL']
+                    RETURN count(f) AS cnt
+                """, eid=eid)
+                rec = r.single()
+                if rec and rec["cnt"] > 0:
+                    high_critical_count = rec["cnt"]
+        except Exception:
+            pass
 
     # MTTE: estimate from timestamp spread of findings (simplified)
     # BUG-S2-001 fix: Filter to EX-agent findings with actual exploitation evidence only.
