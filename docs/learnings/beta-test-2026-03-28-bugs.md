@@ -244,3 +244,20 @@ Cosmetic only — the confirmed count, exploit rate, TTFS, and unverified count 
 - **Pre-aggregated report data:** Single `/api/report-data` endpoint returns all findings formatted for report, not N+1 queries
 - **Template-based generation:** RP fills a template with data, not free-form report writing
 - Part of the multi-target scalability architecture
+
+## BUG: /api/scope Returns Empty After Server Restart
+
+**Severity:** LOW — Pentest runs fine, scope data available in Neo4j
+**Status:** DOCUMENTED
+
+### Problem
+`GET /api/scope` returns `raw_scope: ""` and `targets: []` after server restart, even though the engagement has `target: "10.1.1.25, 10.1.1.31"` in Neo4j. The `/api/engagements` list endpoint (reads from Neo4j) shows the correct scope, but `/api/scope` reads from in-memory `state.engagements` where the `target` field isn't populated on restart.
+
+### Root Cause
+When the server restarts, in-memory `Engagement` objects are recreated from Neo4j but the `target`/`scope` fields may not be hydrated from the Neo4j node properties into the Pydantic model. The `Engagement` class (line 224) has `target: str` but the reconstruction from Neo4j may skip it.
+
+### Fix
+In the server startup or engagement load path, ensure `target` and `scope` are read from Neo4j and populated on the in-memory Engagement object. Or: have `/api/scope` fall back to Neo4j query when in-memory target is empty.
+
+### Impact
+ST still receives the scope in its startup context (passed from Neo4j engagement data at start_ai time). Agents work correctly. Only the `/api/scope` REST endpoint returns stale data after restart.
