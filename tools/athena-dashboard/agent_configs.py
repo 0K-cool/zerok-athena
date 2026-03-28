@@ -1977,10 +1977,10 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
     "RP": AgentRoleConfig(
         code="RP",
         name="Reporting",
-        model=AgentModel.OPUS,
+        model=AgentModel.SONNET,
         ptes_phase=7,
-        max_tool_calls=100,
-        max_cost_usd=12.00,  # Server limit: $4.00 × 3x
+        max_tool_calls=150,
+        max_cost_usd=25.00,  # Server limit: $8.33 × 3x
         max_turns_per_chunk=15,
         allowed_tools=_BASE_TOOLS + _RAG_TOOLS + _NEO4J_TOOLS,
         disallowed_tools=_kali_tools(),  # RP doesn't run Kali tools

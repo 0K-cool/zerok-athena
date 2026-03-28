@@ -2003,6 +2003,25 @@ async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: 
     Called via asyncio.ensure_future — never blocks the confirmation path.
     Mirrors the inline screenshot pattern in the VF result endpoint.
     """
+    # BUG-003: Skip if screenshot already exists for this finding
+    if neo4j_available and neo4j_driver:
+        def _check_existing():
+            with neo4j_driver.session() as sess:
+                r = sess.run(
+                    "MATCH (a:Artifact {finding_id: $fid, type: 'screenshot'}) "
+                    "RETURN count(a) AS cnt LIMIT 1",
+                    fid=finding_id
+                )
+                rec = r.single()
+                return rec["cnt"] if rec else 0
+        try:
+            existing_count = await neo4j_exec(_check_existing)
+            if existing_count > 0:
+                logger.debug("Auto-screenshot skipped for %s: screenshot already exists", finding_id)
+                return
+        except Exception:
+            pass  # If check fails, proceed with capture
+
     # Resolve target: finding.target → extract IP from finding title → engagement first host
     if not target:
         # Try to extract a specific host IP from the finding's in-memory record
@@ -4087,7 +4106,7 @@ AGENT_BUDGETS: dict[str, dict] = {
     # Verification — focused re-testing
     "VF": {"max_tool_calls": 100, "max_cost": 2.00, "label": "Verification"},
     # Reporting — writing-heavy (Opus)
-    "RP": {"max_tool_calls": 100, "max_cost": 4.00, "label": "Reporting"},
+    "RP": {"max_tool_calls": 150, "max_cost": 8.33, "label": "Reporting"},
 }
 
 # Default budget for unlisted agents
