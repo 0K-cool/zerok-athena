@@ -2055,7 +2055,49 @@ async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: 
     try:
         import base64
         import io as _io
-        url = target if target.startswith(('http://', 'https://')) else f'http://{target}'
+        import re as _re_port
+
+        # Define port categories
+        _WEB_PORTS = {80, 443, 8080, 8180, 8443, 8888}
+        _TERMINAL_PORTS = {21, 22, 23, 25, 445, 1521, 1524, 3306, 5432, 5900, 6379, 27017}
+
+        # Extract service port from finding data
+        _service_port = None
+        for f in state.findings:
+            if f.id == finding_id:
+                # Try target string (e.g., "10.0.0.1:8180")
+                _pm = _re_port.search(r':(\d{2,5})(?:/|$)', getattr(f, 'target', '') or '')
+                if _pm:
+                    _service_port = int(_pm.group(1))
+                # Try title (e.g., "Apache Tomcat on Port 8180")
+                if not _service_port:
+                    _tp = _re_port.search(r'port\s+(\d{2,5})', (getattr(f, 'title', '') or '').lower())
+                    if _tp:
+                        _service_port = int(_tp.group(1))
+                break
+
+        # Skip terminal-only services — command_output evidence is better
+        if _service_port and _service_port in _TERMINAL_PORTS:
+            logger.info("Auto-screenshot skipped for %s: terminal service port %d", finding_id, _service_port)
+            return
+
+        # Build URL with correct port
+        if target.startswith(('http://', 'https://')):
+            url = target
+        elif _service_port and _service_port in _WEB_PORTS:
+            scheme = 'https' if _service_port in (443, 8443) else 'http'
+            url = f'{scheme}://{target}:{_service_port}'
+        else:
+            url = f'http://{target}'
+
+        # Get finding title for caption
+        _cap_title = ''
+        for f in state.findings:
+            if f.id == finding_id:
+                _cap_title = (getattr(f, 'title', '') or '')[:60]
+                break
+        caption = f"Auto-captured: {_cap_title}" if _cap_title else f"Auto-captured confirmation ({agent}) — {target}"
+
         client = await kali_client._get_client()
         for name, backend in kali_client.backends.items():
             if not backend.available:
@@ -2071,6 +2113,9 @@ async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: 
                     image_b64 = data.get("image_b64") or data.get("image") or data.get("screenshot")
                     if image_b64:
                         image_bytes = base64.b64decode(image_b64)
+                        if not image_bytes or len(image_bytes) < 100:
+                            logger.warning("Auto-screenshot decoded to %d bytes for %s — skipping", len(image_bytes), finding_id)
+                            continue
                         dashboard_base = _DASHBOARD_URL if '_DASHBOARD_URL' in globals() and _DASHBOARD_URL else "http://localhost:8080"
                         await client.post(
                             f"{dashboard_base}/api/artifacts",
@@ -2078,7 +2123,7 @@ async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: 
                                 "finding_id": finding_id,
                                 "engagement_id": engagement_id,
                                 "type": "screenshot",
-                                "caption": f"Auto-captured confirmation ({agent}) — {target}",
+                                "caption": caption,
                                 "agent": agent,
                                 "capture_mode": "exploitable",
                             },
@@ -2948,6 +2993,34 @@ async def submit_verification_result(verification_id: str, result: VerificationR
                 f.verification_status = "confirmed"
                 f.verified = True
                 break
+
+        # Cascade confirmation to findings with same CVE or fingerprint
+        _cascade_cve = None
+        _cascade_fp = None
+        for f in state.findings:
+            if f.id == result.finding_id:
+                _cascade_cve = getattr(f, 'cve', None)
+                _cascade_fp = getattr(f, 'fingerprint', None)
+                break
+
+        if _cascade_cve or _cascade_fp:
+            _cascade_count = 0
+            for f in state.findings:
+                if f.id == result.finding_id:
+                    continue
+                if getattr(f, 'verified', False):
+                    continue
+                fp_match = _cascade_fp and getattr(f, 'fingerprint', None) == _cascade_fp
+                cve_match = _cascade_cve and getattr(f, 'cve', None) == _cascade_cve
+                if fp_match or cve_match:
+                    f.verified = True
+                    f.verification_status = "confirmed"
+                    if not getattr(f, 'confirmed_at', None):
+                        f.confirmed_at = confirmed_ts
+                    _cascade_count += 1
+            if _cascade_count > 0:
+                logger.info("Cascade: %d findings auto-confirmed via %s from %s",
+                           _cascade_count, _cascade_cve or _cascade_fp, result.finding_id)
 
     # Auto-capture screenshot for confirmed findings (fire-and-forget)
     if result.status == "confirmed":

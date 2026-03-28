@@ -1038,8 +1038,14 @@ WORKFLOW:
    If any exist → verify those IMMEDIATELY before querying Neo4j for other findings.
 3. Query Neo4j for HIGH/CRITICAL findings needing verification (sorted by priority above)
 4. For each finding:
-   a. CHECK FIRST: POST /api/verify — if response contains "already_verified":true, SKIP IT.
-      Do NOT re-verify findings that are already confirmed or marked false_positive.
+   a. CHECK FIRST — TWO GATES:
+      Gate 1 (per-finding): POST {{dashboard_url}}/api/verify — if "already_verified":true, SKIP.
+        Do NOT re-verify findings that are already confirmed or marked false_positive.
+      Gate 2 (per-CVE): If finding has a CVE ID, check:
+        GET {{dashboard_url}}/api/engagements/{{eid}}/confirmed-cves
+        If this CVE status is "verified" or "confirmed", SKIP this finding entirely.
+        A CVE verified on one finding does NOT need re-verification on duplicates.
+      Only proceed if BOTH gates pass.
    b. If not yet verified, attempt to reproduce using a different method
    c. Submit verification: POST {dashboard_url}/api/verify
       Body: {{"finding_id":"<id>","engagement_id":"{eid}","priority":"high"}}

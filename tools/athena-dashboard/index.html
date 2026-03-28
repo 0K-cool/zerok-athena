@@ -9251,6 +9251,13 @@
         if (msg.metadata && msg.metadata.tool_id) {
           handleToolComplete(msg);
         } else {
+          var tc_content = msg.content || '';
+          var tc_trimmed = (typeof tc_content === 'string') ? tc_content.trim() : '';
+          if (!tc_trimmed || tc_trimmed.startsWith('{') || tc_trimmed.startsWith('[')) {
+            // Skip rendering JSON API responses as timeline cards
+            bumpAgentCount(msg.agent);
+            return;
+          }
           addTimelineEvent(msg);
         }
         bumpAgentCount(msg.agent);
