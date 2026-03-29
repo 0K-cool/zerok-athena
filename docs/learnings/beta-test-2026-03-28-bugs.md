@@ -286,3 +286,106 @@ In `handleToolComplete` (index.html), the fallback `else` branch that calls `ren
 ```
 
 Find ALL calls to `renderCompletedToolCard` in `handleToolComplete` and add the JSON guard before each one.
+
+## BUG: Kali Attack Box IP (10.1.1.13) Counted as Discovered Host
+
+**Severity:** MEDIUM — Inflates host count, pollutes per-host stats
+**Status:** DOCUMENTED
+
+### Problem
+"Hosts Discovered" KPI shows 3 but only 2 are actual targets. The third (10.1.1.13) is the Kali attack box IP. 2 findings were attributed to this IP — likely from scan output or finding titles that mentioned the scanner's own address.
+
+### Root Cause
+No exclusion list for known infrastructure IPs (Kali backends, ATHENA server, DNS servers). Any IP that appears in finding data gets counted as a discovered host.
+
+### Fix
+Add a `_KALI_BACKEND_IPS` exclusion set (already exists in server.py for other purposes — search for it). When computing host stats or creating Host nodes, skip IPs in the exclusion set.
+
+Also: the Hosts Discovered KPI card should match the Attack Graph host count. Both should read from the same source of truth.
+
+## BUG: PTES Vuln Analysis Shows No Coverage Despite WV Running
+
+**Severity:** MEDIUM — PTES accuracy
+**Status:** DOCUMENTED
+
+### Evidence (eng-beb01b)
+- WV running at 10/100 tool calls
+- 96 findings including A06 (45), A03 (25), A07 (17) vulnerability categories
+- PTES shows Vuln Analysis as "No Coverage" (dark)
+- All other phases show partial or covered
+
+### Likely Root Cause
+The PTES restore block maps WV agent status to Vuln Analysis phase. WV is `running` but the PTES cell doesn't show partial. Either:
+1. The live WebSocket `updatePtesFromAgent('WV', 'running')` isn't firing
+2. WV's events don't trigger the PTES update in the WebSocket handler
+3. The restore block's `/api/agents` doesn't return WV status correctly
+
+### Fix
+Check the WebSocket handler for agent_status events — does it call `updatePtesFromAgent` for WV? Also check if WV is in the agent status response from `/api/agents`.
+
+## BUG: Executive Summary Report Missing TYPE Badge Color
+
+**Severity:** LOW — Cosmetic
+**Status:** DOCUMENTED
+
+### Problem
+Reports page shows 3 reports. Technical has green TYPE badge, Remediation has red TYPE badge, but Executive Summary has no colored badge — just plain text "EXECUTIVE-SUMMARY".
+
+### Root Cause
+The badge color logic in index.html likely uses a map like:
+```javascript
+{"technical": "green", "remediation": "red"}
+```
+But "executive-summary" isn't in the map, so it renders as plain text without a badge.
+
+### Fix
+Add "executive-summary" to the report type badge color map — probably blue or teal to distinguish from the others.
+
+## BUG: AI Cost Badge Shows Estimated Cost, Not Actual API Cost
+
+**Severity:** MEDIUM — Misleading billing data
+**Status:** DOCUMENTED
+
+### Problem
+Dashboard cost badge showed $10.28 but actual Claude API cost was ~$5.35. The badge uses estimated cost ($0.12/tool call average) instead of actual API cost reported by sdk_agent._report_actual_cost.
+
+### Evidence (eng-beb01b)
+- Budget API estimated: ~$44 total across all agents
+- Dashboard badge: $10.28
+- Actual costs from session-end logs: ~$5.35
+
+### Root Cause
+The cost tracking has two paths:
+1. **Estimated cost** — calculated per tool call at budget endpoint (`estimated_cost += $0.12`)
+2. **Actual cost** — reported by Claude SDK via `_report_actual_cost` after each API call
+
+The dashboard badge and budget API use the ESTIMATED path. The actual cost is logged but not surfaced to the dashboard.
+
+### Fix
+The budget endpoint should prefer actual cost when available. `_report_actual_cost` writes to `budget["actual_cost"]` — the dashboard should read this instead of `budget["estimated_cost"]`. If actual is 0 (not yet reported), fall back to estimated.
+
+### Files to Modify
+- `server.py` — cost_update WebSocket broadcast should include actual_cost
+- `index.html` — cost badge should prefer actual_cost over estimated_cost
+
+## BUG: Kill Chain Lateral Move Lit Without Actual Lateral Movement
+
+**Severity:** HIGH — Misleading security assessment, client-facing indicator
+**Status:** DOCUMENTED
+
+### Problem
+Kill Chain Depth visualization shows "Lateral Move" as lit (active) but there were 0 LATERAL_MOVE edges in Neo4j and 0 credential reuse findings. An agent title claimed "Lateral movement confirmed: root on both hosts via port 1524" — but this was parallel exploitation of the same bindshell on two hosts, NOT an actual pivot (creds from Host A used on Host B).
+
+### Root Cause
+Kill Chain phases are triggered by keyword matching in finding titles/events — not by verified graph relationships. If any finding title contains "lateral movement", the Kill Chain lights up that phase. No verification against actual Neo4j LATERAL_MOVE edges or cross-host credential reuse evidence.
+
+### Impact
+- Client report would claim "Lateral Movement achieved" when it wasn't
+- Misleading risk assessment — lateral movement implies network-wide compromise
+- Pentester reviewing dashboard would assume pivot happened
+
+### Fix
+Kill Chain phases should only light up based on VERIFIED evidence:
+- **Lateral Move:** Only lit when LATERAL_MOVE edges exist in Neo4j graph, OR when a credential harvested from Host A is confirmed working on Host B
+- **NOT from:** keyword matching in finding titles or agent claims
+- Server-side: add `/api/kill-chain` endpoint that checks actual graph relationships, not text matching
