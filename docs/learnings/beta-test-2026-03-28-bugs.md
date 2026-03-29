@@ -261,3 +261,28 @@ In the server startup or engagement load path, ensure `target` and `scope` are r
 
 ### Impact
 ST still receives the scope in its startup context (passed from Neo4j engagement data at start_ai time). Agents work correctly. Only the `/api/scope` REST endpoint returns stale data after restart.
+
+## BUG: Empty Timeline Cards STILL Appearing (F2 Partial Fix)
+
+**Severity:** LOW — Cosmetic
+**Status:** PARTIALLY FIXED — with-tool_id path still renders empty
+
+### What Was Fixed
+- tool_complete events WITHOUT tool_id + JSON content → now filtered (our fix at line 9256)
+
+### What's Still Broken
+- tool_complete events WITH tool_id but JSON content → `handleToolComplete` fallback still renders empty cards
+- PE SYSTEM at 19:56:04 — empty card (tool_complete with tool_id, JSON response)
+- Exploitation SYSTEM at 19:58:02 — 2 empty cards (same pattern)
+
+### Fix Needed
+In `handleToolComplete` (index.html), the fallback `else` branch that calls `renderCompletedToolCard(msg)` — our fix added a JSON guard but only for the no-tool_id path. The with-tool_id path has a SECOND fallback when `runningTools[toolId]` is undefined (tool_start was dropped). That path also needs the JSON guard:
+
+```javascript
+// In handleToolComplete, the else branch at ~line 9799:
+// Our current fix filters JSON here — GOOD
+// But there's ANOTHER fallback inside the if(runningTools[toolId]) path
+// where renderCompletedToolCard is called when tool output is JSON
+```
+
+Find ALL calls to `renderCompletedToolCard` in `handleToolComplete` and add the JSON guard before each one.
