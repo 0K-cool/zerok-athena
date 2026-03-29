@@ -87,3 +87,24 @@ Pivot dispatch message to PE:
 - `agent_session_manager.py` — mode-dependent pivot gating
 - `server.py` — LATERAL_MOVE edge creation, attack path detection
 - `index.html` — Attack Graph orange lateral movement lines
+
+## Exfiltration Simulation (Related Feature)
+
+Real kill chain: Initial Access → Exploitation → Post-Exploitation → Lateral Movement → **Data Exfiltration** → Reporting
+
+### Mode-Dependent Exfiltration
+
+| Mode | Exfiltration | Scope |
+|---|---|---|
+| Autonomous/Full | **Simulate** — prove access, don't extract | List accessible data, screenshot, calculate volume |
+| Red Team (future) | **Controlled exfil** — sample records to prove impact | Small sample, documented chain of custody |
+| Supervised | **HITL approval** per data type | Operator approves each exfil attempt |
+| Healthcare | **NEVER** — ePHI cannot be exfiltrated | Document access path only, no data touched |
+| Sprint | No — first shell only | |
+| CTF | Yes — capture the flag | |
+
+### Implementation Considerations
+- PE identifies accessible data (databases, file shares, S3 buckets)
+- PE documents what COULD be exfiltrated without actually doing it
+- For Red Team mode: controlled extraction with hash verification
+- Finding type: "Data Exfiltration Risk" with volume estimate + access path
