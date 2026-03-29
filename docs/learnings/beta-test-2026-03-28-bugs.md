@@ -389,3 +389,70 @@ Kill Chain phases should only light up based on VERIFIED evidence:
 - **Lateral Move:** Only lit when LATERAL_MOVE edges exist in Neo4j graph, OR when a credential harvested from Host A is confirmed working on Host B
 - **NOT from:** keyword matching in finding titles or agent claims
 - Server-side: add `/api/kill-chain` endpoint that checks actual graph relationships, not text matching
+
+## IMPROVEMENT: Replace "Total Findings" KPI with "Hosts Compromised"
+
+**Priority:** HIGH — Better client communication
+**Status:** DOCUMENTED
+
+### Rationale
+"Total Findings: 106" is volume, not impact. "Hosts Compromised: 2/3" tells the client exactly how bad it is. Scales better too — "47/500 hosts compromised" is meaningful, "10,000 findings" is noise.
+
+### Definition
+Hosts Compromised = hosts where at least 1 finding has `status=confirmed` from EX or VF (not DA).
+
+### Data Available
+`/api/engagements/{eid}/exploit-stats/by-host` already returns per-host confirmed counts. Just filter hosts where `confirmed > 0`.
+
+### Implementation
+- Change `kpi-total-findings` in index.html to show hosts compromised count
+- Or: add it as a NEW KPI card alongside Total Findings
+- Color code: red if >50% compromised, amber if >25%, green if <25%
+
+## BUG: Confirmed Count Mismatch — exploit-stats (35) vs findings API (48)
+
+**Severity:** MEDIUM — Data inconsistency
+**Status:** DOCUMENTED
+
+### Problem
+exploit-stats returns 35 confirmed, but findings API shows 48 with status=confirmed. DA has 29 confirmed findings despite merge branch enforcement. The exploit-stats dedup (CVE-level) reduces 48 to 35, but DA shouldn't have confirmed at all.
+
+### Root Cause
+DA enforcement blocks confirmed propagation through the merge branch, but DA may be setting confirmed through a path we haven't enforced — needs deep investigation (following the gotcha rule: if it survives 2 fix attempts, STOP and trace the actual code).
+
+## BUG: RP Reports False Lateral Movement Claim
+
+**Severity:** HIGH — False claim in client deliverable
+**Status:** DOCUMENTED
+
+### Problem
+All 3 reports claim "lateral movement between 10.1.1.25 and 10.1.1.31 was confirmed" and list "Lateral Movement — Root on Both Hosts" as a CVSS 10.0 finding. This is FALSE. We verified:
+- 0 LATERAL_MOVE edges in Neo4j
+- 0 credential reuse findings (creds from Host A tested on Host B)
+- 0 cross-host attack paths
+
+What actually happened: both hosts have the same bindshell on port 1524. Agents exploited each host independently using the same technique — NOT by pivoting from one to the other.
+
+### Root Cause
+RP reads findings from Neo4j/report-data and an agent finding title says "Lateral movement confirmed: root on both hosts via port 1524." RP trusts the finding title and amplifies it into the executive summary and technical report without verifying against actual graph evidence.
+
+### Impact
+- Client receives a false claim of lateral movement
+- Risk assessment inflated — lateral movement implies network-wide compromise via credential reuse
+- Pentester credibility damaged if client questions the claim
+- Remediation priorities may be wrong (lateral movement remediations vs actual issue: same vuln on multiple hosts)
+
+### Fix (Two Layers)
+
+**Layer 1 — Kill Chain verification (already documented):**
+Kill Chain phases should only light up based on verified Neo4j edges, not keyword matching in finding titles.
+
+**Layer 2 — RP report verification:**
+RP prompt should include: "Before claiming lateral movement in reports, verify by checking:
+- GET /api/engagements/{eid}/attack-graph — look for LATERAL_MOVE edges
+- If 0 lateral movement edges exist, do NOT claim lateral movement
+- Getting root on multiple hosts via the SAME vulnerability is parallel exploitation, NOT lateral movement
+- Lateral movement = credentials/access from Host A used to compromise Host B"
+
+**Layer 3 — Finding title governance:**
+Agents (EX/PE/DA) should not use "lateral movement" in finding titles unless they actually performed a cross-host pivot using harvested credentials. Server-side: flag findings with "lateral movement" in title that don't have LATERAL_MOVE edges as potentially misleading.
