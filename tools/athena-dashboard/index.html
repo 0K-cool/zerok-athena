@@ -2543,19 +2543,34 @@
     }
 
     .host-filter-badge {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
       font-size: 11px;
-      background: var(--zerok-primary);
-      color: #000;
-      padding: 2px 10px;
-      border-radius: 10px;
-      font-weight: 600;
-      cursor: pointer;
+      font-family: var(--zerok-font-mono);
+      background: var(--zerok-bg-alt, rgba(255,255,255,0.05));
+      color: var(--zerok-text-muted);
+      border: 1px solid var(--zerok-border);
+      padding: 0px 4px;
+      border-radius: 3px;
       margin-top: 4px;
+      cursor: default;
+      width: fit-content;
     }
 
-    .host-filter-badge:hover {
-      opacity: 0.85;
+    .host-filter-badge .hfb-icon {
+      font-size: 9px;
+    }
+
+    .host-filter-badge .hfb-dismiss {
+      font-size: 11px;
+      line-height: 1;
+      color: var(--zerok-text-dim);
+      cursor: pointer;
+    }
+
+    .host-filter-badge .hfb-dismiss:hover {
+      color: var(--zerok-text);
     }
 
     /* Create Engagement Modal */
@@ -6321,7 +6336,7 @@
         <div class="content-title-section">
           <h1 class="content-title">Penetration Testing Dashboard</h1>
           <p class="content-subtitle" id="subtitle-mode">PTES Methodology • <span id="agent-mode-label">AI-Powered (Claude)</span> • Dual-Backend Architecture</p>
-          <span id="hostFilterBadge" class="host-filter-badge" style="display:none;" onclick="selectHost(null)" title="Click to clear host filter"></span>
+          <span id="hostFilterBadge" class="host-filter-badge" style="display:none;"></span>
         </div>
         <div class="header-actions">
           <span id="engagement-running-badge" class="engagement-running-badge" title="Engagement in progress">
@@ -13322,7 +13337,7 @@
       const toggle = document.createElement('div');
       toggle.className = 'host-toggle';
       const chevron = document.createElement('span');
-      chevron.className = 'chevron open';
+      chevron.className = 'chevron';
       chevron.textContent = '\u25B6';
       toggle.appendChild(chevron);
       toggle.appendChild(document.createTextNode(`${hosts.length} hosts`));
@@ -13336,7 +13351,7 @@
       };
 
       const subList = document.createElement('div');
-      subList.className = 'host-sub-list';
+      subList.className = 'host-sub-list collapsed';
 
       // "All Hosts (N)" item
       const allItem = document.createElement('div');
@@ -13403,8 +13418,21 @@
       const badge = document.getElementById('hostFilterBadge');
       if (!badge) return;
       if (currentHostFilter) {
-        badge.textContent = '\u{1F3AF} ' + currentHostFilter;
-        badge.style.display = 'inline-block';
+        badge.replaceChildren();
+        const icon = document.createElement('span');
+        icon.className = 'hfb-icon';
+        icon.textContent = '\u{1F3AF}';
+        const ip = document.createElement('span');
+        ip.textContent = currentHostFilter;
+        const dismiss = document.createElement('span');
+        dismiss.className = 'hfb-dismiss';
+        dismiss.textContent = '\u00D7';
+        dismiss.title = 'Clear host filter';
+        dismiss.onclick = function(e) { e.stopPropagation(); selectHost(null); };
+        badge.appendChild(icon);
+        badge.appendChild(ip);
+        badge.appendChild(dismiss);
+        badge.style.display = 'inline-flex';
       } else {
         badge.style.display = 'none';
       }
@@ -13719,6 +13747,18 @@
     }
 
     async function selectEngagement(eid, triggerBtn) {
+      // If clicking the already-active engagement, toggle host section visibility
+      if (eid === currentEngagementId && !triggerBtn) {
+        const toggle = document.querySelector('.host-toggle');
+        const subList = document.querySelector('.host-sub-list');
+        if (toggle) {
+          const isVisible = toggle.style.display !== 'none';
+          toggle.style.display = isVisible ? 'none' : '';
+          if (subList) subList.style.display = isVisible ? 'none' : '';
+        }
+        return;
+      }
+
       currentEngagementId = eid;
       document.getElementById('engagementSelect').value = eid;
 
