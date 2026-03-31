@@ -7303,7 +7303,33 @@ async def get_engagement_hosts(eid: str):
         except Exception as e:
             logger.warning("hosts query error: %s", e)
 
-    # Fallback: extract unique host_ips from in-memory findings
+    # Fallback 1: Derive hosts from Finding nodes' host_ip or target field in Neo4j
+    if not hosts and neo4j_available and neo4j_driver:
+        def _query_hosts_from_findings():
+            with neo4j_driver.session() as session:
+                # Try host_ip first, then parse from target
+                r = session.run("""
+                    MATCH (f:Finding {engagement_id: $eid})
+                    WITH CASE
+                        WHEN f.host_ip IS NOT NULL AND f.host_ip <> '' THEN f.host_ip
+                        WHEN f.target CONTAINS ':' THEN split(f.target, ':')[0]
+                        ELSE f.target
+                    END AS ip, f
+                    WHERE ip IS NOT NULL AND ip <> '' AND ip <> 'http' AND ip <> 'https'
+                    WITH replace(replace(ip, 'http://', ''), 'https://', '') AS clean_ip,
+                         collect(f) AS findings
+                    RETURN clean_ip AS ip, null AS hostname, null AS os,
+                           size(findings) AS finding_count,
+                           size([x IN findings WHERE x.status = 'confirmed' OR x.verified = true]) AS confirmed_count
+                    ORDER BY confirmed_count DESC, finding_count DESC
+                """, eid=eid)
+                return [dict(rec) for rec in r]
+        try:
+            hosts = await neo4j_exec(_query_hosts_from_findings)
+        except Exception as e:
+            logger.warning("hosts-from-findings fallback error: %s", e)
+
+    # Fallback 2: extract unique host_ips from in-memory findings
     if not hosts:
         host_map = {}
         for f in state.findings:
