@@ -2462,6 +2462,59 @@
       display: none;
     }
 
+    /* ── Host Sub-List (I8: Multi-Host Selector) ── */
+    .host-sub-list {
+      margin-left: 14px;
+      padding: 4px 0 4px 8px;
+      border-left: 1px solid var(--zerok-border);
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .host-sub-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      color: var(--zerok-text-muted);
+      cursor: pointer;
+      font-size: 11px;
+      font-family: var(--zerok-font-mono);
+      transition: all 0.15s ease;
+    }
+
+    .host-sub-item:hover {
+      background: var(--zerok-sidebar-hover, color-mix(in srgb, var(--zerok-text-dim) 10%, transparent));
+      color: var(--zerok-text);
+    }
+
+    .host-sub-item.active {
+      color: var(--zerok-primary);
+      font-weight: 600;
+    }
+
+    .host-sub-item .host-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--zerok-text-dim);
+      flex-shrink: 0;
+    }
+
+    .host-sub-item.active .host-dot {
+      background: var(--zerok-primary);
+    }
+
+    .host-sub-item.all-hosts {
+      font-family: inherit;
+      font-style: italic;
+    }
+
+    .sidebar.collapsed .host-sub-list {
+      display: none;
+    }
+
     /* Create Engagement Modal */
     .modal-overlay {
       position: fixed;
@@ -10583,6 +10636,14 @@
     }
 
     function handleNewFinding(msg) {
+      // I9: Host filter gate — ignore findings for other hosts when filter is active
+      if (currentHostFilter) {
+        const findingHost = msg.host_ip || (msg.target ? msg.target.split(':')[0] : '');
+        if (findingHost && findingHost !== currentHostFilter) return;
+      }
+      // I8: Invalidate host cache when new finding arrives (may discover new host)
+      if (currentEngagementId) delete _hostListCache[currentEngagementId];
+
       const sev = (msg.severity || 'info').toLowerCase();
       if (_severityCounts[sev] !== undefined) _severityCounts[sev]++;
       // BUG-016: Enable delete button when findings exist
@@ -10596,7 +10657,7 @@
       updateSeverityChart();
       // Refresh vuln donut from Neo4j (Vulnerability nodes, not findings)
       if (currentEngagementId) {
-        fetch(`/api/engagements/${currentEngagementId}/vuln-severity`)
+        fetch(`/api/engagements/${currentEngagementId}/vuln-severity${hostFilterFirst()}`)
           .then(r => r.json()).then(d => updateVulnStatusDonut(d)).catch(() => {});
       }
 
@@ -11749,6 +11810,15 @@
             const badge = document.getElementById('nav-badge-intelligence');
             if (badge) { badge.textContent = count; badge.style.display = count > 0 ? '' : 'none'; }
           }).catch(() => {});
+          // B11 FIX: Refresh reports badge on every poll cycle
+          fetch(`/api/reports?engagement=${currentEngagementId}`).then(r => r.json()).then(reports => {
+            const badge = document.getElementById('nav-badge-reports');
+            if (badge) {
+              const count = Array.isArray(reports) ? reports.length : 0;
+              badge.textContent = count;
+              badge.style.display = count > 0 ? '' : 'none';
+            }
+          }).catch(() => {});
         }
       }, 5000);
     }
@@ -12463,7 +12533,7 @@
       let _loadedFindingsCount = 0;
       try {
         // Load findings to populate Recent Findings + severity counts
-        const res = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+        const res = await fetch(`/api/engagements/${currentEngagementId}/findings${hostFilterFirst()}`);
         const findingsRaw = await res.json();
         // BUG-001/012 fix: Normalize response — API may return array or {findings: [...]}
         const findings = Array.isArray(findingsRaw) ? findingsRaw : (findingsRaw.findings || []);
@@ -12562,16 +12632,43 @@
           radarChart.update('none');
         }
 
-        // ── Remediation Priority Bubble Chart ──
+        // ── Remediation Priority Bubble Chart (B8 fix: group by CVE across hosts) ──
         if (remediationChart) {
           const sevColorMap = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#22c55e', info: '#3b82f6' };
-          const bubbles = findings.filter(f => f.cvss > 0).map(f => ({
-            x: f.cvss || 0,
-            y: Array.isArray(f.affected_hosts) ? f.affected_hosts.length : (f.affected_hosts || 1),
-            r: f.category === 'Validated Exploit' ? 10 : 5,
-            title: f.title,
-            severity: (f.severity || 'info').toLowerCase(),
+          const sevRank = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+
+          // Group findings by CVE/fingerprint/title to count unique affected hosts
+          const vulnGroups = {};
+          findings.filter(f => f.cvss > 0).forEach(f => {
+            const groupKey = f.cve || f.fingerprint || f.title;
+            if (!vulnGroups[groupKey]) {
+              vulnGroups[groupKey] = {
+                title: f.title, cvss: f.cvss,
+                severity: (f.severity || 'info').toLowerCase(),
+                category: f.category, hostSet: new Set(),
+              };
+            }
+            const g = vulnGroups[groupKey];
+            // Collect unique hosts
+            if (Array.isArray(f.affected_hosts)) {
+              f.affected_hosts.forEach(h => { if (h) g.hostSet.add(h); });
+            }
+            if (f.host_ip) g.hostSet.add(f.host_ip);
+            // Keep highest CVSS and severity
+            if (f.cvss > g.cvss) g.cvss = f.cvss;
+            if ((sevRank[(f.severity || 'info').toLowerCase()] || 0) > (sevRank[g.severity] || 0)) {
+              g.severity = (f.severity || 'info').toLowerCase();
+            }
+          });
+
+          const bubbles = Object.values(vulnGroups).map(g => ({
+            x: g.cvss,
+            y: Math.max(1, g.hostSet.size),
+            r: g.category === 'Validated Exploit' ? 10 : Math.min(5 + g.hostSet.size, 15),
+            title: g.title,
+            severity: g.severity,
           }));
+
           // Group by severity for color coding
           const datasets = [];
           for (const [sev, color] of Object.entries(sevColorMap)) {
@@ -12664,7 +12761,7 @@
               // Planning always runs if scans exist
               coveredPhases.add('PLANNING');
               // Exploitation if findings have evidence
-              const covFindings = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+              const covFindings = await fetch(`/api/engagements/${currentEngagementId}/findings${hostFilterFirst()}`);
               const covFData = await covFindings.json();
               if (Array.isArray(covFData) && covFData.some(f => f.evidence_count > 0)) {
                 coveredPhases.add('EXPLOITATION');
@@ -12680,7 +12777,7 @@
             } else {
               // No scans but findings exist — derive coverage from findings alone
               const coveredPhases2 = new Set(['PLANNING']);
-              const covFindings2 = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+              const covFindings2 = await fetch(`/api/engagements/${currentEngagementId}/findings${hostFilterFirst()}`);
               const covFData2 = await covFindings2.json();
               if (Array.isArray(covFData2) && covFData2.length > 0) {
                 coveredPhases2.add('INTELLIGENCE GATHERING');
@@ -12700,7 +12797,7 @@
       // ── Exploit Stats (gauge + KPI cards) ──
       let es = null;
       try {
-        const esRes = await fetch(`/api/engagements/${currentEngagementId}/exploit-stats`);
+        const esRes = await fetch(`/api/engagements/${currentEngagementId}/exploit-stats${hostFilterFirst()}`);
         es = await esRes.json();
         // BUG-017 fix: Sync running totals from API so gauge stays consistent after page reload
         if (!window._exploitGaugeTotals) window._exploitGaugeTotals = { discovered: 0, confirmed: 0 };
@@ -12760,7 +12857,7 @@
 
       // ── Open Ports KPI + Attack Surface Radar ──
       try {
-        const svcRes = await fetch(`/api/engagements/${currentEngagementId}/services-summary`);
+        const svcRes = await fetch(`/api/engagements/${currentEngagementId}/services-summary${hostFilterFirst()}`);
         const svcs = await svcRes.json();
         // Update Open Ports KPI card
         const openPortsEl = document.getElementById('kpi-open-ports');
@@ -12778,12 +12875,19 @@
       try {
         const credRes = await fetch(`/api/engagements/${currentEngagementId}/credentials`);
         const credData = await credRes.json();
+        // I9: Client-side host filtering for credentials
+        if (currentHostFilter && credData.credentials) {
+          credData.credentials = credData.credentials.filter(c => c.host === currentHostFilter || c.source === currentHostFilter);
+          credData.total = credData.credentials.length;
+          credData.default_weak = credData.credentials.filter(c => c.type === 'default' || c.type === 'weak').length;
+          credData.unique_accounts = new Set(credData.credentials.map(c => c.username)).size;
+        }
         // If API has explicit credentials, use them
         if (credData.total > 0) {
           updateCredentialTracker(credData);
         } else if (_loadedFindingsCount > 0) {
           // Derive from findings when AI agent didn't post to /api/credentials
-          const credFindings = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+          const credFindings = await fetch(`/api/engagements/${currentEngagementId}/findings${hostFilterFirst()}`);
           const credFData = await credFindings.json();
           if (Array.isArray(credFData)) {
             let harvested = 0, weak = 0, accounts = new Set();
@@ -12816,7 +12920,7 @@
 
       // ── Vulnerability Status Donut (from Vulnerability nodes, NOT findings) ──
       try {
-        const vulnRes = await fetch(`/api/engagements/${currentEngagementId}/vuln-severity`);
+        const vulnRes = await fetch(`/api/engagements/${currentEngagementId}/vuln-severity${hostFilterFirst()}`);
         const vulnData = await vulnRes.json();
         updateVulnStatusDonut(vulnData);
         // BUG-041: Sync drawer vulns stat from same source as Unique Vulnerabilities KPI
@@ -13062,7 +13166,7 @@
       try {
         // Findings badge
         if (currentEngagementId) {
-          const fRes = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+          const fRes = await fetch(`/api/engagements/${currentEngagementId}/findings${hostFilterFirst()}`);
           const fData = await fRes.json();
           const fCount = Array.isArray(fData) ? fData.length : 0;
           const fBadge = document.getElementById('nav-badge-findings');
@@ -13129,6 +13233,129 @@
 
     let currentEngagementId = null;
 
+    // ── I8: Multi-Host Filter State ──
+    let currentHostFilter = null;   // null = all hosts (aggregate), string = specific host IP
+    let _hostListCache = {};        // { engagementId: [host1, host2, ...] }
+
+    /** Returns '&host_ip=X' or '' — use when URL already has '?' */
+    function hostFilterParam() {
+      return currentHostFilter ? `&host_ip=${encodeURIComponent(currentHostFilter)}` : '';
+    }
+    /** Returns '?host_ip=X' or '' — use as first query param */
+    function hostFilterFirst() {
+      return currentHostFilter ? `?host_ip=${encodeURIComponent(currentHostFilter)}` : '';
+    }
+
+    /** Load host sub-list under active engagement in sidebar */
+    async function loadHostSubList(eid) {
+      // Remove any existing host sub-lists
+      document.querySelectorAll('.host-sub-list').forEach(el => el.remove());
+      if (!eid) return;
+
+      let hosts = [];
+      try {
+        if (_hostListCache[eid]) {
+          hosts = _hostListCache[eid];
+        } else {
+          const res = await fetch(`/api/engagements/${eid}/hosts`);
+          const data = await res.json();
+          hosts = data.hosts || [];
+          _hostListCache[eid] = hosts;
+        }
+      } catch (e) {
+        console.warn('Failed to load hosts:', e.message);
+        return;
+      }
+
+      if (hosts.length === 0) return;
+
+      // Find active engagement item in sidebar
+      const activeItem = document.querySelector(`.engagement-list-item[data-eng-id="${eid}"]`);
+      if (!activeItem) return;
+
+      const subList = document.createElement('div');
+      subList.className = 'host-sub-list';
+
+      // "All Hosts (N)" item — safe: hosts.length is a number from our own API
+      const allItem = document.createElement('div');
+      allItem.className = `host-sub-item all-hosts${currentHostFilter === null ? ' active' : ''}`;
+      const allDot = document.createElement('span');
+      allDot.className = 'host-dot';
+      allItem.appendChild(allDot);
+      allItem.appendChild(document.createTextNode(`All Hosts (${hosts.length})`));
+      allItem.onclick = (e) => { e.stopPropagation(); selectHost(null); };
+      subList.appendChild(allItem);
+
+      // Individual host items — data from our own backend API
+      hosts.forEach(h => {
+        const item = document.createElement('div');
+        item.className = `host-sub-item${currentHostFilter === h.ip ? ' active' : ''}`;
+        const dot = document.createElement('span');
+        dot.className = 'host-dot';
+        item.appendChild(dot);
+        const label = h.hostname ? `${h.ip} (${h.hostname})` : h.ip;
+        item.appendChild(document.createTextNode(label));
+        if (h.finding_count > 0) {
+          const countSpan = document.createElement('span');
+          countSpan.style.cssText = 'color:var(--zerok-text-dim);font-size:10px;margin-left:auto;';
+          countSpan.textContent = h.finding_count;
+          item.appendChild(countSpan);
+        }
+        item.onclick = (e) => { e.stopPropagation(); selectHost(h.ip); };
+        subList.appendChild(item);
+      });
+
+      activeItem.after(subList);
+    }
+
+    /** Select a specific host or null for aggregate */
+    function selectHost(hostIp) {
+      currentHostFilter = hostIp;
+
+      // Update host sub-list active state
+      document.querySelectorAll('.host-sub-item').forEach(el => el.classList.remove('active'));
+      if (hostIp === null) {
+        document.querySelector('.host-sub-item.all-hosts')?.classList.add('active');
+      } else {
+        document.querySelectorAll('.host-sub-item').forEach(el => {
+          // Match by IP text content (first text node after the dot)
+          if (el.textContent.trim().startsWith(hostIp)) el.classList.add('active');
+        });
+      }
+
+      updateHostFilterBadge();
+
+      // Reload dashboard with new host scope
+      stopKpiPolling();
+      resetDashboardFindingWidgets();
+      loadDashboardFromAPI();
+      loadEngagementSummary(currentEngagementId);
+
+      // Restart polling if engagement was running
+      if (_currentCtrlState === 'running') startKpiPolling();
+    }
+
+    /** Show/hide host filter badge in top bar */
+    function updateHostFilterBadge() {
+      let badge = document.getElementById('hostFilterBadge');
+      if (!badge) {
+        const subtitle = document.getElementById('subtitle-mode');
+        if (!subtitle || !subtitle.parentElement) return;
+        badge = document.createElement('span');
+        badge.id = 'hostFilterBadge';
+        badge.style.cssText = 'display:none;font-size:11px;background:var(--zerok-primary);color:#000;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:600;cursor:pointer;';
+        badge.onclick = () => selectHost(null);
+        badge.title = 'Click to clear host filter';
+        subtitle.parentElement.appendChild(badge);
+      }
+      if (currentHostFilter) {
+        badge.textContent = '\u{1F3AF} ' + currentHostFilter;
+        badge.style.display = 'inline';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
     async function loadEngagements() {
       try {
         const res = await fetch('/api/engagements');
@@ -13190,6 +13417,8 @@
         // Load summary for current engagement
         if (currentEngagementId) {
           loadEngagementSummary(currentEngagementId);
+          // I8: Re-render host sub-list after sidebar rebuild
+          loadHostSubList(currentEngagementId);
         }
       } catch (e) {
         console.error('Failed to load engagements:', e);
@@ -13487,6 +13716,11 @@
         showToast('success', 'Engagement Activated', engName + ' is now active');
       }
 
+      // I8: Reset host filter on engagement switch (back to aggregate)
+      currentHostFilter = null;
+      delete _hostListCache[eid];
+      updateHostFilterBadge();
+
       // Clear AI timeline and LED badges to prevent cross-engagement data leak
       _clearDrawerUI();
       resetAgentChips();
@@ -13496,6 +13730,9 @@
       resetDashboardFindingWidgets();
       loadDashboardFromAPI();
       loadEngagementSummary(eid);
+
+      // I8: Load host sub-list for newly selected engagement
+      loadHostSubList(eid);
 
       // BUG-012: Pre-load evidence gallery data so badge count matches content
       loadEvidenceGallery();
@@ -14219,7 +14456,7 @@
       }
 
       try {
-        const res = await fetch(`/api/engagements/${currentEngagementId}/findings`);
+        const res = await fetch(`/api/engagements/${currentEngagementId}/findings${hostFilterFirst()}`);
         const data = await res.json();
         // BUG-001 fix: API may return array directly or {findings: [...]}
         allFindings = Array.isArray(data) ? data : (data.findings || []);

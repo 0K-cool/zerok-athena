@@ -6586,6 +6586,7 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
                                f.description AS description, f.target AS target,
                                f.evidence AS evidence, affected_hosts,
                                f.agent AS agent, f.timestamp AS timestamp,
+                               f.cve AS cve, f.host_ip AS host_ip, f.fingerprint AS fingerprint,
                                count(DISTINCT ep) + count(DISTINCT art) + count(DISTINCT prop_art) AS evidence_count
                         ORDER BY f.cvss DESC
                         SKIP $offset LIMIT $limit
@@ -6621,6 +6622,9 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
                             "evidence_count": ev_count,
                             "agent": record.get("agent", ""),
                             "timestamp": _normalize_ts(record.get("timestamp")),
+                            "cve": record.get("cve"),
+                            "host_ip": record.get("host_ip", ""),
+                            "fingerprint": record.get("fingerprint"),
                         })
 
                     # BUG-016: Also include Vulnerability nodes not yet promoted to Findings
@@ -6659,6 +6663,9 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
                             "description": record.get("description", ""),
                             "affected_hosts": [host_part] if host_part else [],
                             "evidence_count": 0,
+                            "cve": record.get("cve"),
+                            "host_ip": host_part,
+                            "fingerprint": None,
                         })
 
                     # BUG-042 fix: Merge in-memory findings not yet persisted to Neo4j
@@ -6685,6 +6692,9 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
                                 "description": f.description,
                                 "affected_hosts": [f.target],
                                 "evidence_count": 1 if f.evidence else 0,
+                                "cve": getattr(f, 'cve', None),
+                                "host_ip": getattr(f, 'host_ip', ''),
+                                "fingerprint": getattr(f, 'fingerprint', None),
                             })
                     # Apply pagination to merged result (Neo4j already paginated,
                     # but in-memory additions may push past limit)
@@ -6715,21 +6725,29 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
         "description": f.description,
         "affected_hosts": [f.target],
         "evidence_count": 1 if f.evidence else 0,
+        "cve": getattr(f, 'cve', None),
+        "host_ip": getattr(f, 'host_ip', ''),
+        "fingerprint": getattr(f, 'fingerprint', None),
     } for f in results]
 
 
 @app.get("/api/engagements/{eid}/vuln-severity")
-async def get_vuln_severity(eid: str):
+async def get_vuln_severity(eid: str, host_ip: str = None):
     """Get Vulnerability node counts by severity for the donut chart."""
     counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     total = 0
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
-                result = session.run("""
-                    MATCH (f:Finding {engagement_id: $eid})
+                host_filter = "AND f.host_ip = $host_ip" if host_ip else ""
+                vs_params = {"eid": eid}
+                if host_ip:
+                    vs_params["host_ip"] = host_ip
+                result = session.run(f"""
+                    MATCH (f:Finding {{engagement_id: $eid}})
+                    WHERE true {host_filter}
                     RETURN toLower(f.severity) AS severity, count(DISTINCT f) AS cnt
-                """, eid=eid)
+                """, **vs_params)
                 for record in result:
                     sev = (record["severity"] or "info").lower()
                     cnt = record["cnt"]
@@ -6745,6 +6763,9 @@ async def get_vuln_severity(eid: str):
     mem_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     mem_total = 0
     mem_findings = [f for f in state.findings if f.engagement == eid]
+    # I9: Apply host_ip filter to in-memory fallback
+    if host_ip:
+        mem_findings = [f for f in mem_findings if getattr(f, 'host_ip', '') == host_ip]
     # BUG-NEW-005 fix: Deduplicate findings before counting to avoid inflated
     # "Unique Vulnerabilities" numbers when the same vuln appears multiple times.
     seen_fingerprints = set()
@@ -7299,20 +7320,25 @@ async def get_engagement_hosts(eid: str):
 
 
 @app.get("/api/engagements/{eid}/services-summary")
-async def get_services_summary(eid: str):
-    """Get services/ports distribution for an engagement."""
+async def get_services_summary(eid: str, host_ip: str = None):
+    """Get services/ports distribution for an engagement, optionally filtered by host."""
     services = []
 
     if neo4j_available and neo4j_driver:
         try:
             with neo4j_driver.session() as session:
-                result = session.run("""
-                    MATCH (h:Host {engagement_id: $eid})-[:HAS_SERVICE]->(s:Service)
+                host_filter = "AND h.ip = $host_ip" if host_ip else ""
+                svc_params = {"eid": eid}
+                if host_ip:
+                    svc_params["host_ip"] = host_ip
+                result = session.run(f"""
+                    MATCH (h:Host {{engagement_id: $eid}})-[:HAS_SERVICE]->(s:Service)
+                    WHERE true {host_filter}
                     RETURN s.port AS port, s.name AS name,
                            count(DISTINCT h) AS host_count,
                            collect(DISTINCT s.version)[..3] AS versions
                     ORDER BY host_count DESC
-                """, eid=eid)
+                """, **svc_params)
                 for record in result:
                     services.append({
                         "port": record["port"],
@@ -7330,6 +7356,9 @@ async def get_services_summary(eid: str):
     port_counts = {}
     for f in state.findings:
         if f.engagement != eid:
+            continue
+        # I9: Apply host_ip filter to in-memory merge
+        if host_ip and getattr(f, 'host_ip', '') != host_ip:
             continue
         target = f.target or ""
         port_match = _re_svc.search(r':(\d+)', target)
