@@ -2515,6 +2515,49 @@
       display: none;
     }
 
+    .host-sub-list.collapsed {
+      display: none;
+    }
+
+    .host-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      font-size: 10px;
+      color: var(--zerok-text-dim);
+      padding: 2px 0 2px 22px;
+    }
+
+    .host-toggle:hover {
+      color: var(--zerok-text-muted);
+    }
+
+    .host-toggle .chevron {
+      transition: transform 0.15s ease;
+      font-size: 8px;
+    }
+
+    .host-toggle .chevron.open {
+      transform: rotate(90deg);
+    }
+
+    .host-filter-badge {
+      display: inline-block;
+      font-size: 11px;
+      background: var(--zerok-primary);
+      color: #000;
+      padding: 2px 10px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+
+    .host-filter-badge:hover {
+      opacity: 0.85;
+    }
+
     /* Create Engagement Modal */
     .modal-overlay {
       position: fixed;
@@ -6278,6 +6321,7 @@
         <div class="content-title-section">
           <h1 class="content-title">Penetration Testing Dashboard</h1>
           <p class="content-subtitle" id="subtitle-mode">PTES Methodology • <span id="agent-mode-label">AI-Powered (Claude)</span> • Dual-Backend Architecture</p>
+          <span id="hostFilterBadge" class="host-filter-badge" style="display:none;" onclick="selectHost(null)" title="Click to clear host filter"></span>
         </div>
         <div class="header-actions">
           <span id="engagement-running-badge" class="engagement-running-badge" title="Engagement in progress">
@@ -13248,8 +13292,9 @@
 
     /** Load host sub-list under active engagement in sidebar */
     async function loadHostSubList(eid) {
-      // Remove any existing host sub-lists
+      // Remove any existing host sub-lists and toggles
       document.querySelectorAll('.host-sub-list').forEach(el => el.remove());
+      document.querySelectorAll('.host-toggle').forEach(el => el.remove());
       if (!eid) return;
 
       let hosts = [];
@@ -13273,10 +13318,27 @@
       const activeItem = document.querySelector(`.engagement-list-item[data-eng-id="${eid}"]`);
       if (!activeItem) return;
 
+      // Toggle button to expand/collapse host list
+      const toggle = document.createElement('div');
+      toggle.className = 'host-toggle';
+      const chevron = document.createElement('span');
+      chevron.className = 'chevron open';
+      chevron.textContent = '\u25B6';
+      toggle.appendChild(chevron);
+      toggle.appendChild(document.createTextNode(`${hosts.length} hosts`));
+      toggle.onclick = (e) => {
+        e.stopPropagation();
+        const list = toggle.nextElementSibling;
+        if (list && list.classList.contains('host-sub-list')) {
+          list.classList.toggle('collapsed');
+          chevron.classList.toggle('open');
+        }
+      };
+
       const subList = document.createElement('div');
       subList.className = 'host-sub-list';
 
-      // "All Hosts (N)" item — safe: hosts.length is a number from our own API
+      // "All Hosts (N)" item
       const allItem = document.createElement('div');
       allItem.className = `host-sub-item all-hosts${currentHostFilter === null ? ' active' : ''}`;
       const allDot = document.createElement('span');
@@ -13286,7 +13348,7 @@
       allItem.onclick = (e) => { e.stopPropagation(); selectHost(null); };
       subList.appendChild(allItem);
 
-      // Individual host items — data from our own backend API
+      // Individual host items
       hosts.forEach(h => {
         const item = document.createElement('div');
         item.className = `host-sub-item${currentHostFilter === h.ip ? ' active' : ''}`;
@@ -13306,6 +13368,7 @@
       });
 
       activeItem.after(subList);
+      activeItem.after(toggle);
     }
 
     /** Select a specific host or null for aggregate */
@@ -13335,22 +13398,13 @@
       if (_currentCtrlState === 'running') startKpiPolling();
     }
 
-    /** Show/hide host filter badge in top bar */
+    /** Show/hide host filter badge under PTES subtitle */
     function updateHostFilterBadge() {
-      let badge = document.getElementById('hostFilterBadge');
-      if (!badge) {
-        const subtitle = document.getElementById('subtitle-mode');
-        if (!subtitle || !subtitle.parentElement) return;
-        badge = document.createElement('span');
-        badge.id = 'hostFilterBadge';
-        badge.style.cssText = 'display:none;font-size:11px;background:var(--zerok-primary);color:#000;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:600;cursor:pointer;';
-        badge.onclick = () => selectHost(null);
-        badge.title = 'Click to clear host filter';
-        subtitle.parentElement.appendChild(badge);
-      }
+      const badge = document.getElementById('hostFilterBadge');
+      if (!badge) return;
       if (currentHostFilter) {
         badge.textContent = '\u{1F3AF} ' + currentHostFilter;
-        badge.style.display = 'inline';
+        badge.style.display = 'inline-block';
       } else {
         badge.style.display = 'none';
       }
