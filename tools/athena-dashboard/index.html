@@ -12657,11 +12657,8 @@
           skipFindingsRender = true;
         }
         if (!skipFindingsRender) {
-        if (kpiFindingsEl) {
-          var newVal = findings.length;
-          var curVal = parseInt(kpiFindingsEl.textContent) || 0;
-          if (newVal >= curVal) kpiFindingsEl.textContent = newVal;
-        }
+        // NOTE: kpiFindingsEl is now "Hosts Compromised" (I1) — computed later in this function.
+        // Do NOT write findings.length here — that was the old "Total Findings" behavior.
         const donutTotalEl = document.getElementById('donut-total');
         if (donutTotalEl && findings.length > 0) donutTotalEl.textContent = findings.length;
         // BUG-041: Sync drawer findings stat from same API source as KPI card
