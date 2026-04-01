@@ -1,8 +1,27 @@
-# ATHENA - AI-Powered Penetration Testing Platform
+<p align="center">
+  <img src="docs/assets/banner.jpg" alt="0K ATHENA Banner" width="100%" />
+</p>
+
+<p align="center">
+  <strong>AI-Powered Penetration Testing Platform</strong>
+</p>
+
+<p align="center">
+  <a href="#license"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License" /></a>
+  <img src="https://img.shields.io/badge/python-3.14-blue.svg" alt="Python" />
+  <img src="https://img.shields.io/badge/status-production-brightgreen.svg" alt="Status" />
+  <img src="https://img.shields.io/badge/agents-9-red.svg" alt="Agents" />
+  <img src="https://img.shields.io/badge/API_endpoints-153-red.svg" alt="API" />
+  <img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" />
+</p>
+
+---
+
+# ØK ATHENA
 
 **Automated Tactical Hacking and Exploitation Network Architecture**
 
-ATHENA is a multi-agent AI penetration testing platform that coordinates specialized agents to conduct authorized security assessments. Built on the Claude Agent SDK, it combines autonomous AI capabilities with human-in-the-loop (HITL) safety gates — adapting its autonomy level to the engagement context.
+ATHENA is a multi-agent AI penetration testing platform that coordinates 9 specialized agents to conduct authorized security assessments. Built on the Claude Agent SDK, it combines autonomous AI capabilities with human-in-the-loop (HITL) safety gates — adapting its autonomy level to the engagement context.
 
 > **AI + Human oversight > AI alone** — Inspired by [Anthropic's AI Cyber Defenders](https://www.anthropic.com/research/building-ai-cyber-defenders)
 
@@ -10,15 +29,18 @@ ATHENA is a multi-agent AI penetration testing platform that coordinates special
 
 ## Key Features
 
-- **Multi-Agent AI Team** — 8 specialized agents (Strategy, Recon, Vuln Scanner, Exploitation, Verification, Reporting, Deep Analysis, Probe Executor) coordinate through a shared knowledge graph
+- **9-Agent AI Team** — Strategy, Recon, Vuln Scanner, Exploitation, Verification, Reporting, Deep Analysis, Probe Executor, and Post-Exploitation agents coordinate through a shared knowledge graph
+- **Multi-Host Architecture** — Per-engagement host selector scopes all KPIs, charts, and findings to individual targets. Dashboard supports single-host filtering and aggregate views
 - **0-Day Hunting (Phase 4.5)** — DA (Opus) generates vulnerability hypotheses, PX (Sonnet) executes targeted probes. Confirmed findings auto-generate Vulnerability Disclosure Reports (VDRs) with full reproduction steps
 - **Tiered Autonomy** — CTF/Lab mode (full autonomy) vs Client mode (HITL gates) vs Client Auto (client-approved automation)
 - **Cross-Engagement Intelligence (CEI)** — Learns from past engagements. Agents skip known dead-ends and prioritize proven techniques
-- **Bilateral Communication** — Agents coordinate through Neo4j + real-time messaging, not just sequential handoffs
-- **Real-Time Dashboard** — Single-page web UI with agent LEDs, live event feed, HITL approval modals, and scope management
+- **Real-Time Dashboard** — 153-endpoint API, WebSocket live feed, Chart.js visualizations, HITL approval modals, scope management, attack graph, and evidence gallery
+- **Budget Tracking** — Per-agent AI API cost tracking with budget limits and session-level reporting
+- **Attack Chain Detection** — Automated kill chain mapping with lateral movement and privilege escalation tracking
 - **Dual Kali Backends** — External (cloud) + Internal (on-premise via ZeroTier) with 50+ offensive tools
 - **PTES Methodology** — Full 8-phase penetration testing execution standard with phase gating
-- **One-Command Startup** — `./start.sh` handles everything including Docker services
+- **RAG Knowledge Base** — Engagement-scoped knowledge base with hybrid retrieval (vector + BM25) for agent context enrichment
+- **One-Command Startup** — `./start.sh` handles Neo4j, Graphiti, Langfuse, Kali health checks, and RAG sidecar
 
 ---
 
@@ -96,11 +118,11 @@ Agents prioritize techniques with high success rates and skip known dead-ends.
 
 ### Prerequisites
 
-- Python 3.11+
-- Node.js 18+ (for Playwright MCP)
-- Neo4j database (bolt connection)
+- Python 3.13+ (3.14 recommended)
+- Neo4j 5.x database (bolt connection)
 - Kali Linux backend(s) running the MCP server
-- Claude Agent SDK (`pip install claude-agent-sdk`)
+- Anthropic API key (for Claude agents)
+- 1Password CLI (optional — for secure credential management)
 
 ### 1. Start ATHENA
 
@@ -155,10 +177,10 @@ The ATHENA dashboard is a single-page web application optimized for desktop and 
 
 ### Dual Backend Architecture
 
-| Backend | URL | Purpose | Tools |
-|---------|-----|---------|-------|
-| **External** | `your-kali-host:5000` | Cloud-based pentesting | 50+ tools |
-| **Internal** | `your-internal-kali:5000` (ZeroTier) | On-premise pentesting | ProjectDiscovery + AD tools |
+| Backend | Purpose | Tools |
+|---------|---------|-------|
+| **External** | Cloud-based pentesting (any provider) | 50+ tools |
+| **Internal** | On-premise pentesting (ZeroTier/VPN) | ProjectDiscovery + AD tools |
 
 ### Available Tools (23 MCP tools)
 
@@ -259,20 +281,25 @@ Temporal knowledge graph for cross-session memory. Agents can query past finding
 ```
 ATHENA/
 ├── tools/athena-dashboard/     # Dashboard + Agent Session Manager
-│   ├── start.sh                # One-command startup
-│   ├── server.py               # FastAPI backend (~10K lines)
-│   ├── index.html              # Single-page dashboard (~15K lines)
-│   ├── agent_session_manager.py # Multi-agent orchestration
-│   ├── agent_configs.py        # Agent roles, prompts, tool access
-│   ├── sdk_agent.py            # Claude Agent SDK wrapper
+│   ├── start.sh                # One-command startup (Neo4j, Graphiti, Langfuse, Kali, RAG)
+│   ├── server.py               # FastAPI backend (~14K lines, 153 endpoints)
+│   ├── index.html              # Single-page dashboard (~17K lines)
+│   ├── agent_session_manager.py # Multi-agent orchestration (~112K)
+│   ├── agent_configs.py        # Agent roles, prompts, tool access (~115K)
+│   ├── finding_pipeline.py     # Finding dedup, fingerprinting, persistence
+│   ├── finding_utils.py        # Dedup keys, CVE extraction
+│   ├── message_bus.py          # Agent-to-agent pub/sub messaging
+│   ├── kali_client.py          # Kali backend HTTP client
 │   ├── graphiti_integration.py # Cross-session memory
 │   └── langfuse_integration.py # LLM observability
 ├── mcp-servers/                # Custom MCP servers
 │   └── neo4j-mcp/              # Neo4j knowledge graph MCP
-├── playbooks/                  # Attack methodology playbooks
-├── engagements/                # Client engagement data
+├── docs/                       # Documentation and learnings
+│   ├── assets/                 # Images, banner art
+│   └── learnings/              # Session learnings and backlog
 ├── intel/                      # Target intelligence
 ├── .claude/                    # Claude Code configuration
+│   ├── agents/                 # 19 agent definitions
 │   ├── commands/               # Slash commands
 │   └── settings.json           # Permission configuration
 ├── CLAUDE.md                   # Agent system prompt + methodology
@@ -296,11 +323,11 @@ This framework is designed for **authorized penetration testing only**. Unauthor
 
 ---
 
-**Platform**: ATHENA - AI-Powered Penetration Testing
+**Platform**: ØK ATHENA — AI-Powered Penetration Testing
 **Status**: Production
-**Version**: 2.0
-**Last Updated**: 2026-03-10
-**Maintained By**: ZeroK Labs
+**Version**: 3.0
+**Last Updated**: 2026-03-31
+**Maintained By**: [ZeroK Labs](https://zeroklabs.ai)
 
 ---
 
