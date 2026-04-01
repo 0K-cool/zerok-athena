@@ -25,10 +25,8 @@ case-files/
 *-report-*
 *-evidence-*
 
-# Engagement Folders (NEVER COMMIT CLIENT DATA)
-engagements/active/
-engagements/archive/
-engagements/archived/
+# Engagement Folders (NEVER COMMIT — scan data, client targets, findings)
+engagements/
 
 # Network Captures & Logs
 *.pcap
