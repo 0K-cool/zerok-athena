@@ -68,49 +68,50 @@ Worker agents (AR, WV, EX, VF) aren't limited to predefined MCP tools. They can 
 ## Multi-Agent Architecture
 
 ```
-                    ┌──────────────────────────┐
-                    │      OPERATOR (You)      │
-                    │  Commands · HITL · Review │
-                    └────────────┬─────────────┘
-                                 │ WebSocket
-                    ┌────────────▼─────────────┐
-                    │    ATHENA Dashboard       │
-                    │  KPIs · Timeline · Graphs │
-                    │  153 API endpoints        │
-                    └────────────┬─────────────┘
-                                 │ REST + WebSocket
-                    ┌────────────▼─────────────┐
-                    │  Agent Session Manager    │
-                    │  Spawn · Route · Budget   │
-                    │  HITL Gates · Pause/Resume│
-                    └──┬──┬──┬──┬──┬──┬──┬──┬──┘
-                       │  │  │  │  │  │  │  │
-          ┌────────────┘  │  │  │  │  │  │  └────────────┐
-          ▼               ▼  ▼  ▼  ▼  ▼  ▼               ▼
-    ┌──────────┐  ┌────┐┌────┐┌────┐┌────┐┌────┐  ┌──────────┐
-    │ ST       │  │ AR ││ WV ││ EX ││ VF ││ RP │  │ DA → PX  │
-    │ Strategy │  │    ││    ││    ││    ││    │  │ 0-Day    │
-    │ (Opus)   │  │    ││    ││    ││    ││    │  │ Hunting  │
-    └────┬─────┘  └──┬─┘└──┬─┘└──┬─┘└──┬─┘└──┬─┘  └────┬─────┘
-         │           │     │     │     │     │        │
-         │     ┌─────▼─────▼─────▼─────▼─────▼────────▼──┐
-         │     │           Message Bus                     │
-         │     │    Agent-to-agent bilateral messaging     │
-         │     └─────────────────┬─────────────────────────┘
-         │                       │
-    ┌────▼───────────────────────▼──────────────────────┐
-    │                 Neo4j Knowledge Graph              │
-    │  Hosts · Services · Findings · Credentials · CEI  │
-    │  Attack Chains · PTES Phases · Engagement State    │
-    └───────────────────────┬───────────────────────────┘
-                            │
-              ┌─────────────┴──────────────┐
-              ▼                            ▼
-    ┌──────────────────┐        ┌──────────────────┐
-    │  Kali External   │        │  Kali Internal   │
-    │  50+ tools       │        │  AD + Discovery  │
-    │  (Cloud)         │        │  (ZeroTier/VPN)  │
-    └──────────────────┘        └──────────────────┘
+                 ┌───────────────────────────┐
+                 │       OPERATOR (You)      │
+                 │  Commands · HITL · Review  │
+                 └─────────────┬─────────────┘
+                               │ WebSocket
+                 ┌─────────────▼─────────────┐
+                 │     ATHENA Dashboard      │
+                 │  KPIs · Timeline · Graphs  │
+                 │    153 API endpoints       │
+                 └─────────────┬─────────────┘
+                               │ REST + WS
+                 ┌─────────────▼─────────────┐
+                 │   Agent Session Manager   │
+                 │  Spawn · Route · Budget    │
+                 │  HITL Gates · Pause/Resume │
+                 └─────────────┬─────────────┘
+                               │
+        ┌────┬────┬────┬───────┼───────┬────┬────┐
+        ▼    ▼    ▼    ▼       ▼       ▼    ▼    ▼
+       ST   AR   WV   EX      VF      RP   DA   PX
+      Lead  Recon Web  Exploit Verify  Report  0-Day
+      ─────────────────────────────────────────────
+        │    │    │    │       │       │    │    │
+        └────┴────┴────┴───┬───┴───────┴────┴────┘
+                           │
+                 ┌─────────▼─────────────┐
+                 │      Message Bus      │
+                 │  Bilateral messaging   │
+                 └─────────┬─────────────┘
+                           │
+                 ┌─────────▼─────────────┐
+                 │  Neo4j Knowledge Graph │
+                 │  Hosts · Services      │
+                 │  Findings · Credentials│
+                 │  Attack Chains · CEI   │
+                 └─────────┬─────────────┘
+                           │
+                 ┌─────────┴─────────┐
+                 ▼                   ▼
+          ┌─────────────┐    ┌─────────────┐
+          │Kali External│    │Kali Internal│
+          │  50+ tools  │    │AD + Discovery│
+          │   (Cloud)   │    │(ZeroTier/VPN)│
+          └─────────────┘    └─────────────┘
 ```
 
 | Agent | Role | Model | Phase |
