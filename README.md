@@ -85,13 +85,12 @@ Worker agents (AR, WV, EX, VF) aren't limited to predefined MCP tools. They can 
                  │  HITL Gates · Pause/Resume│
                  └─────────────┬─────────────┘
                                │
-        ┌────┬────┬────┬───────┼───────┬────┬────┐
-        ▼    ▼    ▼    ▼       ▼       ▼    ▼    ▼
-      ST   PR    AR   WV   EX     VF     PE   RP   DA   PX
-     Lead  OSINT Recon Web  Exploit Verify Post Report 0-Day
-      ─────────────────────────────────────────────
-        │    │    │    │       │       │    │    │
-        └────┴────┴────┴───┬───┴───────┴────┴────┘
+   ┌───┬───┬───┬───┬──────────┼──────────┬───┬───┬───┐
+   ▼   ▼   ▼   ▼   ▼          ▼          ▼   ▼   ▼   ▼
+  ST  PR  AR  WV  EX         VF         PE  RP  DA  PX
+  ───────────────────────────────────────────────────────
+   │   │   │   │   │          │          │   │   │   │
+   └───┴───┴───┴───┴─────┬────┴──────────┴───┴───┴───┘
                            │
                  ┌─────────▼─────────────┐
                  │      Message Bus      │
@@ -107,11 +106,11 @@ Worker agents (AR, WV, EX, VF) aren't limited to predefined MCP tools. They can 
                            │
                  ┌─────────┴─────────┐
                  ▼                   ▼
-          ┌─────────────┐    ┌─────────────-┐
+          ┌─────────────┐    ┌──────────────┐
           │Kali External│    │Kali Internal │
           │  50+ tools  │    │AD + Discovery│
           │   (Cloud)   │    │(ZeroTier/VPN)│
-          └─────────────┘    └─────────────-┘
+          └─────────────┘    └──────────────┘
 ```
 
 | Agent | Role | Model | Phase |
