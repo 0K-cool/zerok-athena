@@ -6403,7 +6403,7 @@
         <div class="stat-grid">
           <div class="stat-card">
             <div class="stat-header">
-              <span class="stat-label">Active Engagements</span>
+              <span class="stat-label">Engagements</span>
               <svg class="stat-sparkline" viewBox="0 0 60 24">
                 <path d="M0 20 L10 15 L20 18 L30 10 L40 12 L50 5 L60 8" fill="none" stroke="var(--zerok-primary)" stroke-width="2"/>
               </svg>
@@ -9693,10 +9693,10 @@
         if (!eid) return;
         const resp = await fetch('/api/engagements/' + eid + '/findings');
         if (!resp.ok) return;
-        const findings = await resp.json();
+        const findingsRaw = await resp.json();
+        const findings = Array.isArray(findingsRaw) ? findingsRaw : (findingsRaw.findings || []);
         // BUG-011 FIX: Don't early-return on 0 findings — still need to call
         // updateSeverityChart() to hide gridlines (set chartWrapper opacity to 0).
-        if (!Array.isArray(findings)) return;
         if (findings.length === 0) {
           _severityCounts.critical = 0; _severityCounts.high = 0;
           _severityCounts.medium = 0; _severityCounts.low = 0; _severityCounts.info = 0;
@@ -9719,8 +9719,7 @@
             if (h) uniqueHosts.add(h.split(':')[0]);
           });
           var newCount = uniqueHosts.size;
-          var curCount = parseInt(kpiFindings.textContent) || 0;
-          if (newCount >= curCount) kpiFindings.textContent = newCount;
+          kpiFindings.textContent = newCount;
         }
         // Update donut total
         const donutTotal = document.getElementById('donut-total');
@@ -12623,7 +12622,7 @@
         const engs = engData.engagements || engData;
         // If dashboard knows a session is running, count at least 1
         const runningLocally = _currentCtrlState === 'running' || _currentCtrlState === 'paused';
-        const active = engs.filter(e => e.status !== 'completed' && e.status !== 'stopped' && e.status !== 'archived' && (e.phase === 'AI Mode' || (e.status === 'active' && e.phase && e.phase !== '—'))).length;
+        const active = engs.filter(e => e.status !== 'archived').length;
         kpiEng.textContent = active;
       } catch (e) { /* ignore */ }
     }
@@ -13626,8 +13625,7 @@
             if (h) uniqueHosts.add(h.split(':')[0]);
           });
           var newVal = uniqueHosts.size;
-          var curVal = parseInt(kpiFindingsEl.textContent) || 0;
-          if (newVal >= curVal) kpiFindingsEl.textContent = newVal;
+          kpiFindingsEl.textContent = newVal;
         }
         // BUG-ports: During active engagement, never decrease Open Ports KPI (prevents flicker
         // when stat_update sends 0 but services-summary already set correct value)

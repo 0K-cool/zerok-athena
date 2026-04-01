@@ -611,9 +611,9 @@ def restore_state_from_neo4j():
                 eng_status = eng_record["status"] if eng_record else "completed"
 
                 if eng_status in ("completed", "stopped", "archived"):
-                    # Engagement is done — all agents should be IDLE
+                    # Engagement is done — all agents should be COMPLETED
                     for code in AGENT_NAMES:
-                        state.agent_statuses[code] = AgentStatus.IDLE
+                        state.agent_statuses[code] = AgentStatus.COMPLETED
                         state.agent_tasks[code] = ""
                 else:
                     result = session.run("""
@@ -7348,7 +7348,8 @@ async def get_engagement_hosts(eid: str):
                 """, eid=eid)
                 return [dict(rec) for rec in r]
         try:
-            hosts = await neo4j_exec(_query_hosts_from_findings)
+            raw_hosts = await neo4j_exec(_query_hosts_from_findings)
+            hosts = [h for h in raw_hosts if not _is_version_string_ip(h.get("ip", ""))]
         except Exception as e:
             logger.warning("hosts-from-findings fallback error: %s", e)
 
