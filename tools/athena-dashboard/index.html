@@ -9707,12 +9707,16 @@
         const kpiFindings = document.getElementById('kpi-findings');
         if (kpiFindings) {
           var confirmedFindings = findings.filter(function(f) {
-            return f.status === 'confirmed' || f.verification_status === 'confirmed' || f.verified === true;
+            var isConfirmed = f.status === 'confirmed' || f.verification_status === 'confirmed' || f.verified === true;
+            var agent = (f.agent || '').toUpperCase();
+            var confirmedBy = (f.confirmed_by || '').toUpperCase();
+            var isExVf = agent === 'EX' || agent === 'VF' || confirmedBy === 'EX' || confirmedBy === 'VF';
+            return isConfirmed && isExVf;
           });
           var uniqueHosts = new Set();
           confirmedFindings.forEach(function(f) {
             var h = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
-            if (h) uniqueHosts.add(h);
+            if (h) uniqueHosts.add(h.split(':')[0]);
           });
           var newCount = uniqueHosts.size;
           var curCount = parseInt(kpiFindings.textContent) || 0;
@@ -13610,12 +13614,16 @@
         const kpiFindingsEl = document.getElementById('kpi-findings');
         if (kpiFindingsEl) {
           const confirmedFindings = (window._dashFindingsAccum || []).filter(function(f) {
-            return f.status === 'confirmed' || f.verification_status === 'confirmed' || f.verified === true;
+            var isConfirmed = f.status === 'confirmed' || f.verification_status === 'confirmed' || f.verified === true;
+            var agent = (f.agent || '').toUpperCase();
+            var confirmedBy = (f.confirmed_by || '').toUpperCase();
+            var isExVf = agent === 'EX' || agent === 'VF' || confirmedBy === 'EX' || confirmedBy === 'VF';
+            return isConfirmed && isExVf;
           });
           const uniqueHosts = new Set();
           confirmedFindings.forEach(function(f) {
             var h = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
-            if (h) uniqueHosts.add(h);
+            if (h) uniqueHosts.add(h.split(':')[0]);
           });
           var newVal = uniqueHosts.size;
           var curVal = parseInt(kpiFindingsEl.textContent) || 0;
