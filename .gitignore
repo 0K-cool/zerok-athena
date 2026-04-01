@@ -9,6 +9,22 @@
 .env.*
 .mcp.json
 *.key
+
+# User-specific docs (keep READMEs, ignore content)
+docs/knowledge/*.md
+!docs/knowledge/README.md
+docs/playbooks/*.md
+!docs/playbooks/README.md
+docs/learnings/*.md
+!docs/learnings/README.md
+docs/plans/
+docs/planning/
+docs/status/
+docs/setup/
+docs/vision/
+docs/roadmap/
+docs/superpowers/
+docs/mindmaps/
 *.pem
 *.cert
 *.p12
