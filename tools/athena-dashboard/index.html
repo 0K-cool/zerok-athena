@@ -6432,10 +6432,10 @@
           </div>
           <div class="stat-card">
             <div class="stat-header">
-              <span class="stat-label">Total Findings</span>
+              <span class="stat-label">Hosts Compromised</span>
             </div>
             <div class="stat-value-row">
-              <span class="stat-value" id="kpi-findings" style="color: var(--zerok-critical);">0</span>
+              <span class="stat-value" id="kpi-findings" style="color: #f97316;">0</span>
             </div>
           </div>
           <div class="stat-card">
@@ -6705,6 +6705,7 @@
             <div class="widget-header">
               <span class="widget-title">Kill Chain Depth</span>
               <span style="font-size: 11px; color: var(--zerok-text-dim);" id="killchain-stage">No activity</span>
+              <span style="font-size: 10px; color: #f97316; font-family: var(--zerok-font-mono); margin-left: 6px; display: none;" id="killchain-pivot-count"></span>
             </div>
             <div class="widget-body" style="display: flex; align-items: center; height: 100%;">
               <div class="kill-chain-stepper" id="kill-chain-stepper" style="width: 100%;">
@@ -9678,11 +9679,11 @@
       }
       if (pctEl) pctEl.textContent = Math.round(pct) + '%';
       // BUG-029: Show exploited vs verified distinction
+      // I2: Denominator is now high+crit pool
       if (subEl) {
-        var eu = exploitedUnverified || 0;
         var c = confirmed || 0;
         var t = total || 0;
-        subEl.textContent = c + ' confirmed + ' + eu + ' unverified / ' + t;
+        subEl.textContent = c + ' confirmed / ' + t + ' high+crit';
       }
     }
 
@@ -9702,10 +9703,18 @@
           updateSeverityChart();
           return;
         }
-        // Update KPI
+        // Update KPI — Hosts Compromised (confirmed findings with a unique host)
         const kpiFindings = document.getElementById('kpi-findings');
         if (kpiFindings) {
-          var newCount = findings.length;
+          var confirmedFindings = findings.filter(function(f) {
+            return f.status === 'confirmed' || f.verification_status === 'confirmed' || f.verified === true;
+          });
+          var uniqueHosts = new Set();
+          confirmedFindings.forEach(function(f) {
+            var h = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
+            if (h) uniqueHosts.add(h);
+          });
+          var newCount = uniqueHosts.size;
           var curCount = parseInt(kpiFindings.textContent) || 0;
           if (newCount >= curCount) kpiFindings.textContent = newCount;
         }
@@ -10475,6 +10484,28 @@
       const stageLabel = document.getElementById('killchain-stage');
       if (stageLabel) {
         stageLabel.textContent = deepest >= 0 ? KILL_CHAIN[deepest].label : 'No activity';
+      }
+      // I3: Pivot count badge — show unique PE agent targets when lateral stage reached
+      var pivotBadge = document.getElementById('killchain-pivot-count');
+      if (pivotBadge) {
+        if (stages.has('lateral')) {
+          var lateralFindings = (allFindings || []).filter(function(f) {
+            return (f.agent || '').toUpperCase() === 'PE';
+          });
+          var pivotTargets = new Set();
+          lateralFindings.forEach(function(f) {
+            var h = f.host_ip || f.target || '';
+            if (h) pivotTargets.add(h);
+          });
+          if (pivotTargets.size > 0) {
+            pivotBadge.textContent = '+' + pivotTargets.size + ' pivot' + (pivotTargets.size > 1 ? 's' : '');
+            pivotBadge.style.display = '';
+          } else {
+            pivotBadge.style.display = 'none';
+          }
+        } else {
+          pivotBadge.style.display = 'none';
+        }
       }
     }
 
@@ -12317,6 +12348,9 @@
       });
       const kcStage = document.getElementById('killchain-stage');
       if (kcStage) kcStage.textContent = 'No activity';
+      // I3: Reset pivot count badge
+      var pivotBadge = document.getElementById('killchain-pivot-count');
+      if (pivotBadge) { pivotBadge.textContent = ''; pivotBadge.style.display = 'none'; }
       // Reset Attack Chains widget
       const chainsBody = document.getElementById('attack-chains-body');
       if (chainsBody) chainsBody.innerHTML = '<div style="color: var(--zerok-text-dim); font-size: 12px; text-align: center; padding: 16px 0;">No attack chains discovered yet</div>';
@@ -12872,14 +12906,16 @@
         es = await esRes.json();
         // BUG-017 fix: Sync running totals from API so gauge stays consistent after page reload
         if (!window._exploitGaugeTotals) window._exploitGaugeTotals = { discovered: 0, confirmed: 0 };
-        window._exploitGaugeTotals.discovered = Math.max(window._exploitGaugeTotals.discovered, es.discovered_vulns || 0);
+        window._exploitGaugeTotals.discovered = Math.max(window._exploitGaugeTotals.discovered, es.high_critical_count || es.discovered_vulns || 0);
         window._exploitGaugeTotals.confirmed = Math.max(window._exploitGaugeTotals.confirmed, es.confirmed_exploits || 0);
         // Update Exploit Gauge SVG arc (BUG-029: pass exploited_unverified)
         // BUG-LATE-001: Derive rate client-side — don't trust es.success_rate (stale server calc)
-        var derivedRate = es.discovered_vulns > 0
-          ? Math.round((es.confirmed_exploits / es.discovered_vulns) * 100)
+        // I2: Use high+critical count as denominator for a meaningful exploit rate
+        var hcPool = es.high_critical_count || es.discovered_vulns || 0;
+        var derivedRate = hcPool > 0
+          ? Math.round((es.confirmed_exploits / hcPool) * 100)
           : 0;
-        updateExploitGauge(derivedRate, es.confirmed_exploits, es.discovered_vulns, es.exploited_unverified || 0);
+        updateExploitGauge(derivedRate, es.confirmed_exploits, hcPool, es.exploited_unverified || 0);
         // BUG-#5: kpi-criticals = exploitable pool (HIGH+CRITICAL findings)
         const kpiExploitsEl = document.getElementById('kpi-criticals');
         const highCriticalPool = es.high_critical_count !== undefined
@@ -13569,14 +13605,21 @@
             if (lbl) lbl.textContent = (summaryHosts === 1) ? 'host' : 'hosts';
           }
         }
-        // BUG-026: During active engagement, never decrease findings KPI (prevents flicker
-        // when summary endpoint returns 0 but WebSocket stat_update already set correct value)
+        // I1: Hosts Compromised — derived from confirmed findings with unique host IP
         const summaryFindings = summary.findings || 0;
-        if (kpiFindings) {
-          const currentVal = parseInt(kpiFindings.textContent) || 0;
-          if (summaryFindings >= currentVal) {
-            kpiFindings.textContent = summaryFindings;
-          }
+        const kpiFindingsEl = document.getElementById('kpi-findings');
+        if (kpiFindingsEl) {
+          const confirmedFindings = (window._dashFindingsAccum || []).filter(function(f) {
+            return f.status === 'confirmed' || f.verification_status === 'confirmed' || f.verified === true;
+          });
+          const uniqueHosts = new Set();
+          confirmedFindings.forEach(function(f) {
+            var h = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
+            if (h) uniqueHosts.add(h);
+          });
+          var newVal = uniqueHosts.size;
+          var curVal = parseInt(kpiFindingsEl.textContent) || 0;
+          if (newVal >= curVal) kpiFindingsEl.textContent = newVal;
         }
         // BUG-ports: During active engagement, never decrease Open Ports KPI (prevents flicker
         // when stat_update sends 0 but services-summary already set correct value)
