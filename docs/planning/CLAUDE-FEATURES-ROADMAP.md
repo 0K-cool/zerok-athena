@@ -279,7 +279,7 @@ Claude (loads evidence-collection skill):
    - Title: SQL Injection in Login Form
    - Severity: CRITICAL
    - CVSS: TBD (trigger cvss-scoring skill)
-   - Location: https://ssesl.example.com/login.php
+   - Location: https://target.example.com/login.php
    - Evidence: 001-CRITICAL-SQLI-login-bypass-20251020-143022.png
 ```
 

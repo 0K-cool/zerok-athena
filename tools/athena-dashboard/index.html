@@ -11842,6 +11842,11 @@
         if (typeof loadScans === 'function') loadScans();
         // Refresh dashboard widgets
         resetDashboardFindingWidgets();
+        // Clear host selector (graph data wiped — no hosts remain)
+        currentHostFilter = null;
+        delete _hostListCache[eid];
+        updateHostFilterBadge();
+        loadHostSubList(eid);
         await loadDashboardFromAPI();
         if (currentEngagementId) await loadEngagementSummary(currentEngagementId);
       } catch (e) {
@@ -14619,6 +14624,11 @@
         await loadFindings();
         // Refresh dashboard widgets that show finding data
         resetDashboardFindingWidgets();
+        // Clear host selector (findings wiped — host data derived from findings)
+        currentHostFilter = null;
+        delete _hostListCache[eid];
+        updateHostFilterBadge();
+        loadHostSubList(eid);
         await loadDashboardFromAPI();
         if (currentEngagementId) await loadEngagementSummary(currentEngagementId);
       } catch (e) {

@@ -76,7 +76,7 @@ ATHENA operates a **dual-box architecture** — two Kali backends for different 
 ```
                               ┌──────────────────────────┐
                               │  Antsle - Kali Linux     │
-                     ┌───────>│  kali.linux.vkloud...    │───> External Targets
+                     ┌───────>│  your-kali-host    │───> External Targets
                      │        │  port 5000 (Flask API)   │    (internet-facing)
                      │        └──────────────────────────┘
 [Mac - ATHENA]       │
