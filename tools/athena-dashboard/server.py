@@ -2246,7 +2246,8 @@ async def create_finding(payload: FindingPayload):
 
     # Write to Neo4j if available — smart endpoint auto-creates relationships
     # Pattern: MERGE nodes individually, then MERGE relationships (BloodHound pattern)
-    host_ip = payload.host_ip or _extract_host_port(payload.target)[0]
+    _raw_host_ip = payload.host_ip or _extract_host_port(payload.target)[0]
+    host_ip = _raw_host_ip if _raw_host_ip and _raw_host_ip not in _KALI_BACKEND_IPS else ""
     svc_port = payload.service_port or _extract_host_port(payload.target)[1]
     svc_proto = payload.service_protocol or "tcp"
 
@@ -7794,11 +7795,11 @@ async def patch_finding(eid: str, fid: str, request: Request):
         return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
 
     # BUG-#2: Only EX, VF, and server can set confirmed status
-    # DA, AR, WV, PR, PX findings are downgraded to "analyzed"
-    NON_CONFIRM_AGENTS = {"DA", "AR", "WV", "PR", "PX"}
-    req_agent = payload.get("agent", "")
+    # All other agents (DA, AR, WV, PR, PX) and missing/unknown agents are downgraded to "analyzed"
+    CONFIRM_AGENTS = {"EX", "VF"}
+    req_agent = (payload.get("agent") or "").strip().upper()
     req_status = payload.get("status", "")
-    if req_status == "confirmed" and req_agent.upper() in NON_CONFIRM_AGENTS:
+    if req_status == "confirmed" and req_agent not in CONFIRM_AGENTS:
         payload["status"] = "analyzed"
         if "verification_status" in payload:
             payload["verification_status"] = "analyzed"
