@@ -122,6 +122,7 @@ Worker agents (AR, WV, EX, VF) aren't limited to predefined MCP tools. They can 
 | **EX** (Exploitation) | Exploit confirmed vulnerabilities, prove impact | Opus | 5 |
 | **VF** (Verification) | Independent verification using different tools — no false positives get through | Sonnet | 4 |
 | **RP** (Reporting) | Generate technical, executive, and remediation reports | Opus | 7 |
+| **PE** (Post-Exploitation) | Lateral movement, privilege escalation, credential harvesting after confirmed exploit | Sonnet | 6 |
 | **DA** (Deep Analysis) | 0-day hunting — hypothesis generation, response analysis, payload crafting | Opus | 4.5 |
 | **PX** (Probe Executor) | Execute probes directed by DA — rapid HTTP, binary search, fuzzing, Kali tools | Sonnet | 4.5 |
 
@@ -167,7 +168,8 @@ This handles everything:
 - Detects and validates Neo4j connection
 - Checks Kali backend availability (external + internal)
 - Auto-starts Langfuse Docker stack (if configured)
-- Initializes Graphiti memory layer
+- Initializes Graphiti cross-session memory
+- Starts RAG knowledge base sidecar (mcp-proxy)
 - Launches the dashboard on **http://localhost:8080**
 
 ### 2. Create an Engagement
@@ -194,14 +196,23 @@ Click **Engage AI** to start the multi-agent team. ST (Strategy Agent) activates
 
 The ATHENA dashboard is a single-page web application optimized for desktop and tablet:
 
-- **Agent LEDs** — Real-time status indicators for each agent (idle/running/completed)
-- **PTES Phase Bar** — Visual progress through penetration testing phases
-- **Live Event Feed** — Scrolling feed of agent actions, tool calls, findings, and strategy decisions
-- **Settings** — Configure Neo4j, Graphiti, Langfuse, and Kali backends
-- **Intelligence** — View and manage cross-engagement intelligence data
-- **Findings/Vulnerabilities** — Organized by severity with CVSS scores
-- **Attack Graph** — Visual attack chain representation (Neo4j-powered)
-- **Reports** — Generated technical, executive, and remediation reports
+- **KPI Cards** — Active engagements, hosts discovered, services, total findings, total exploitable, TTFS, MTTE
+- **Host Selector** — Per-engagement host filtering in sidebar (scopes all KPIs and charts to a single target)
+- **Agent Status Grid** — Real-time LED indicators for each agent (idle/running/completed)
+- **Findings by Severity** — Bar chart with critical/high/medium/low/info breakdown
+- **Exploit Gauge** — Confirmed exploit rate with confirmed + unverified tracking
+- **Kill Chain Depth** — Visual MITRE kill chain progression
+- **Attack Chains** — Detected attack paths with linked findings
+- **Remediation Priority** — Bubble chart (CVSS x Hosts) grouped by CVE
+- **Credential Tracker** — Harvested credentials, default/weak, unique accounts
+- **Evidence Gallery** — Screenshots and artifacts with type/backend/mode filtering
+- **PTES Methodology Matrix** — Phase-by-phase coverage with agent mapping and OWASP Top 10
+- **Attack Graph** — Interactive Neo4j-powered node graph (hosts, services, findings)
+- **Budget Tracking** — Per-agent AI API cost tracking with session-level reporting
+- **AI Timeline** — Scrolling feed of agent actions, tool calls, and strategy decisions
+- **Reports** — Auto-generated technical, executive, and remediation reports
+- **Settings** — Configure Neo4j, Graphiti, Langfuse, Kali backends, and RAG knowledge base
+- **Intelligence** — Cross-engagement intelligence data with technique success rates
 
 ---
 
@@ -214,12 +225,14 @@ The ATHENA dashboard is a single-page web application optimized for desktop and 
 | **External** | Cloud-based pentesting (any provider) | 50+ tools |
 | **Internal** | On-premise pentesting (ZeroTier/VPN) | ProjectDiscovery + AD tools |
 
-### Available Tools (23 MCP tools)
+### Available Tools (50+)
 
-**Reconnaissance:** nmap, naabu, httpx, whatweb, eyewitness
-**Web Scanning:** nikto, nuclei, gobuster, dirb, katana, kiterunner, gau, wpscan
-**Exploitation:** sqlmap, metasploit, hydra, john, crackmapexec
-**Utility:** execute_command (any Kali tool), server_health, s3scanner, responder, enum4linux
+**Reconnaissance:** nmap, naabu, httpx, whatweb, eyewitness, enum4linux, snmpwalk, smbclient
+**Web Scanning:** nikto, nuclei, gobuster, dirb, katana, kiterunner, gau, wpscan, feroxbuster
+**Exploitation:** sqlmap, metasploit, hydra, john, crackmapexec, sshpass, responder
+**Post-Exploitation:** mimikatz, linpeas, winpeas, chisel, ligolo
+**Utility:** execute_command (any Kali tool), server_health, s3scanner, curl
+**Discovery:** subfinder, amass, dnsx, uncover, tlsx
 
 ---
 
@@ -230,8 +243,8 @@ The ATHENA dashboard is a single-page web application optimized for desktop and 
 ```json
 {
   "mcpServers": {
-    "kali_external": { "command": "python", "args": ["mcp_server.py", "--server", "http://kali:5000/"] },
-    "kali_internal": { "command": "python", "args": ["mcp_server.py", "--server", "http://172.26.80.76:5000/"] },
+    "kali_external": { "command": "python", "args": ["mcp_server.py", "--server", "http://your-kali-host:5000/"] },
+    "kali_internal": { "command": "python", "args": ["mcp_server.py", "--server", "http://your-internal-kali:5000/"] },
     "athena-neo4j": { "command": "python", "args": ["server.py"] },
     "athena-knowledge-base": { "command": "python", "args": ["vex_kb_server.py"] },
     "playwright": { "command": "npx", "args": ["@playwright/mcp@latest", "--headless"] }
@@ -259,7 +272,7 @@ ATHENA supports Langfuse for LLM tracing, cost tracking, and prompt analytics:
 
 ```bash
 # Auto-started by start.sh if configured
-docker compose -f langfuse/docker-compose.yml up -d
+docker compose -f docker/docker-compose.langfuse.yml up -d
 ```
 
 ### Graphiti Memory (Optional)
@@ -281,12 +294,12 @@ Temporal knowledge graph for cross-session memory. Agents can query past finding
 7. **Post-Exploitation** — Verify and validate findings (VF agent)
 8. **Reporting** — Professional deliverables (RP agent)
 
-### Compliance Support
+### Compliance-Aware Testing (Planned)
 
+Future support for compliance-specific test profiles:
 - **PCI DSS v4.0** — Payment card industry
-- **HIPAA** — Healthcare compliance
+- **HIPAA** — Healthcare environments
 - **SOC 2** — Trust services criteria
-- **GDPR** — Data protection
 
 ---
 
