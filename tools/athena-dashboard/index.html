@@ -13751,6 +13751,37 @@
       }
     }
 
+    // N1: Re-sync control state from server after engagement switch.
+    // resetDashboardFindingWidgets() unconditionally calls setCtrlState('idle'),
+    // so any running/paused engagement would lose its Running badge and Pause/Stop buttons.
+    async function syncCtrlStateFromAPI() {
+      if (!currentEngagementId) return;
+      try {
+        const [engsRes, agentsRes] = await Promise.all([
+          fetch('/api/engagements'),
+          fetch('/api/agents'),
+        ]);
+        if (!engsRes.ok || !agentsRes.ok) return;
+        const engs = await engsRes.json();
+        const agents = await agentsRes.json();
+        const eng = (Array.isArray(engs) ? engs : (engs.engagements || [])).find(e => e.id === currentEngagementId);
+        if (!eng) return;
+        const agentList = Array.isArray(agents) ? agents : (agents.agents || []);
+        const hasRunning = agentList.some(a =>
+          (a.engagement_id === currentEngagementId || a.engagement === currentEngagementId) &&
+          (a.status === 'running' || a.status === 'active')
+        );
+        if (hasRunning) {
+          setCtrlState('running');
+        } else if (eng.status === 'paused') {
+          setCtrlState('paused');
+        }
+        // Otherwise leave as idle (already set by resetDashboardFindingWidgets)
+      } catch (e) {
+        console.warn('syncCtrlStateFromAPI failed:', e);
+      }
+    }
+
     async function selectEngagement(eid, triggerBtn) {
       // If clicking the already-active engagement, toggle host section visibility
       if (eid === currentEngagementId && !triggerBtn) {
@@ -13761,6 +13792,8 @@
           toggle.style.display = isVisible ? 'none' : '';
           if (subList) subList.style.display = isVisible ? 'none' : '';
         }
+        // N1: Early return doesn't call resetDashboardFindingWidgets so state is preserved.
+        // No sync needed here.
         return;
       }
 
@@ -13835,6 +13868,10 @@
 
       // BUG-012: Pre-load evidence gallery data so badge count matches content
       loadEvidenceGallery();
+
+      // N1: Re-sync control state from server — resetDashboardFindingWidgets() unconditionally
+      // called setCtrlState('idle'), killing Running badge and Pause/Stop buttons on active engagements.
+      syncCtrlStateFromAPI();
 
       // BUG-021: Fetch reports badge count for newly selected engagement
       fetch(`/api/reports?engagement=${eid}`).then(r => r.json()).then(reports => {
