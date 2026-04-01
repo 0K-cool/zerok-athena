@@ -85,32 +85,32 @@ Worker agents (AR, WV, EX, VF) aren't limited to predefined MCP tools. They can 
                  │  HITL Gates · Pause/Resume│
                  └─────────────┬─────────────┘
                                │
-   ┌───┬───┬───┬───┬──────────┼──────────┬───┬───┬───┐
-   ▼   ▼   ▼   ▼   ▼          ▼          ▼   ▼   ▼   ▼
-  ST  PR  AR  WV  EX         VF         PE  RP  DA  PX
-  ───────────────────────────────────────────────────────
-   │   │   │   │   │          │          │   │   │   │
-   └───┴───┴───┴───┴─────┬────┴──────────┴───┴───┴───┘
-                           │
-                 ┌─────────▼─────────────┐
-                 │      Message Bus      │
-                 │  Bilateral messaging  │
-                 └─────────┬─────────────┘
-                           │
-                 ┌─────────▼─────────────┐
-                 │ Neo4j Knowledge Graph │
-                 │ Hosts · Services      │
-                 │ Findings · Credentials│
-                 │ Attack Chains · CEI   │
-                 └─────────┬─────────────┘
-                           │
-                 ┌─────────┴─────────┐
-                 ▼                   ▼
-          ┌─────────────┐    ┌──────────────┐
-          │Kali External│    │Kali Internal │
-          │  50+ tools  │    │AD + Discovery│
-          │   (Cloud)   │    │(ZeroTier/VPN)│
-          └─────────────┘    └──────────────┘
+    ┌───┬───┬───┬───┬──────────┼──────────┬───┬───┬───┐
+    ▼   ▼   ▼   ▼   ▼          ▼          ▼   ▼   ▼   ▼
+    ST  PR  AR  WV  EX         VF         PE  RP  DA  PX
+   ───────────────────────────────────────────────────────
+    │   │   │   │   │          │          │   │   │   │
+    └───┴───┴───┴───┴────-─────┴──────────┴───┴───┴───┘
+                               │
+                    ┌─────────-▼─────────────┐
+                    │      Message Bus       │
+                    │   Bilateral messaging  │
+                    └-─────────┬─────────────┘
+                               │
+                     ┌─────────▼─────────────┐
+                     │ Neo4j Knowledge Graph │
+                     │ Hosts · Services      │
+                     │ Findings · Credentials│
+                     │ Attack Chains · CEI   │
+                     └─────────┬─────────────┘
+                               │
+                     ┌─────────┴─────────┐
+                     ▼                   ▼
+              ┌─────────────┐    ┌──────────────┐
+              │Kali External│    │Kali Internal │
+              │  50+ tools  │    │AD + Discovery│
+              │   (Cloud)   │    │(ZeroTier/VPN)│
+              └─────────────┘    └──────────────┘
 ```
 
 | Agent | Role | Model | Phase |
