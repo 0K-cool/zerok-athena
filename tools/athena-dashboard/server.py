@@ -2418,6 +2418,7 @@ async def create_finding(payload: FindingPayload):
                         f.cvss = $cvss, f.cve = $cve, f.evidence = $evidence,
                         f.timestamp = $timestamp, f.engagement_id = $engagement,
                         f.fingerprint = $fingerprint,
+                        f.confirmed_by = CASE WHEN $agent IN ['VF','EX'] THEN $agent ELSE coalesce(f.confirmed_by, '') END,
                         f.host_ip = CASE WHEN $host_ip <> '' THEN $host_ip ELSE coalesce(f.host_ip, '') END
                     RETURN f.id AS actual_id
                 """, id=finding_id, title=payload.title,
@@ -6304,6 +6305,10 @@ async def get_engagement_summary(eid: str):
                         1 for ip in ip_list if _is_version_string_ip(ip)
                     )
                     neo4j_hosts = max(0, neo4j_hosts - version_string_count)
+                # BUG-N4: Filter out Kali attack box IPs from host count
+                if neo4j_hosts > 0 and _KALI_BACKEND_IPS:
+                    kali_host_count = sum(1 for ip in ip_list if ip in _KALI_BACKEND_IPS)
+                    neo4j_hosts = max(0, neo4j_hosts - kali_host_count)
                 neo4j_services = record["services"]
                 neo4j_findings = record["findings"]
                 # If Neo4j has real Host/Service data, use it; otherwise supplement from in-memory state
@@ -6587,6 +6592,7 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
                                f.evidence AS evidence, affected_hosts,
                                f.agent AS agent, f.timestamp AS timestamp,
                                f.cve AS cve, f.host_ip AS host_ip, f.fingerprint AS fingerprint,
+                               f.confirmed_by AS confirmed_by,
                                count(DISTINCT ep) + count(DISTINCT art) + count(DISTINCT prop_art) AS evidence_count
                         ORDER BY f.cvss DESC
                         SKIP $offset LIMIT $limit
@@ -6621,6 +6627,7 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
                             "affected_hosts": hosts,
                             "evidence_count": ev_count,
                             "agent": record.get("agent", ""),
+                            "confirmed_by": record.get("confirmed_by", ""),
                             "timestamp": _normalize_ts(record.get("timestamp")),
                             "cve": record.get("cve"),
                             "host_ip": record.get("host_ip", ""),
