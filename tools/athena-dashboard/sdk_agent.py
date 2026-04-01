@@ -179,7 +179,7 @@ def _extract_tool_output(raw: Any, max_len: int = 4000) -> str:
     MCP tool results come as nested JSON like:
         {"result": {"stdout": "...", "stderr": "...", "return_code": 0}}
     or Neo4j results like:
-        {"result": "{\"host\": \"192.168.13.13\", \"port\": 3030}"}
+        {"result": "{\"host\": \"your-hypervisor\", \"port\": 3030}"}
     or tool references like:
         [{"type": "tool_reference", "tool_name": "mcp__athena_neo4j__create_host"}]
     This extracts the meaningful parts and strips ANSI codes.

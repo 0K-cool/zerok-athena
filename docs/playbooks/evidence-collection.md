@@ -270,5 +270,5 @@ This skill works seamlessly with:
 **Version:** 1.0
 **Created:** 2025-10-20
 **Author:** Kelvin Lomboy / Cooperton
-**Engagement:** SSESL Internal/External Pentest
+**Engagement:** EXAMPLE_CLIENT Internal/External Pentest
 **Status:** Active

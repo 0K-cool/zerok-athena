@@ -57,8 +57,8 @@ ATHENA operates with two Kali boxes:
 
 | Backend | Host | Role | Evidence Path |
 |---------|------|------|---------------|
-| **kali_external** | `kali.linux.vkloud.antsle.us:2222` (user: `kelvin`) | External pentesting (internet-facing targets) | `/home/kelvin/athena/engagements/{eid}/08-evidence/` |
-| **kali_internal** | `172.26.80.76:3113` (user: `pentester_0k`) | Internal pentesting (network targets via ZeroTier) | `/home/pentester_0k/athena/engagements/{eid}/08-evidence/` |
+| **kali_external** | `your-kali-host:2222` (user: `kelvin`) | External pentesting (internet-facing targets) | `/home/kelvin/athena/engagements/{eid}/08-evidence/` |
+| **kali_internal** | `your-internal-kali:3113` (user: `pentester_0k`) | Internal pentesting (network targets via ZeroTier) | `/home/pentester_0k/athena/engagements/{eid}/08-evidence/` |
 
 **Evidence sync strategy:**
 - Each Kali box stores evidence locally during capture

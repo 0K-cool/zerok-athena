@@ -15,10 +15,12 @@ echo "[*] Configuring Neo4j for LAN access..."
 sudo sed -i 's/#server.default_listen_address=0.0.0.0/server.default_listen_address=0.0.0.0/' /etc/neo4j/neo4j.conf
 
 echo "[*] Setting initial password..."
-sudo neo4j-admin dbms set-initial-password athena2026
+NEO4J_INITIAL_PASS="${NEO4J_PASS:-$(openssl rand -base64 16)}"
+sudo neo4j-admin dbms set-initial-password "$NEO4J_INITIAL_PASS"
+echo "[*] Neo4j password set to: $NEO4J_INITIAL_PASS (save this!)"
 
 echo "[*] Starting Neo4j..."
 sudo systemctl enable neo4j
 sudo systemctl start neo4j
 
-echo "[+] Neo4j installed. Bolt: bolt://172.26.80.76:7687  Browser: http://172.26.80.76:7474"
+echo "[+] Neo4j installed. Bolt: bolt://your-internal-kali:7687  Browser: http://your-internal-kali:7474"

@@ -565,7 +565,7 @@ Keep mental model of:
 mcp__kali_mcp__server_health()
 
 # If failed, verify network connectivity
-ping kali.linux.vkloud.antsle.us
+ping your-kali-host
 
 # Check MCP configuration
 cat ~/.claude/mcp.json

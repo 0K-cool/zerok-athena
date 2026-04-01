@@ -8,7 +8,7 @@ project:
 
 database:
   path: ./lance_athena_kb
-  backup_dir: ~/Library/CloudStorage/ProtonDrive-kelvin@lomboy.email/ATHENA-RAG-Backups/
+  backup_dir: ~/athena-rag-backups/
 
 indexing:
   chunk_size: 384

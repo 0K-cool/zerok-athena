@@ -89,14 +89,14 @@ class KaliClient:
                 name="external",
                 base_url=os.environ.get(
                     "KALI_EXTERNAL_URL",
-                    "http://kali.linux.vkloud.antsle.us:5000",
+                    "http://your-kali-host:5000",
                 ),
             ),
             "internal": KaliBackend(
                 name="internal",
                 base_url=os.environ.get(
                     "KALI_INTERNAL_URL",
-                    "http://172.26.80.76:5000",
+                    "http://your-internal-kali:5000",
                 ),
                 api_key=os.environ.get("KALI_API_KEY", ""),
             ),

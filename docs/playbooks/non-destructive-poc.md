@@ -689,7 +689,7 @@ Would you like me to proceed with the safer phpinfo() validation instead?
 **Version:** 1.0
 **Created:** 2025-10-20
 **Author:** Kelvin Lomboy / Cooperton
-**Engagement:** SSESL Internal/External Pentest
+**Engagement:** EXAMPLE_CLIENT Internal/External Pentest
 **Status:** Active
 **Risk Level:** HIGH (Controls dangerous actions)
 **Priority:** CRITICAL (Safety guardrail)

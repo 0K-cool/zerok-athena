@@ -33,7 +33,7 @@
 
 #### 1. Engagement Structure (PTES-Compliant)
 ```
-engagements/active/BVHPR_2025-12-15_External-Internal/
+engagements/active/EXAMPLE_2025-01-15_External/
 ├── 01-planning/
 ├── 02-reconnaissance/
 ├── 03-scanning/
@@ -190,13 +190,13 @@ reports/           # Has templates - OK to keep
 
 **Problems**:
 - Hidden directory (`.playwright-mcp/`) = easy to lose evidence
-- BVHPR engagement screenshots NOT in engagement folder
+- ACME_CORP engagement screenshots NOT in engagement folder
 - Violates evidence collection standards (CLAUDE.md)
 - Risk: Evidence not included in client deliverable
 
 **Impact**: 🚨 **HIGH** - Potential evidence loss, compliance violation
 
-**Recommendation**: **MOVE to** `engagements/active/BVHPR_2025-12-15_External-Internal/08-evidence/screenshots/playwright/`
+**Recommendation**: **MOVE to** `engagements/active/EXAMPLE_2025-01-15_External/08-evidence/screenshots/playwright/`
 
 ---
 
@@ -374,14 +374,14 @@ reports/           # Has templates - OK to keep
 
 ```bash
 # 1. Move Playwright screenshots to proper evidence folder
-mkdir -p engagements/active/BVHPR_2025-12-15_External-Internal/08-evidence/screenshots/playwright
-mv .playwright-mcp/*.png engagements/active/BVHPR_2025-12-15_External-Internal/08-evidence/screenshots/playwright/
+mkdir -p engagements/active/EXAMPLE_2025-01-15_External/08-evidence/screenshots/playwright
+mv .playwright-mcp/*.png engagements/active/EXAMPLE_2025-01-15_External/08-evidence/screenshots/playwright/
 
 # 2. Delete hidden directory
 rm -rf .playwright-mcp/
 
 # 3. Verify evidence moved
-ls -lh engagements/active/BVHPR_2025-12-15_External-Internal/08-evidence/screenshots/playwright/
+ls -lh engagements/active/EXAMPLE_2025-01-15_External/08-evidence/screenshots/playwright/
 ```
 
 **Validation**:
@@ -628,8 +628,8 @@ if [ ! -d ".playwright-mcp" ]; then
 fi
 
 echo "🚨 Phase 1: Move evidence (CRITICAL)..."
-mkdir -p engagements/active/BVHPR_2025-12-15_External-Internal/08-evidence/screenshots/playwright
-mv .playwright-mcp/*.png engagements/active/BVHPR_2025-12-15_External-Internal/08-evidence/screenshots/playwright/
+mkdir -p engagements/active/EXAMPLE_2025-01-15_External/08-evidence/screenshots/playwright
+mv .playwright-mcp/*.png engagements/active/EXAMPLE_2025-01-15_External/08-evidence/screenshots/playwright/
 rm -rf .playwright-mcp/
 echo "✅ Evidence secured"
 

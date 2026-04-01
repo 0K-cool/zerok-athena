@@ -67,12 +67,12 @@
             - button "Toggle backends section" [ref=e89]:
               - img [ref=e90]
           - generic:
-            - button "http://172.26.80.76:5000 — unreachable Kali Internal offline" [ref=e92] [cursor=pointer]:
-              - generic "http://172.26.80.76:5000 — unreachable" [ref=e93]
+            - button "http://your-internal-kali:5000 — unreachable Kali Internal offline" [ref=e92] [cursor=pointer]:
+              - generic "http://your-internal-kali:5000 — unreachable" [ref=e93]
               - generic [ref=e94]: Kali Internal
               - generic [ref=e95]: offline
-            - button "http://kali.linux.vkloud.antsle.us:5000 — 50 tools Kali External 50" [ref=e96] [cursor=pointer]:
-              - generic "http://kali.linux.vkloud.antsle.us:5000 — 50 tools" [ref=e97]
+            - button "http://your-kali-host:5000 — 50 tools Kali External 50" [ref=e96] [cursor=pointer]:
+              - generic "http://your-kali-host:5000 — 50 tools" [ref=e97]
               - generic [ref=e98]: Kali External
               - generic [ref=e99]: "50"
             - button "Connected to Neo4j Neo4j Browser Online" [ref=e100] [cursor=pointer]:
@@ -419,7 +419,7 @@
                 - strong [ref=e545]: System
                 - text: CONTROL
               - generic [ref=e546]: 19:56:47
-            - generic: Autonomous session started. ST coordinating against https://web01.vkloud.antsle.us/gym. No HITL gates.
+            - generic: Autonomous session started. ST coordinating against https://web01.your-cloud-domain/gym. No HITL gates.
       - generic [ref=e491]:
         - textbox "Command the AI team" [ref=e492]:
           - /placeholder: Command the AI team...

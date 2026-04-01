@@ -130,7 +130,7 @@ Output: Complete vulnerability profile in seconds
 
 ### Cost-Benefit Analysis
 
-**Scenario: Large Hospital Network Pentest (Similar to SSESL)**
+**Scenario: Large Hospital Network Pentest (Similar to EXAMPLE_CLIENT)**
 
 **Traditional Approach (100% Sonnet 4.5):**
 - Nmap analysis: 20M tokens × $3 = $60
@@ -241,10 +241,10 @@ Claude Skills are reusable workflow packages that include instructions, scripts,
 
 ## Priority Skills for Implementation
 
-### Tier 1: Critical (Implement This Week - SSESL Engagement)
+### Tier 1: Critical (Implement This Week - EXAMPLE_CLIENT Engagement)
 
 #### 1. Evidence Collection Skill ⭐⭐⭐⭐⭐
-**Priority:** CRITICAL - Use immediately for SSESL internal pentest
+**Priority:** CRITICAL - Use immediately for EXAMPLE_CLIENT internal pentest
 
 **Purpose:**
 - Enforce screenshot naming convention
@@ -279,7 +279,7 @@ Claude (loads evidence-collection skill):
    - Title: SQL Injection in Login Form
    - Severity: CRITICAL
    - CVSS: TBD (trigger cvss-scoring skill)
-   - Location: https://ssesl.example.com/login.php
+   - Location: https://target.example.com/login.php
    - Evidence: 001-CRITICAL-SQLI-login-bypass-20251020-143022.png
 ```
 
@@ -287,7 +287,7 @@ Claude (loads evidence-collection skill):
 1. Create `evidence-collection/` directory
 2. Write SKILL.md with instructions
 3. Add screenshot naming script
-4. Test with SSESL engagement folder
+4. Test with EXAMPLE_CLIENT engagement folder
 
 **Expected ROI:**
 - 80% reduction in manual evidence documentation
@@ -316,7 +316,7 @@ non-destructive-poc/
 │   │   # SELECT database()
 │   │
 │   ├── xss-safe.txt
-│   │   # <script>alert('XSS-Test-SSESL-2025')</script>
+│   │   # <script>alert('XSS-Test-EXAMPLE_CLIENT-2025')</script>
 │   │   # <img src=x onerror=alert('XSS')>
 │   │
 │   └── rce-safe.txt
@@ -337,10 +337,10 @@ non-destructive-poc/
 
 **Usage Example:**
 ```
-User: "Create POC for SQL injection on SSESL login form"
+User: "Create POC for SQL injection on EXAMPLE_CLIENT login form"
 
 Claude (loads non-destructive-poc skill):
-1. Verification: Is authorization in place? ✅ SSESL RoE signed
+1. Verification: Is authorization in place? ✅ EXAMPLE_CLIENT RoE signed
 2. Safe Payload Selection: ' OR '1'='1' --
 3. Read-Only Query: SELECT @@version
 4. Evidence Collection: Screenshot showing version disclosure
@@ -368,7 +368,7 @@ Claude (loads non-destructive-poc skill):
 ---
 
 #### 3. Kali Tool Parser Skill ⭐⭐⭐⭐☆
-**Priority:** HIGH - Immediate productivity gain for SSESL
+**Priority:** HIGH - Immediate productivity gain for EXAMPLE_CLIENT
 
 **Purpose:**
 - Parse Nmap XML/Grepable output
@@ -408,7 +408,7 @@ kali-tool-parser/
 
 **Usage Example:**
 ```
-User: "Analyze this Nmap XML scan of SSESL internal network"
+User: "Analyze this Nmap XML scan of EXAMPLE_CLIENT internal network"
 
 Claude (loads kali-tool-parser skill):
 1. Parse XML: 1,247 hosts scanned, 89 alive
@@ -430,7 +430,7 @@ Claude (loads kali-tool-parser skill):
 1. Create `kali-tool-parser/` directory
 2. Write Python parsers for each tool
 3. Build CVE mapping database
-4. Test with actual SSESL scan outputs
+4. Test with actual EXAMPLE_CLIENT scan outputs
 
 **Expected ROI:**
 - 90% faster scan analysis
@@ -439,7 +439,7 @@ Claude (loads kali-tool-parser skill):
 
 ---
 
-### Tier 2: Important (Next Week - Post SSESL Internal Testing)
+### Tier 2: Important (Next Week - Post EXAMPLE_CLIENT Internal Testing)
 
 #### 4. CVSS Scoring Skill ⭐⭐⭐⭐☆
 **Priority:** HIGH - Standardize vulnerability ratings
@@ -487,7 +487,7 @@ Claude (loads kali-tool-parser skill):
 
 #### 8. Social Engineering Skill
 **Priority:** MEDIUM - Phishing campaign automation
-**Timeline:** Week of November 5th (Social engineering phase for SSESL)
+**Timeline:** Week of November 5th (Social engineering phase for EXAMPLE_CLIENT)
 
 #### 9. Compliance Mapping Skill
 **Priority:** LOW - HIPAA/PCI-DSS/SOC2 alignment
@@ -497,7 +497,7 @@ Claude (loads kali-tool-parser skill):
 
 ## Implementation Schedule
 
-### Week 1: October 20-24, 2025 (SSESL Internal Testing)
+### Week 1: October 20-24, 2025 (EXAMPLE_CLIENT Internal Testing)
 
 **Monday, October 20th:**
 - [x] Research Claude Haiku 4.5 capabilities
@@ -509,7 +509,7 @@ Claude (loads kali-tool-parser skill):
 - [x] Create Kali Tool Parser Skill (797 lines)
 
 **Tuesday, October 21st:**
-- [ ] Test Evidence Collection Skill with SSESL engagement
+- [ ] Test Evidence Collection Skill with EXAMPLE_CLIENT engagement
 - [ ] Test Non-Destructive POC Skill with safe payloads
 - [ ] Test Kali Tool Parser with Nmap scans
 
@@ -525,7 +525,7 @@ Claude (loads kali-tool-parser skill):
 
 ---
 
-### Week 2: October 27-31, 2025 (SSESL External Testing)
+### Week 2: October 27-31, 2025 (EXAMPLE_CLIENT External Testing)
 
 **Goals:**
 - [ ] Create CVSS Scoring Skill
@@ -534,7 +534,7 @@ Claude (loads kali-tool-parser skill):
 
 ---
 
-### Week 3: November 3-7, 2025 (SSESL Social Engineering)
+### Week 3: November 3-7, 2025 (EXAMPLE_CLIENT Social Engineering)
 
 **Goals:**
 - [ ] Create Social Engineering Skill (phishing templates)
@@ -547,7 +547,7 @@ Claude (loads kali-tool-parser skill):
 
 **Goals:**
 - [ ] Finalize Report Generation Skill
-- [ ] Generate SSESL final deliverables using skills
+- [ ] Generate EXAMPLE_CLIENT final deliverables using skills
 - [ ] Document ROI and metrics
 
 ---
@@ -600,7 +600,7 @@ Claude (loads kali-tool-parser skill):
 
 ### Internal Documentation
 - CLAUDE.md - Project instructions and pentest guidelines
-- SSESL Engagement README - Current engagement details
+- EXAMPLE_CLIENT Engagement README - Current engagement details
 - RoE Document - Authorization and testing constraints
 
 ---
@@ -620,7 +620,7 @@ Claude (loads kali-tool-parser skill):
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| Delay in SSESL timeline | High | Low | Prioritize only critical skills this week |
+| Delay in EXAMPLE_CLIENT timeline | High | Low | Prioritize only critical skills this week |
 | Skill complexity overhead | Medium | Medium | Keep skills simple and focused |
 | Over-reliance on automation | Medium | Low | Human verification of critical findings |
 | Client expectations mismatch | Low | Low | Transparent communication about tooling |
@@ -639,13 +639,13 @@ Claude (loads kali-tool-parser skill):
 
 ### October 20th, 2025
 
-**Decision:** Implement Claude Skills immediately for SSESL engagement
+**Decision:** Implement Claude Skills immediately for EXAMPLE_CLIENT engagement
 **Rationale:**
 - Immediate productivity gains for evidence collection
 - Enhanced safety guardrails for non-destructive testing
 - Faster scan analysis with tool parsers
 **Alternatives Considered:**
-- Wait until post-SSESL: Rejected (missing current engagement benefits)
+- Wait until post-EXAMPLE_CLIENT: Rejected (missing current engagement benefits)
 - Full multi-agent architecture first: Rejected (too complex for immediate need)
 **Decision Owner:** Kelvin Lomboy
 **Status:** ✅ Approved
@@ -655,7 +655,7 @@ Claude (loads kali-tool-parser skill):
 **Decision:** Defer Haiku 4.5 multi-agent architecture to future engagements
 **Rationale:**
 - Requires significant setup and coordination logic
-- Current SSESL timeline too tight for experimentation
+- Current EXAMPLE_CLIENT timeline too tight for experimentation
 - Skills provide more immediate ROI this week
 **Alternatives Considered:**
 - Implement both simultaneously: Rejected (resource constraints)
@@ -733,7 +733,7 @@ Claude (loads kali-tool-parser skill):
 | Nmap XML parse (5M in) | $15.00 | $5.00 | $10.00 |
 | Report gen (2M out) | $30.00 | $10.00 | $20.00 |
 
-### Engagement Cost Projection (SSESL)
+### Engagement Cost Projection (EXAMPLE_CLIENT)
 
 **Current Approach (100% Sonnet 4.5):**
 - Estimated token usage: 50M input + 20M output
@@ -753,12 +753,12 @@ Claude (loads kali-tool-parser skill):
 
 ## Contact & Support
 
-**Project Owner:** Kelvin Lomboy (kelvin.lomboy@cooperton.com)
+**Project Owner:** Kelvin Lomboy (admin@zeroklabs.ai)
 **Document Location:** `/Users/kelvinlomboy/VERSANT/Projects/ATHENA/CLAUDE-FEATURES-ROADMAP.md`
 **Related Documentation:**
 - Project Guidelines: `CLAUDE.md`
-- Current Engagement: `engagements/active/SSESL_2025-10-20_Internal-External/README.md`
-- Evidence Standards: `engagements/active/SSESL_2025-10-20_Internal-External/08-evidence/commands-used.md`
+- Current Engagement: `engagements/active/EXAMPLE_CLIENT_2025-10-20_Internal-External/README.md`
+- Evidence Standards: `engagements/active/EXAMPLE_CLIENT_2025-10-20_Internal-External/08-evidence/commands-used.md`
 
 ---
 

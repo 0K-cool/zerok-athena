@@ -199,14 +199,14 @@ Services:
   check                    - Check API key status
 
 Examples:
-  $0 shodan "org:\\"Bella Vista Hospital\\""
-  $0 hunter bvhpr.org
-  $0 github "bvhpr.org password"
+  $0 shodan "org:\\"[Client Hospital]\\""
+  $0 hunter example-target.com
+  $0 github "example-target.com password"
   $0 censys 8.8.8.8
-  $0 virustotal bvhpr.org
+  $0 virustotal example-target.com
 
 Output can be piped to jq for formatting:
-  $0 hunter bvhpr.org | jq '.data.emails'
+  $0 hunter example-target.com | jq '.data.emails'
 
 EOF
     exit 1

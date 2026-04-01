@@ -7,6 +7,7 @@
 # Environment & Credentials
 .env
 .env.*
+.mcp.json
 *.key
 *.pem
 *.cert

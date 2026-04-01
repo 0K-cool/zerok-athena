@@ -15,7 +15,7 @@ Perform deep web application vulnerability scanning against all web-facing targe
 ## Input Parameters
 
 ### Required:
-- `engagement_id` — Engagement identifier (e.g., `"BVHPR_2025-12-15_External-Internal"`)
+- `engagement_id` — Engagement identifier (e.g., `"EXAMPLE_2025-01-15_External"`)
 
 ### Optional:
 - `target_filter` — Limit to specific URLs or hostnames (default: all URL/web service nodes in Neo4j)
@@ -706,7 +706,7 @@ get_engagement_summary(engagement_id)
 ### Example 1: Standard Web Application Scan
 
 ```
-Task: Scan web applications for BVHPR_2025-12-15_External-Internal
+Task: Scan web applications for EXAMPLE_2025-01-15_External
 
 Agent actions:
 1. query_graph for URL nodes → 3 existing from recon

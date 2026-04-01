@@ -70,13 +70,13 @@ ATHENA operates a **dual-box architecture** — two Kali backends for different 
 
 | Box | Role | URL | Network Position |
 |-----|------|-----|-----------------|
-| **Antsle** (existing) | External pentesting | `http://kali.linux.vkloud.antsle.us:5000/` | Cloud/VPS — reaches targets from the internet |
+| **Antsle** (existing) | External pentesting | `http://your-kali-host:5000/` | Cloud/VPS — reaches targets from the internet |
 | **Mini-PC** (new) | Internal pentesting | `http://[ZEROTIER_IP]:5000/` | On-site — sits on client's internal network |
 
 ```
                               ┌──────────────────────────┐
                               │  Antsle - Kali Linux     │
-                     ┌───────>│  kali.linux.vkloud...    │───> External Targets
+                     ┌───────>│  your-kali-host    │───> External Targets
                      │        │  port 5000 (Flask API)   │    (internet-facing)
                      │        └──────────────────────────┘
 [Mac - ATHENA]       │
@@ -745,7 +745,7 @@ Edit `/Users/kelvinlomboy/VERSANT/Projects/ATHENA/.mcp.json`:
       "args": [
         "/Users/kelvinlomboy/VERSANT/MCPs/mcp-kali-linux-main/mcp_server.py",
         "--server",
-        "http://kali.linux.vkloud.antsle.us:5000/"
+        "http://your-kali-host:5000/"
       ],
       "env": {
         "KALI_API_KEY": "[ANTSLE_API_KEY]"

@@ -69,7 +69,7 @@
 **Installation** (on Kali server):
 ```bash
 # SSH to Kali server
-ssh kali@kali.linux.vkloud.antsle.us
+ssh kali@your-kali-host
 
 # Install Xvfb
 sudo apt update
@@ -129,16 +129,16 @@ sudo systemctl start x11vnc
 **Access from Mac**:
 ```bash
 # Using built-in VNC client
-open vnc://kali.linux.vkloud.antsle.us:5900
+open vnc://your-kali-host:5900
 
 # Or use Screen Sharing app
-# Finder → Go → Connect to Server → vnc://kali.linux.vkloud.antsle.us
+# Finder → Go → Connect to Server → vnc://your-kali-host
 ```
 
 **Security Enhancement**:
 ```bash
 # Run VNC over SSH tunnel (recommended)
-ssh -L 5900:localhost:5900 kali@kali.linux.vkloud.antsle.us
+ssh -L 5900:localhost:5900 kali@your-kali-host
 # Then connect to vnc://localhost:5900
 ```
 
@@ -177,7 +177,7 @@ websockify --web=/usr/share/novnc/ 6080 localhost:5900
 
 **Access**:
 ```
-Open browser: http://kali.linux.vkloud.antsle.us:6080/vnc.html
+Open browser: http://your-kali-host:6080/vnc.html
 ```
 
 **Benefits**:
@@ -247,7 +247,7 @@ scrying --rdp -t rdp_targets.txt -u user -p pass
 
 ## Recommended Approach by Engagement Type
 
-**Standard External Pentest** (like BVHPR):
+**Standard External Pentest** (like ACME_CORP):
 - ✅ Playwright headless
 - ✅ Manual screenshots from local machine
 - ⚠️ Minimal complexity, maximum stealth

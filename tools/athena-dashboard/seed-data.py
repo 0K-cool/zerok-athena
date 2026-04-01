@@ -9,14 +9,14 @@ Usage:
     cd tools/athena-dashboard
     source .venv/bin/activate
     python seed-data.py                                          # Antsle (default)
-    NEO4J_URI=bolt://172.26.80.76:7687 python seed-data.py       # Mini-PC
+    NEO4J_URI=bolt://your-internal-kali:7687 python seed-data.py       # Mini-PC
 """
 
 import os
 
 from neo4j import GraphDatabase
 
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://kali.linux.vkloud.antsle.us:7687")
+NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://your-kali-host:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASS = os.environ.get("NEO4J_PASS", "")
 if not NEO4J_PASS:

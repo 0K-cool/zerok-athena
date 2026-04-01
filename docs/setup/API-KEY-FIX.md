@@ -91,10 +91,10 @@ curl -s "https://api.hunter.io/v2/domain-search?domain=$1&api_key=$HUNTER_API_KE
 #### Shodan Searches
 ```bash
 # Search by organization
-./osint-api-wrapper.sh shodan "org:\"Bella Vista Hospital\""
+./osint-api-wrapper.sh shodan "org:\"[Client Hospital]\""
 
 # Get domain info
-./osint-api-wrapper.sh shodan-domain bvhpr.org
+./osint-api-wrapper.sh shodan-domain example-target.com
 
 # Get host info
 ./osint-api-wrapper.sh shodan-host 173.243.90.4
@@ -103,7 +103,7 @@ curl -s "https://api.hunter.io/v2/domain-search?domain=$1&api_key=$HUNTER_API_KE
 #### Hunter.io Email Discovery
 ```bash
 # Find emails for domain
-./osint-api-wrapper.sh hunter bvhpr.org | jq '.data.emails'
+./osint-api-wrapper.sh hunter example-target.com | jq '.data.emails'
 
 # Check account status
 ./osint-api-wrapper.sh hunter-account
@@ -112,7 +112,7 @@ curl -s "https://api.hunter.io/v2/domain-search?domain=$1&api_key=$HUNTER_API_KE
 #### GitHub Code Search
 ```bash
 # Search for exposed secrets
-./osint-api-wrapper.sh github "bvhpr.org password"
+./osint-api-wrapper.sh github "example-target.com password"
 
 # Get authenticated user info
 ./osint-api-wrapper.sh github-user
@@ -121,7 +121,7 @@ curl -s "https://api.hunter.io/v2/domain-search?domain=$1&api_key=$HUNTER_API_KE
 #### VirusTotal Intelligence
 ```bash
 # Domain lookup
-./osint-api-wrapper.sh virustotal bvhpr.org
+./osint-api-wrapper.sh virustotal example-target.com
 
 # IP address lookup
 ./osint-api-wrapper.sh virustotal-ip 8.8.8.8
@@ -137,13 +137,13 @@ curl -s "https://api.hunter.io/v2/domain-search?domain=$1&api_key=$HUNTER_API_KE
 
 ```bash
 # Extract specific fields from Hunter.io
-./osint-api-wrapper.sh hunter bvhpr.org | jq '.data.emails[] | {email: .value, confidence: .confidence}'
+./osint-api-wrapper.sh hunter example-target.com | jq '.data.emails[] | {email: .value, confidence: .confidence}'
 
 # Extract IP from Shodan
 ./osint-api-wrapper.sh shodan-host 8.8.8.8 | jq '.ip_str, .org, .isp'
 
 # Extract GitHub repository names
-./osint-api-wrapper.sh github "bvhpr.org" | jq '.items[].repository.full_name'
+./osint-api-wrapper.sh github "example-target.com" | jq '.items[].repository.full_name'
 ```
 
 ---
@@ -202,7 +202,7 @@ $ ./osint-api-wrapper.sh virustotal google.com
 ✅ Reputation score, SSL cert, DNS records returned
 ```
 
-### 2. BVHPR OSINT Collection (All Completed ✅)
+### 2. ACME_CORP OSINT Collection (All Completed ✅)
 
 **Results**:
 - ✅ 11 subdomains discovered (Certificate Transparency)
@@ -213,7 +213,7 @@ $ ./osint-api-wrapper.sh virustotal google.com
 
 **Files Created**:
 ```
-engagements/active/BVHPR_2025-12-15_External-Internal/02-reconnaissance/osint/
+engagements/active/EXAMPLE_2025-01-15_External/02-reconnaissance/osint/
 ├── ct_subdomains.txt          # 11 subdomains
 ├── shodan_search.json         # 6 exposed hosts
 ├── hunter_emails.json         # 10 email addresses
@@ -356,7 +356,7 @@ apt-get install jq  # Linux
 1. ✅ API key persistence issue resolved
 2. ✅ Wrapper script created (`osint-api-wrapper.sh`)
 3. ✅ All 5 APIs tested and confirmed working
-4. ✅ BVHPR OSINT collection completed successfully
+4. ✅ ACME_CORP OSINT collection completed successfully
 5. ✅ Comprehensive OSINT report generated
 
 ### How to Use Going Forward
@@ -381,7 +381,7 @@ apt-get install jq  # Linux
 ./osint-api-wrapper.sh shodan-host 8.8.8.8 > shodan_output.json
 ```
 
-### Next Steps for BVHPR Engagement
+### Next Steps for ACME_CORP Engagement
 
 1. ✅ Passive OSINT complete - 11 subdomains, 6 hosts, 10 emails discovered
 2. ⏭️ Review OSINT report: `02-reconnaissance/osint/OSINT-SUMMARY.md`

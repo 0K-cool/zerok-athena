@@ -51,8 +51,8 @@
 ## Kali Screenshot Endpoint
 
 Confirmed available at both backends:
-- External: `POST http://kali.linux.vkloud.antsle.us:5000/api/tools/screenshot`
-- Internal: `POST http://172.26.80.76:5000/api/tools/screenshot` (if online)
+- External: `POST http://your-kali-host:5000/api/tools/screenshot`
+- Internal: `POST http://your-internal-kali:5000/api/tools/screenshot` (if online)
 - Blueprint: `kali-screenshot-endpoints.py` (Flask, Playwright chromium)
 - Endpoints: `/api/tools/screenshot` (web page) + `/api/tools/screenshot_terminal` (styled terminal output)
 

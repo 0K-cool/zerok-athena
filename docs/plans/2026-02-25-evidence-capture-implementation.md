@@ -41,16 +41,16 @@
 
 ### Neo4j Connection
 
-- URI: `bolt://kali.linux.vkloud.antsle.us:7687`
-- Auth: `neo4j/athena2026`
+- URI: `bolt://your-kali-host:7687`
+- Auth: `neo4j/$NEO4J_PASS`
 - Pattern: optional — all writes fall through to in-memory state if Neo4j unavailable
 
 ### Dual Kali Backends
 
 | Backend | SSH | User | Evidence Path |
 |---------|-----|------|---------------|
-| External (Antsle) | `kali.linux.vkloud.antsle.us:2222` | `kelvin` | `/home/kelvin/athena/engagements/{eid}/08-evidence/` |
-| Internal (mini-PC) | `172.26.80.76:3113` | `pentester_0k` | `/home/pentester_0k/athena/engagements/{eid}/08-evidence/` |
+| External (Antsle) | `your-kali-host:2222` | `kelvin` | `/home/kelvin/athena/engagements/{eid}/08-evidence/` |
+| Internal (mini-PC) | `your-internal-kali:3113` | `pentester_0k` | `/home/pentester_0k/athena/engagements/{eid}/08-evidence/` |
 
 ---
 

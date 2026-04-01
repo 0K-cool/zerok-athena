@@ -28,14 +28,14 @@ ATHENA's Kali backends and test targets run as VMs on the Antsle cloud. The hype
 
 | Protected Asset | Identifiers |
 |----------------|-------------|
-| **Antsle Hypervisor** | `192.168.13.13`, `vkloud.lan`, `*.vkloud.antsle.us` (the hypervisor itself) |
-| **Kali External VM** | `kali.linux.vkloud.antsle.us` (port 5000 = Kali API, port 2222 = SSH) |
-| **Neo4j VM** | `kali.linux.vkloud.antsle.us:7687` / `:7474` |
-| **Other VMs** | Any port on `192.168.13.13` not explicitly in the engagement scope |
+| **Antsle Hypervisor** | `your-hypervisor`, `your-cloud-domain`, `*.your-cloud-domain` (the hypervisor itself) |
+| **Kali External VM** | `your-kali-host` (port 5000 = Kali API, port 2222 = SSH) |
+| **Neo4j VM** | `your-kali-host:7687` / `:7474` |
+| **Other VMs** | Any port on `your-hypervisor` not explicitly in the engagement scope |
 
 **Rules:**
-- NEVER run broad port scans against `192.168.13.13` or `vkloud.lan` — this scans the entire cloud
-- When a target like `web01.vkloud.antsle.us:3030` resolves to the Antsle IP, only scan port 3030
+- NEVER run broad port scans against `your-hypervisor` or `your-cloud-domain` — this scans the entire cloud
+- When a target like `web01.your-cloud-domain:3030` resolves to the Antsle IP, only scan port 3030
 - Ports 22, 443, 3000, 3032, 6700-6799 on the Antsle IP are OTHER VMs — never touch them
 - The Kali backend (port 5000) and Neo4j (ports 7474/7687) are ATHENA infrastructure — never pentest them
 - If nmap discovers unexpected ports, do NOT enumerate them — they are other VMs on the shared hypervisor
@@ -103,8 +103,8 @@ ATHENA's Kali backends and test targets run as VMs on the Antsle cloud. The hype
 | Destination | Port | Purpose |
 |-------------|------|---------|
 | `localhost:8080` | HTTP | Dashboard API |
-| `kali.linux.vkloud.antsle.us` | 5000, 7474, 7687 | Kali external + Neo4j |
-| `172.26.80.76` | 3113, 5000 | Kali internal (ZeroTier) |
+| `your-kali-host` | 5000, 7474, 7687 | Kali external + Neo4j |
+| `your-internal-kali` | 3113, 5000 | Kali internal (ZeroTier) |
 
 **ALL other outbound connections from the host are PROHIBITED.** Offensive traffic flows through Kali backends only.
 
@@ -182,8 +182,8 @@ ATHENA uses two Kali Linux backends connected via MCP:
 
 | Backend | Host | Role | Tools | Auth |
 |---------|------|------|-------|------|
-| **kali_external** | `kali.linux.vkloud.antsle.us:5000` | External pentesting (cloud) | 13 tools | None |
-| **kali_internal** | `172.26.80.76:5000` (ZeroTier) | Internal pentesting (mini-PC) | 21 tools | API key |
+| **kali_external** | `your-kali-host:5000` | External pentesting (cloud) | 13 tools | None |
+| **kali_internal** | `your-internal-kali:5000` (ZeroTier) | Internal pentesting (mini-PC) | 21 tools | API key |
 
 **When to use which:**
 - **External pentests** (internet-facing targets): Use `kali_external` — cloud-hosted, always available

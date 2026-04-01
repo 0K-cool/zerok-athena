@@ -228,7 +228,7 @@ Strategy Agent (CTF-specialized prompt)
 | HTB Easy-Medium boxes | 60%+ | Month 3 |
 | XBOW 104-challenge benchmark | 50%+ | Month 4 |
 
-**First proving ground:** OWASP Juice Shop — you already have it deployed as a test target at `web01.vkloud.antsle.us:3030`. Perfect for iterating.
+**First proving ground:** OWASP Juice Shop — you already have it deployed as a test target at `web01.your-cloud-domain:3030`. Perfect for iterating.
 
 ---
 
@@ -415,7 +415,7 @@ RETURN h2, h2.services
 - [x] Phase E complete (7 agents, tool registry, HITL, Neo4j)
 - [x] Kali backends verified (external + internal healthy)
 - [x] Claude Code Agent Teams enabled (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
-- [x] OWASP Juice Shop deployed (`web01.vkloud.antsle.us:3030`)
+- [x] OWASP Juice Shop deployed (`web01.your-cloud-domain:3030`)
 - [ ] Agent Teams bilateral messaging tested (need proof-of-concept)
 - [ ] Neo4j relationship types extended (ENABLES, PIVOTS_TO, ESCALATES_TO)
 

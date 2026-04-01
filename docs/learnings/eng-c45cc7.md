@@ -1,5 +1,5 @@
 # Engagement eng-c45cc7 — Learnings
-**Date:** 2026-03-02 01:15 | **Target:** https://web01.vkloud.antsle.us/gym/ | **Cost:** $0.10 | **Types:** external, web_app
+**Date:** 2026-03-02 01:15 | **Target:** https://web01.your-cloud-domain/gym/ | **Cost:** $0.10 | **Types:** external, web_app
 
 ## Effective Techniques
 - **sqlmap_scan:OR** — 100% success, ~0s avg

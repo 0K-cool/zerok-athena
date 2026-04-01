@@ -23,7 +23,7 @@
 - Create: `neo4j/schema.cypher`
 - Create: `neo4j/neo4j.conf.patch`
 
-**Prereqs:** Mini-PC powered on, SSH access via ZeroTier (`172.26.80.76`)
+**Prereqs:** Mini-PC powered on, SSH access via ZeroTier (`your-internal-kali`)
 
 **Step 1: Write the Neo4j install script**
 
@@ -45,13 +45,13 @@ echo "[*] Configuring Neo4j for LAN access..."
 sudo sed -i 's/#server.default_listen_address=0.0.0.0/server.default_listen_address=0.0.0.0/' /etc/neo4j/neo4j.conf
 
 echo "[*] Setting initial password..."
-sudo neo4j-admin dbms set-initial-password athena2026
+sudo neo4j-admin dbms set-initial-password $NEO4J_PASS
 
 echo "[*] Starting Neo4j..."
 sudo systemctl enable neo4j
 sudo systemctl start neo4j
 
-echo "[+] Neo4j installed. Bolt: bolt://172.26.80.76:7687  Browser: http://172.26.80.76:7474"
+echo "[+] Neo4j installed. Bolt: bolt://your-internal-kali:7687  Browser: http://your-internal-kali:7474"
 ```
 
 **Step 2: Write the schema creation script**
@@ -98,16 +98,16 @@ CREATE INDEX engagement_status IF NOT EXISTS FOR (e:Engagement) ON (e.status);
 **Step 3: SSH into mini-PC and run install**
 
 ```bash
-scp neo4j/install.sh kali@172.26.80.76:~/athena-neo4j-install.sh
-ssh kali@172.26.80.76 "chmod +x ~/athena-neo4j-install.sh && sudo ~/athena-neo4j-install.sh"
+scp neo4j/install.sh kali@your-internal-kali:~/athena-neo4j-install.sh
+ssh kali@your-internal-kali "chmod +x ~/athena-neo4j-install.sh && sudo ~/athena-neo4j-install.sh"
 ```
 
-Expected: Neo4j running on mini-PC, Bolt accessible at `bolt://172.26.80.76:7687`
+Expected: Neo4j running on mini-PC, Bolt accessible at `bolt://your-internal-kali:7687`
 
 **Step 4: Apply schema**
 
 ```bash
-cat neo4j/schema.cypher | cypher-shell -u neo4j -p athena2026 -a bolt://172.26.80.76:7687
+cat neo4j/schema.cypher | cypher-shell -u neo4j -p $NEO4J_PASS -a bolt://your-internal-kali:7687
 ```
 
 Expected: All constraints and indexes created
@@ -118,7 +118,7 @@ Expected: All constraints and indexes created
 pip install neo4j
 python3 -c "
 from neo4j import GraphDatabase
-d = GraphDatabase.driver('bolt://172.26.80.76:7687', auth=('neo4j', 'athena2026'))
+d = GraphDatabase.driver('bolt://your-internal-kali:7687', auth=('neo4j', '$NEO4J_PASS'))
 with d.session() as s:
     r = s.run('RETURN 1 AS test')
     print('Neo4j OK:', r.single()['test'])
@@ -230,9 +230,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
                     handlers=[logging.StreamHandler(sys.stderr)])
 logger = logging.getLogger(__name__)
 
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://172.26.80.76:7687")
+NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://your-internal-kali:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-NEO4J_PASS = os.environ.get("NEO4J_PASS", "athena2026")
+NEO4J_PASS = os.environ.get("NEO4J_PASS", "$NEO4J_PASS")
 
 mcp = FastMCP("athena-neo4j", description="ATHENA Knowledge Graph — Neo4j CRUD and Cypher queries")
 
@@ -534,9 +534,9 @@ Add to the existing `.mcp.json`:
     "command": "/Users/kelvinlomboy/VERSANT/Projects/ATHENA/mcp-servers/neo4j-mcp/.venv/bin/python",
     "args": ["/Users/kelvinlomboy/VERSANT/Projects/ATHENA/mcp-servers/neo4j-mcp/server.py"],
     "env": {
-      "NEO4J_URI": "bolt://172.26.80.76:7687",
+      "NEO4J_URI": "bolt://your-internal-kali:7687",
       "NEO4J_USER": "neo4j",
-      "NEO4J_PASS": "athena2026"
+      "NEO4J_PASS": "$NEO4J_PASS"
     },
     "description": "ATHENA Knowledge Graph — Neo4j CRUD and Cypher queries"
   }
@@ -1223,7 +1223,7 @@ Verify: Subdomain, Domain, URL nodes appear in Neo4j
 **Step 4: Test AR agent — run active recon**
 
 ```
-Run active reconnaissance for DryRun_v2 — scan 172.26.80.76 with naabu and httpx
+Run active reconnaissance for DryRun_v2 — scan your-internal-kali with naabu and httpx
 ```
 
 Verify: Host and Service nodes appear in Neo4j
@@ -1321,7 +1321,7 @@ Task 16 (BloodHound) is independent stretch goal
 ## Risk Notes
 
 1. **Mini-PC availability:** Tasks 1, 3, 15 need it running. Kelvin must power on before starting.
-2. **Neo4j password:** `athena2026` is a placeholder — move to 1Password before any client work.
+2. **Neo4j password:** `$NEO4J_PASS` is a placeholder — move to 1Password before any client work.
 3. **Kali MCP API key:** Currently hardcoded in `.mcp.json` — move to env var.
 4. **Neovis.js browser-to-Neo4j:** Requires Neo4j to be accessible from browser (CORS config needed).
 5. **Agent testing:** No unit tests for markdown agents — validation is via dry run (Task 15).

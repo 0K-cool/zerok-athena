@@ -68,12 +68,12 @@
             - button "Toggle backends section" [ref=e90]:
               - img [ref=e91]
           - generic:
-            - button "http://172.26.80.76:5000 — unreachable Kali Internal offline" [ref=e93] [cursor=pointer]:
-              - generic "http://172.26.80.76:5000 — unreachable" [ref=e94]
+            - button "http://your-internal-kali:5000 — unreachable Kali Internal offline" [ref=e93] [cursor=pointer]:
+              - generic "http://your-internal-kali:5000 — unreachable" [ref=e94]
               - generic [ref=e95]: Kali Internal
               - generic [ref=e96]: offline
-            - button "http://kali.linux.vkloud.antsle.us:5000 — 50 tools Kali External 50" [ref=e97] [cursor=pointer]:
-              - generic "http://kali.linux.vkloud.antsle.us:5000 — 50 tools" [ref=e98]
+            - button "http://your-kali-host:5000 — 50 tools Kali External 50" [ref=e97] [cursor=pointer]:
+              - generic "http://your-kali-host:5000 — 50 tools" [ref=e98]
               - generic [ref=e99]: Kali External
               - generic [ref=e100]: "50"
             - button "Connected to Neo4j Neo4j Browser Online" [ref=e101] [cursor=pointer]:

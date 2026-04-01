@@ -241,7 +241,7 @@ class Engagement(BaseModel):
 # Neo4j Connection
 # ──────────────────────────────────────────────
 
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://kali.linux.vkloud.antsle.us:7687")
+NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://your-kali-host:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASS = os.environ.get("NEO4J_PASS", "")
 if not NEO4J_PASS:
@@ -323,8 +323,8 @@ _cfg = _ATHENA_CONFIG.get('athena', {})
 # Kali Backend Configuration
 # ──────────────────────────────────────────────
 
-KALI_EXTERNAL_URL = os.environ.get("KALI_EXTERNAL_URL", "http://kali.linux.vkloud.antsle.us:5000")
-KALI_INTERNAL_URL = os.environ.get("KALI_INTERNAL_URL", "http://172.26.80.76:5000")
+KALI_EXTERNAL_URL = os.environ.get("KALI_EXTERNAL_URL", "http://your-kali-host:5000")
+KALI_INTERNAL_URL = os.environ.get("KALI_INTERNAL_URL", "http://your-internal-kali:5000")
 KALI_INTERNAL_API_KEY = os.environ.get("KALI_API_KEY", "")
 
 # BUG-040: Kali backend IPs — never register these as target hosts
