@@ -8276,6 +8276,90 @@ async def upload_artifact(
     }
 
 
+class Base64ArtifactRequest(BaseModel):
+    engagement_id: str
+    type: str
+    content: str  # base64-encoded binary
+    caption: str = ""
+    agent: str = ""
+    finding_id: str = ""
+    evidence_type: str = ""
+    filename: str = "screenshot.png"
+
+
+@app.post("/api/artifacts/base64")
+async def upload_base64_artifact(req: Base64ArtifactRequest):
+    """Accept base64-encoded binary (screenshots from agents)."""
+    import base64 as _b64
+    try:
+        file_bytes = _b64.b64decode(req.content)
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid base64 content"})
+
+    # Validate artifact type
+    if req.type not in ALLOWED_ARTIFACT_TYPES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Invalid artifact type '{req.type}'. Allowed: {sorted(ALLOWED_ARTIFACT_TYPES)}"},
+        )
+
+    if len(file_bytes) > MAX_ARTIFACT_SIZE:
+        return JSONResponse(
+            status_code=413,
+            content={"error": f"File too large ({len(file_bytes)} bytes). Max {MAX_ARTIFACT_SIZE} bytes."},
+        )
+
+    # Save to evidence directory
+    evidence_root = ensure_evidence_dirs(req.engagement_id)
+    artifact_id = f"art-{uuid.uuid4().hex[:8]}"
+    ext = Path(req.filename).suffix.lower() or ".png"
+    filename = f"{artifact_id}{ext}"
+
+    type_to_subdir = {
+        "screenshot": "screenshots",
+        "http_pair": "http-pairs",
+        "command_output": "command-output",
+        "tool_log": "tool-logs",
+        "response_diff": "response-diffs",
+    }
+    subdir = type_to_subdir.get(req.type, "command-output")
+    dest_path = evidence_root / subdir / filename
+    dest_path.write_bytes(file_bytes)
+
+    athena_dir = Path(__file__).parent.parent.parent
+    try:
+        rel_path = str(dest_path.relative_to(athena_dir))
+    except ValueError:
+        rel_path = str(dest_path)
+
+    # Store in Neo4j if available
+    if neo4j_available and neo4j_driver:
+        try:
+            with neo4j_driver.session() as session:
+                session.run("""
+                    CREATE (a:Artifact {
+                        id: $id, engagement_id: $eid, type: $type,
+                        caption: $caption, agent: $agent, finding_id: $fid,
+                        file_path: $filepath, file_size: $size,
+                        capture_mode: $capture_mode, evidence_type: $evidence_type,
+                        timestamp: $timestamp
+                    })
+                """, id=artifact_id, eid=req.engagement_id, type=req.type,
+                     caption=req.caption, agent=req.agent, fid=req.finding_id,
+                     filepath=rel_path, size=len(file_bytes),
+                     capture_mode="agent", evidence_type=req.evidence_type,
+                     timestamp=time.time())
+                if req.finding_id:
+                    session.run("""
+                        MATCH (f:Finding {id: $fid}), (a:Artifact {id: $aid})
+                        MERGE (f)-[:HAS_ARTIFACT]->(a)
+                    """, fid=req.finding_id, aid=artifact_id)
+        except Exception as e:
+            logger.warning("artifact neo4j error: %s", e)
+
+    return {"id": artifact_id, "filepath": rel_path, "size": len(file_bytes)}
+
+
 class TextArtifactRequest(BaseModel):
     engagement_id: str
     type: str

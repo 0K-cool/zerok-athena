@@ -9923,6 +9923,8 @@
         if (!_fc || _fc.startsWith('{') || _fc.startsWith('[')) {
           return;
         }
+        var _cleanedOutput = cleanToolOutput((_fc || '').trim());
+        if (!_cleanedOutput.trim()) return;  // Skip truly empty cards
         renderCompletedToolCard(msg);
       }
     }
@@ -9937,7 +9939,7 @@
       const toolName = (msg.metadata && msg.metadata.tool) || 'tool';
       const toolId = msg.metadata && msg.metadata.tool_id || ('tool-' + Date.now());
       const duration = (msg.metadata && msg.metadata.duration_s) || '—';
-      const output = cleanToolOutput((msg.metadata && msg.metadata.output) || msg.content || '');
+      const output = cleanToolOutput(msg.content || (msg.metadata && msg.metadata.output) || '');
 
       const card = document.createElement('div');
       card.className = 'timeline-card';
@@ -11218,12 +11220,13 @@
     }
 
     function updatePtesFromAgent(agent, status) {
+      var normalizedStatus = (status === 'completed') ? 'complete' : status;
       const cells = document.querySelectorAll('[data-ptes="' + agent + '"]');
       cells.forEach(cell => {
-        if (status === 'complete') {
+        if (normalizedStatus === 'complete') {
           cell.classList.remove('none', 'partial');
           cell.classList.add('covered');
-        } else if (status === 'running') {
+        } else if (normalizedStatus === 'running') {
           cell.classList.remove('none', 'covered');
           cell.classList.add('partial');
         }

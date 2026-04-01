@@ -1079,7 +1079,7 @@ WORKFLOW:
    d. Capture Visual Evidence (MANDATORY — do this BEFORE submitting result):
       - For command/tool output proof: Call `screenshot_terminal` with {{"command": "<the command you ran>", "output": "<the output that proves the vulnerability>", "tool_name": "<tool>"}}
       - For web-accessible vulnerabilities: Call `screenshot_web` with {{"url": "<the vulnerable URL>"}}
-      - Upload screenshots as artifacts via POST /api/artifacts (type=screenshot, finding_id=<finding_id>)
+      - Upload screenshots as artifacts via POST /api/artifacts/base64 (type=screenshot, finding_id=<finding_id>)
       - DO NOT proceed to step 3e until at least one screenshot is captured
    e. Report result: POST /api/verify/<verification_id>/result (submit AFTER screenshot captured)
       You MUST include ALL fields for confirmed findings:
@@ -1813,7 +1813,7 @@ SCREENSHOT EVIDENCE — MANDATORY FOR CLIENT DELIVERABLES:
      - After privilege escalation (show before/after uid)
 
   AFTER GETTING SCREENSHOT — upload as artifact:
-     curl -s -X POST {dashboard_url}/api/artifacts \\
+     curl -s -X POST {dashboard_url}/api/artifacts/base64 \\
        -H "Content-Type: application/json" \\
        -d '{{"engagement_id": "{eid}", "type": "screenshot", "caption": "<descriptive title>",
             "content": "<base64 from screenshot response>", "agent": "<your code>",
