@@ -6925,7 +6925,7 @@ async def get_exploit_stats(eid: str, host_ip: str = None):
                                x.verification_status = 'confirmed' OR
                                x.verification_status = 'likely' OR
                                x.status = 'confirmed' |
-                               {{title: x.title, severity: x.severity, timestamp: x.timestamp}}] AS exploit_details
+                               {{title: x.title, severity: x.severity, timestamp: x.timestamp, host_ip: x.host_ip}}] AS exploit_details
                 """, **neo4j_params)
                 record = result.single()
                 if record:
@@ -7013,10 +7013,11 @@ async def get_exploit_stats(eid: str, host_ip: str = None):
                 unver_params = {"eid": eid}
                 if host_ip:
                     unver_params["host_ip"] = host_ip
+                # N2 fix: EX findings are created with status='open', not 'confirmed'.
+                # Removing the status filter so EX-found, VF-unverified findings are counted.
                 result = session.run(f"""
                     MATCH (f:Finding {{engagement_id: $eid}})
-                    WHERE f.status = 'confirmed'
-                      AND f.agent = 'EX'
+                    WHERE f.agent = 'EX'
                       AND (f.verified IS NULL OR f.verified = false)
                       {unver_host_filter}
                     RETURN count(f) AS cnt
@@ -7036,11 +7037,12 @@ async def get_exploit_stats(eid: str, host_ip: str = None):
         is_ex = agent_val == 'EX' or (isinstance(agent_val, list) and 'EX' in agent_val)
         if not is_ex:
             continue
-        # Unverified = EX confirmed but VF hasn't verified
+        # N2 fix: Finding Pydantic model has no 'status' field — getattr(f, 'status', '') always ''.
+        # Use confirmed_at absence as the "not yet VF-confirmed" signal instead.
         is_ex_unverified = (
             str(getattr(f, 'agent', '')).upper() == 'EX'
-            and getattr(f, 'status', '') == 'confirmed'
             and not (getattr(f, 'verified', False) is True)
+            and not bool(getattr(f, 'confirmed_at', None))
         )
         if is_ex_unverified:
             # CVE dedup with host:port fallback for 0-days
