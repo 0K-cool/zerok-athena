@@ -1147,6 +1147,12 @@ WORKFLOW:
       - VF ran → list Verification
     If a phase was NOT executed, write: "Phase not performed in this engagement."
     Do NOT list Post-Exploitation if PE never ran.
+    LATERAL MOVEMENT ACCURACY RULE (MANDATORY):
+    - Do NOT write that lateral movement "occurred" or "was achieved" unless:
+      a. PE agent ran (tool_calls > 0 for PE), AND
+      b. At least one finding has agent="PE" with confirmed status
+    - DA/ST findings describing lateral movement OPPORTUNITIES are NOT evidence.
+      Write: "Lateral movement was not performed in this engagement."
 2. Query Neo4j for ALL findings, hosts, services, credentials, attack chains
 2b. EVIDENCE EMBEDDING (MANDATORY for technical report):
     For each CRITICAL and HIGH finding, fetch evidence:

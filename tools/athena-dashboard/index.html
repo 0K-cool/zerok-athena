@@ -6346,7 +6346,7 @@
           <span class="engagement-mode-badge" id="engagementModeBadge"></span>
           <span class="engagement-mode-badge" id="engagementTierBadge" style="display:none;"></span>
           <span class="engagement-clock" id="engagementClock"></span>
-          <span class="engagement-cost-badge" id="kpi-cost" title="Total AI API cost (LLM tokens + tool calls)">$0.00</span>
+          <span class="engagement-cost-badge" id="kpi-cost" title="Estimated AI API cost (token-based estimate, not exact billing)">~$0.00</span>
           <button class="icon-btn" id="searchBtn" title="Search">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="8" cy="8" r="5"/>
@@ -9507,7 +9507,7 @@
         // Update cost KPI if budget-related
         if (type === 'engagement_budget_exhausted') {
           const costEl = document.getElementById('kpi-cost');
-          if (costEl && msg.engagement_cost) costEl.textContent = '$' + msg.engagement_cost.toFixed(2);
+          if (costEl && msg.engagement_cost) costEl.textContent = '~$' + msg.engagement_cost.toFixed(2);
         }
         return;
       }
@@ -10423,7 +10423,11 @@
         // BUG-033: Skip negative findings (not confirmed, not exploitable, etc.)
         if (KC_NEGATIVE_PATTERNS.some(pat => pat.test(text))) return;
         KILL_CHAIN.forEach(stage => {
-          if (stage.keywords.some(kw => text.includes(kw))) stages.add(stage.id);
+          if (stage.keywords.some(kw => text.includes(kw))) {
+            // B1 FIX: Lateral Move requires PE agent execution, not just keywords
+            if (stage.id === 'lateral' && (f.agent || '').toUpperCase() !== 'PE') return;
+            stages.add(stage.id);
+          }
         });
       });
 
@@ -11574,7 +11578,7 @@
         // FIX-2B: Update Engagement Cost KPI on session end
         if (msg.metadata && msg.metadata.cost_usd) {
           const costEl = document.getElementById('kpi-cost');
-          if (costEl) costEl.textContent = '$' + msg.metadata.cost_usd.toFixed(2);
+          if (costEl) costEl.textContent = '~$' + msg.metadata.cost_usd.toFixed(2);
         }
         // FIX-3: Reset all agent chips to completed and stop AI pulse dot
         document.querySelectorAll('.agent-chip').forEach(chip => {
@@ -12275,7 +12279,7 @@
       // Reset Engagement Cost KPI — always zero on reset, loadDashboardFromAPI
       // will populate the correct cost value for the new engagement.
       const costEl = document.getElementById('kpi-cost');
-      if (costEl) costEl.textContent = '$0.00';
+      if (costEl) costEl.textContent = '~$0.00';
       // Reset agent cost high-water marks (prevents stale maxCost across engagement switches)
       document.querySelectorAll('.budget-badge').forEach(function(b) { b.dataset.maxCost = '0'; });
       // Reset all nav badges on engagement switch/re-engage
@@ -13010,7 +13014,7 @@
           // SINGLE SOURCE OF TRUTH: API polling is the sole updater for kpi-cost.
           // No WS suppression needed since WS no longer writes cost (BUG-012 fix).
           if (costEl && budgetData.engagement_cost != null) {
-            costEl.textContent = '$' + Number(budgetData.engagement_cost).toFixed(2);
+            costEl.textContent = '~$' + Number(budgetData.engagement_cost).toFixed(2);
           }
         }
       } catch (e) { console.warn('budget:', e.message); }
@@ -15531,7 +15535,7 @@
             <div style="font-weight: 500;">${escHtml(r.title)}</div>
             <div style="color: var(--zerok-text-muted); font-size: 11px; margin-top: 2px;">${escHtml(r.engagement_name)}</div>
           </td>
-          <td><span class="report-type-badge ${r.type}">${r.type.toUpperCase()}</span></td>
+          <td><span class="report-type-badge ${(r.type || '').split('-')[0].toLowerCase()}">${(r.type || '').toUpperCase()}</span></td>
           <td><span class="report-status-badge ${r.status}">${r.status.toUpperCase()}</span></td>
           <td style="font-family: var(--zerok-font-mono); font-size: 12px;">${r.pages != null ? r.pages : '—'}</td>
           <td>${r.findings_included != null ? r.findings_included : '—'}</td>

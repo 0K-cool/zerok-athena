@@ -1443,6 +1443,19 @@ async def get_engagement_scope():
         eng = next((e for e in state.engagements if e.id == eid), None)
         if eng:
             raw_scope = getattr(eng, 'target', '') or getattr(eng, 'scope', '') or ''
+    # B7 FIX: Neo4j fallback when in-memory scope is empty
+    if not raw_scope and eid and neo4j_available and neo4j_driver:
+        try:
+            def _get_scope():
+                with neo4j_driver.session() as s:
+                    rec = s.run(
+                        "MATCH (e:Engagement {id: $eid}) RETURN coalesce(e.scope, e.target, '') AS scope",
+                        eid=eid
+                    ).single()
+                    return rec["scope"] if rec else ""
+            raw_scope = await neo4j_exec(_get_scope) or ""
+        except Exception as e:
+            logger.warning("scope Neo4j fallback failed: %s", e)
     targets = parse_scope(raw_scope)
     scale = estimate_engagement_scale(targets)
     total_hosts = sum(t.host_count for t in targets)
@@ -7415,10 +7428,20 @@ async def get_services_summary(eid: str, host_ip: str = None):
     return merged
 
 
+class CredentialPayload(BaseModel):
+    username: str = ""
+    password: str = ""
+    host: str = ""
+    service: str = ""
+    type: str = "harvested"
+    access_level: str = ""
+    description: str = ""
+
+
 @app.post("/api/engagements/{eid}/credentials")
-async def add_engagement_credential(eid: str, payload: dict):
+async def add_engagement_credential(eid: str, payload: CredentialPayload):
     """Add a harvested credential to an engagement (REST API for AI agents)."""
-    await state.add_credential(eid, payload)
+    await state.add_credential(eid, payload.model_dump())
     return {"status": "ok", "message": "Credential recorded"}
 
 
