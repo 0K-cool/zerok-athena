@@ -9,7 +9,7 @@
 <p align="center">
   <a href="#license"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License" /></a>
   <img src="https://img.shields.io/badge/python-3.14-blue.svg" alt="Python" />
-  <img src="https://img.shields.io/badge/status-production-brightgreen.svg" alt="Status" />
+  <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="Status" />
   <img src="https://img.shields.io/badge/agents-9-red.svg" alt="Agents" />
   <img src="https://img.shields.io/badge/API_endpoints-153-red.svg" alt="API" />
   <img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" />
@@ -324,7 +324,7 @@ This framework is designed for **authorized penetration testing only**. Unauthor
 ---
 
 **Platform**: ØK ATHENA — AI-Powered Penetration Testing
-**Status**: Production
+**Status**: Alpha
 **Version**: 3.0
 **Last Updated**: 2026-03-31
 **Maintained By**: [ZeroK Labs](https://zeroklabs.ai)
