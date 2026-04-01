@@ -10,7 +10,7 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License" /></a>
   <img src="https://img.shields.io/badge/python-3.14-blue.svg" alt="Python" />
   <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="Status" />
-  <img src="https://img.shields.io/badge/agents-9-red.svg" alt="Agents" />
+  <img src="https://img.shields.io/badge/agents-10-red.svg" alt="Agents" />
   <img src="https://img.shields.io/badge/API_endpoints-153-red.svg" alt="API" />
   <img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" />
 </p>
@@ -29,7 +29,7 @@ ATHENA is a multi-agent AI penetration testing platform that coordinates 9 speci
 
 ## Key Features
 
-- **9-Agent AI Team** — Strategy, Recon, Vuln Scanner, Exploitation, Verification, Reporting, Deep Analysis, Probe Executor, and Post-Exploitation agents coordinate through a shared knowledge graph
+- **10-Agent AI Team** — Strategy, Passive Recon, Active Recon, Vuln Scanner, Exploitation, Verification, Post-Exploitation, Reporting, Deep Analysis, and Probe Executor coordinate through a shared knowledge graph
 - **Multi-Host Architecture** — Per-engagement host selector scopes all KPIs, charts, and findings to individual targets. Dashboard supports single-host filtering and aggregate views
 - **0-Day Hunting (Phase 4.5)** — DA (Opus) generates vulnerability hypotheses, PX (Sonnet) executes targeted probes. Confirmed findings auto-generate Vulnerability Disclosure Reports (VDRs) with full reproduction steps
 - **Tiered Autonomy** — CTF/Lab mode (full autonomy) vs Client mode (HITL gates) vs Client Auto (client-approved automation)
@@ -87,8 +87,8 @@ Worker agents (AR, WV, EX, VF) aren't limited to predefined MCP tools. They can 
                                │
         ┌────┬────┬────┬───────┼───────┬────┬────┐
         ▼    ▼    ▼    ▼       ▼       ▼    ▼    ▼
-       ST   AR   WV   EX      VF      RP   DA   PX
-      Lead  Recon Web  Exploit Verify  Report  0-Day
+      ST   PR    AR   WV   EX     VF     PE   RP   DA   PX
+     Lead  OSINT Recon Web  Exploit Verify Post Report 0-Day
       ─────────────────────────────────────────────
         │    │    │    │       │       │    │    │
         └────┴────┴────┴───┬───┴───────┴────┴────┘
@@ -117,6 +117,7 @@ Worker agents (AR, WV, EX, VF) aren't limited to predefined MCP tools. They can 
 | Agent | Role | Model | Phase |
 |-------|------|-------|-------|
 | **ST** (Strategy) | Red Team Lead — coordinates attack plan, requests workers, evaluates novel tool requests | Opus | All |
+| **PR** (Passive Recon) | OSINT, subdomain enumeration, attack surface mapping — no direct target contact | Sonnet | 1 |
 | **AR** (Active Recon) | Port scanning, service enumeration, host discovery | Sonnet | 2 |
 | **WV** (Web Vuln Scanner) | Vulnerability scanning, directory brute-forcing, template-based detection | Sonnet | 4 |
 | **EX** (Exploitation) | Exploit confirmed vulnerabilities, prove impact | Opus | 5 |
