@@ -9716,8 +9716,13 @@
           });
           var uniqueHosts = new Set();
           confirmedFindings.forEach(function(f) {
-            var h = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
-            if (h) uniqueHosts.add(h.split(':')[0]);
+            var raw = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
+            if (raw) {
+              raw.split(',').forEach(function(ip) {
+                var trimmed = ip.trim().split(':')[0];
+                if (trimmed) uniqueHosts.add(trimmed);
+              });
+            }
           });
           var newCount = uniqueHosts.size;
           kpiFindings.textContent = newCount;
@@ -12759,7 +12764,9 @@
             if (Array.isArray(f.affected_hosts)) {
               f.affected_hosts.forEach(h => { if (h) g.hostSet.add(h); });
             }
-            if (f.host_ip) g.hostSet.add(f.host_ip);
+            if (f.host_ip) {
+              f.host_ip.split(',').forEach(function(ip) { if (ip.trim()) g.hostSet.add(ip.trim().split(':')[0]); });
+            }
             // Keep highest CVSS and severity
             if (f.cvss > g.cvss) g.cvss = f.cvss;
             if ((sevRank[(f.severity || 'info').toLowerCase()] || 0) > (sevRank[g.severity] || 0)) {
@@ -13140,7 +13147,7 @@
 
       // ── Restore AI Timeline from server event history ──
       try {
-        const evtRes = await fetch(`/api/events?limit=200&engagement=${currentEngagementId}`);
+        const evtRes = await fetch(`/api/events?limit=2000&engagement=${currentEngagementId}`);
         const events = await evtRes.json();
         if (events && events.length > 0) {
           const timeline = document.getElementById('aiTimeline');
@@ -13623,8 +13630,13 @@
             });
             const uniqueHosts = new Set();
             confirmedFindings.forEach(function(f) {
-              var h = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
-              if (h) uniqueHosts.add(h.split(':')[0]);
+              var raw = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
+              if (raw) {
+                raw.split(',').forEach(function(ip) {
+                  var trimmed = ip.trim().split(':')[0];
+                  if (trimmed) uniqueHosts.add(trimmed);
+                });
+              }
             });
             kpiFindingsEl.textContent = uniqueHosts.size;
           } catch(e) { /* ignore */ }

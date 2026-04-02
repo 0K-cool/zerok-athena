@@ -5631,10 +5631,17 @@ async def get_engagements(include_archived: bool = False):
             print(f"Neo4j query error: {e}")
             # Fall through to mock data
 
-    # Fallback: return mock engagements
-    all_eng = [e.model_dump() for e in state.engagements]
-    if not include_archived:
-        all_eng = [e for e in all_eng if e.get("status") != "archived"]
+    # Fallback: return mock engagements with live findings counts from state
+    all_eng = []
+    for e in state.engagements:
+        if not include_archived and e.status == "archived":
+            continue
+        eng_dict = e.model_dump()
+        eng_dict["findings_count"] = max(
+            e.findings_count,
+            len([f for f in state.findings if f.engagement == e.id]),
+        )
+        all_eng.append(eng_dict)
     return {"engagements": all_eng, "source": "mock"}
 
 
@@ -10167,8 +10174,7 @@ async def get_events(limit: int = 50, agent: Optional[str] = None, engagement: O
                 if eid:
                     query += "WHERE ev.engagement_id = $eid "
                     params["eid"] = eid
-                query += "RETURN ev ORDER BY ev.timestamp DESC LIMIT $limit"
-                params["limit"] = limit
+                query += "RETURN ev ORDER BY ev.timestamp ASC"
                 result = session.run(query, **params)
                 rows = []
                 for record in result:
@@ -12895,17 +12901,20 @@ async def stop_engagement(eid: str):
     for _eng in state.engagements:
         if _eng.id == eid:
             _eng.completed_at = _now_stop
+            _eng.status = "completed"
             break
     if neo4j_available and neo4j_driver:
         try:
-            with neo4j_driver.session() as session:
-                session.run(
-                    "MATCH (e:Engagement {id: $eid}) SET e.status = 'completed', e.completed_at = $completed_at",
-                    eid=eid,
-                    completed_at=_now_stop,
-                )
-        except Exception:
-            pass
+            def _mark_stopped():
+                with neo4j_driver.session() as _s:
+                    _s.run(
+                        "MATCH (e:Engagement {id: $eid}) SET e.status = 'completed', e.completed_at = $completed_at",
+                        eid=eid,
+                        completed_at=_now_stop,
+                    )
+            await neo4j_exec(_mark_stopped)
+        except Exception as _e:
+            logger.warning("stop_engagement: Neo4j status write failed for %s: %s", eid, _e)
     await state.broadcast({
         "type": "engagement_status",
         "engagement_id": eid,
