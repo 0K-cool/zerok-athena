@@ -10210,7 +10210,9 @@ async def get_events(limit: int = 50, agent: Optional[str] = None, engagement: O
     if agent:
         results = [e for e in results if e.agent == agent]
     results.sort(key=lambda e: e.timestamp)
-    return [e.model_dump() for e in results[-limit:]]
+    if limit > 0:
+        results = results[-limit:]
+    return [e.model_dump() for e in results]
 
 
 @app.delete("/api/events")

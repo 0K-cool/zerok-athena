@@ -13166,7 +13166,7 @@
 
       // ── Restore AI Timeline from server event history ──
       try {
-        const evtRes = await fetch(`/api/events?limit=2000&engagement=${currentEngagementId}`);
+        const evtRes = await fetch(`/api/events?limit=0&engagement=${currentEngagementId}`);
         const events = await evtRes.json();
         if (events && events.length > 0) {
           const timeline = document.getElementById('aiTimeline');
