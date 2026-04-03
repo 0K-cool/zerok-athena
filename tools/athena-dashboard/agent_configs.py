@@ -1240,6 +1240,9 @@ CVE RESEARCH (run this BEFORE hypothesis generation):
    create_finding(engagement_id="{eid}", title="CVE-YYYY-NNNNN: <description>",
    severity="<based on CVSS>", description="<details, affected versions, exploit availability>",
    agent="DA", metadata={{"cve":"CVE-YYYY-NNNNN","cvss":<score>,"exploit_available":<bool>}})
+   Note: DA findings MUST NOT include a "status" field — use the default (open/discovered).
+   Only the Verification Agent (VF) confirms exploitation status. DA discovers and researches.
+   Do NOT set status=confirmed on any finding.
 4. Notify ST with prioritized CVE list:
    POST {dashboard_url}/api/messages
    Body: {{"from_agent":"DA","to_agent":"ST","msg_type":"vulnerability","content":"<CVE summary>","priority":"high"}}
