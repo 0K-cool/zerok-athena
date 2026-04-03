@@ -329,6 +329,20 @@ KALI_INTERNAL_API_KEY = os.environ.get("KALI_API_KEY", "")
 
 # BUG-040: Kali backend IPs — never register these as target hosts
 _KALI_BACKEND_IPS: set[str] = set()
+
+
+def _is_network_or_broadcast_ip(ip: str) -> bool:
+    """Reject subnet network (.0) and broadcast (.255) addresses."""
+    if not ip:
+        return False
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        last = int(parts[-1])
+        return last == 0 or last == 255
+    except ValueError:
+        return False
 try:
     from urllib.parse import urlparse as _urlparse
     import socket as _socket
@@ -2040,6 +2054,9 @@ def _safe_extract_host(raw: str) -> str:
             # BUG-040: Reject Kali backend IPs — never register attack box as target
             if host in _KALI_BACKEND_IPS:
                 return ""
+            # BUG-038: Reject subnet network (.0) and broadcast (.255) addresses
+            if host.split(".")[-1] in ("0", "255"):
+                return ""
             return host
         return ""
 
@@ -2241,6 +2258,10 @@ async def create_finding(payload: FindingPayload):
         )
 
     # FIX: Auto-detect agent when not provided
+    # BUG-035 fix: Only run auto-detection when the agent field is truly absent.
+    # Known non-exploit agents (DA, AR, PR) must never be reclassified to EX —
+    # doing so would cause DA research findings to be counted as confirmed exploits.
+    _NON_EXPLOIT_AGENTS = {'DA', 'AR', 'PR', 'WV', 'PX'}
     if not payload.agent:
         _exploit_keywords = ('exploit', 'shell', 'rce', 'backdoor', 'root', 'command execution',
                              'code execution', 'injection', 'bypass', 'meterpreter', 'reverse shell')
@@ -2254,6 +2275,9 @@ async def create_finding(payload: FindingPayload):
             payload.agent = "DA"
         else:
             payload.agent = "EX"  # Default to EX for unclassified exploitation findings
+    elif payload.agent.upper() in _NON_EXPLOIT_AGENTS:
+        # BUG-035: Known non-exploit agents are kept as-is — do NOT reclassify to EX.
+        payload.agent = payload.agent.upper()
 
     # BUG-002 / BUG-A: Flag non-confirm agents — used by merge branch to prevent
     # propagating confirmed status when DA/AR/WV/PR/PX re-POSTs a matching fingerprint.
@@ -2267,7 +2291,7 @@ async def create_finding(payload: FindingPayload):
     # Write to Neo4j if available — smart endpoint auto-creates relationships
     # Pattern: MERGE nodes individually, then MERGE relationships (BloodHound pattern)
     _raw_host_ip = payload.host_ip or _extract_host_port(payload.target)[0]
-    host_ip = _raw_host_ip if _raw_host_ip and _raw_host_ip not in _KALI_BACKEND_IPS else ""
+    host_ip = _raw_host_ip if _raw_host_ip and _raw_host_ip not in _KALI_BACKEND_IPS and not _is_network_or_broadcast_ip(_raw_host_ip) else ""
     svc_port = payload.service_port or _extract_host_port(payload.target)[1]
     svc_proto = payload.service_protocol or "tcp"
 
@@ -2439,7 +2463,7 @@ async def create_finding(payload: FindingPayload):
                         f.cvss = $cvss, f.cve = $cve, f.evidence = $evidence,
                         f.timestamp = $timestamp, f.engagement_id = $engagement,
                         f.fingerprint = $fingerprint,
-                        f.confirmed_by = CASE WHEN $agent IN ['VF','EX'] THEN $agent ELSE coalesce(f.confirmed_by, '') END,
+                        f.confirmed_by = CASE WHEN $agent = 'VF' THEN $agent ELSE coalesce(f.confirmed_by, '') END,
                         f.host_ip = CASE WHEN $host_ip <> '' THEN $host_ip ELSE coalesce(f.host_ip, '') END
                     RETURN f.id AS actual_id
                 """, id=finding_id, title=payload.title,
@@ -6943,11 +6967,14 @@ async def get_exploit_stats(eid: str, host_ip: str = None):
                 neo4j_params = {"eid": eid}
                 if host_ip:
                     neo4j_params["host_ip"] = host_ip
+                # BUG-037 fix: Match findings directly by engagement_id property rather
+                # than traversing through Engagement→HAS_FINDING relationship (which may
+                # not exist), causing OPTIONAL MATCH to silently produce null rows and
+                # return 0 for all counts.
                 result = session.run(f"""
-                    MATCH (e:Engagement {{id: $eid}})
-                    OPTIONAL MATCH (f:Finding {{engagement_id: $eid}})
-                    WHERE f IS NULL OR (true {host_filter})
-                    WITH e, collect(f) AS all_findings
+                    MATCH (f:Finding)
+                    WHERE f.engagement_id = $eid {host_filter}
+                    WITH collect(f) AS all_findings
                     RETURN size(all_findings) AS total_findings,
                            size([x IN all_findings WHERE
                                x.verified = true OR
