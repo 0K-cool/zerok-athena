@@ -14948,7 +14948,7 @@
         </div>`;
       } else if (art.type === 'command_output' && art.content) {
         content = `<div class="artifact-preview" onclick="showArtifactFullsize(window._currentFindingArtifacts, ${index})" style="cursor: pointer;">
-            <pre style="margin:0;padding:8px;background:var(--zerok-bg);border-radius:4px;font-size:10px;font-family:var(--font-mono,'JetBrains Mono',monospace);color:var(--zerok-text-dim);overflow:hidden;max-height:120px;white-space:pre-wrap;word-break:break-all;">${(art.content || '').substring(0, 300)}${(art.content || '').length > 300 ? '...' : ''}</pre>
+            <pre style="margin:0;padding:8px;background:var(--zerok-bg);border-radius:4px;font-size:10px;font-family:var(--font-mono,'JetBrains Mono',monospace);color:var(--zerok-text-dim);overflow:hidden;max-height:120px;white-space:pre-wrap;word-break:break-all;">${escapeHtml((art.content || '').substring(0, 300))}${(art.content || '').length > 300 ? '...' : ''}</pre>
         </div>`;
       } else {
         content = `<div class="artifact-preview" onclick="showArtifactFullsize(window._currentFindingArtifacts, ${index})" style="cursor: pointer;">
@@ -15307,7 +15307,7 @@
         const preview = isImage
           ? `<img src="/api/artifacts/${art.id}/thumbnail" loading="lazy" style="width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:4px;" onerror="this.style.display='none';this.parentNode.insertAdjacentHTML('beforeend','<div style=\\'display:flex;align-items:center;justify-content:center;min-height:120px;background:var(--zerok-bg);border-radius:4px;font-size:2em;\\'>📷</div>')">`
           : (art.type === 'command_output' && art.content)
-            ? `<pre style="margin:0;padding:8px;background:var(--zerok-bg);border-radius:4px;font-size:10px;font-family:var(--font-mono,'JetBrains Mono',monospace);color:var(--zerok-text-dim);overflow:hidden;max-height:120px;white-space:pre-wrap;word-break:break-all;">${(art.content || '').substring(0, 300)}${(art.content || '').length > 300 ? '...' : ''}</pre>`
+            ? `<pre style="margin:0;padding:8px;background:var(--zerok-bg);border-radius:4px;font-size:10px;font-family:var(--font-mono,'JetBrains Mono',monospace);color:var(--zerok-text-dim);overflow:hidden;max-height:120px;white-space:pre-wrap;word-break:break-all;">${escapeHtml((art.content || '').substring(0, 300))}${(art.content || '').length > 300 ? '...' : ''}</pre>`
             : `<div style="display:flex;align-items:center;justify-content:center;min-height:120px;background:var(--zerok-bg);border-radius:4px;font-size:2em;">
               ${{screenshot:'📷',http_pair:'📋',command_output:'🖥️',tool_log:'📄',response_diff:'🔄'}[art.type]||'📎'}
             </div>`;
