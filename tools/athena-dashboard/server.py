@@ -257,6 +257,9 @@ THUMBNAIL_QUALITY = 75
 
 def ensure_evidence_dirs(engagement_id: str) -> Path:
     """Create evidence directory structure for an engagement. Returns the evidence root."""
+    # B48 FIX: Reject path traversal in engagement_id
+    if '..' in engagement_id or '/' in engagement_id or '\\' in engagement_id:
+        raise ValueError(f"Invalid engagement_id: {engagement_id}")
     athena_dir = Path(__file__).parent.parent.parent
     # Search for engagement dir by prefix match
     active_dir = athena_dir / "engagements" / "active"
@@ -268,6 +271,11 @@ def ensure_evidence_dirs(engagement_id: str) -> Path:
             evidence_root = active_dir / engagement_id / "08-evidence"
     else:
         evidence_root = athena_dir / "engagements" / "active" / engagement_id / "08-evidence"
+    # B48 FIX: Verify resolved path is under engagements (defense in depth)
+    resolved = evidence_root.resolve()
+    engagements_base = (athena_dir / "engagements").resolve()
+    if not str(resolved).startswith(str(engagements_base)):
+        raise ValueError(f"Path traversal detected: {evidence_root} resolves outside engagements/")
     for subfolder in EVIDENCE_SUBFOLDERS:
         (evidence_root / subfolder).mkdir(parents=True, exist_ok=True)
     return evidence_root
