@@ -1068,6 +1068,87 @@ class AthenaAgentSession:
             # Non-critical — don't interrupt the main engagement flow
             logger.warning("Exploitation evidence capture failed: %s", e)
 
+    # ── B46: Screenshot Evidence Capture ────────
+    _SCREENSHOT_TOOLS = frozenset({"screenshot_web", "screenshot_terminal"})
+
+    async def _capture_screenshot_evidence(self, tool_name: str, raw_content: Any, evidence_type: str = "exploitation"):
+        """Capture a screenshot tool result as a thumbnail-ready base64 artifact.
+
+        Called when a screenshot_web or screenshot_terminal tool result arrives.
+        Extracts the image_b64 field from the JSON response and posts it to the
+        /api/artifacts/base64 endpoint, which generates thumbnails via Pillow.
+        Non-critical — never interrupts the main engagement flow.
+        """
+        try:
+            # Resolve raw_content to a dict
+            if isinstance(raw_content, str):
+                try:
+                    data = json.loads(raw_content)
+                except (json.JSONDecodeError, TypeError):
+                    return
+            elif isinstance(raw_content, list):
+                # SDK ToolResultBlock content may be a list of content blocks
+                data = None
+                for item in raw_content:
+                    if isinstance(item, dict) and "image_b64" in item:
+                        data = item
+                        break
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        try:
+                            data = json.loads(item.get("text", ""))
+                            if isinstance(data, dict) and "image_b64" in data:
+                                break
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+                if data is None:
+                    return
+            elif isinstance(raw_content, dict):
+                data = raw_content
+            else:
+                return
+
+            # Unwrap nested result if present
+            if "result" in data and isinstance(data["result"], dict):
+                data = data["result"]
+
+            image_b64 = data.get("image_b64", "")
+            if not image_b64 or not data.get("success", True):
+                return
+
+            caption = self._generate_evidence_title(tool_name, "", evidence_type)
+            artifact_payload = {
+                "engagement_id": self.engagement_id,
+                "type": "screenshot",
+                "content": image_b64,
+                "filename": f"{tool_name}.png",
+                "caption": caption,
+                "agent": self._role_config.code if self._role_config else self._current_agent,
+                "finding_id": self._last_finding_id or "",
+                "evidence_type": evidence_type,
+            }
+            client = await self._get_http_client()
+            resp = await client.post(
+                f"{self._budget_server_url}/api/artifacts/base64",
+                json=artifact_payload,
+            )
+            if resp.status_code in (200, 201):
+                resp_data = resp.json()
+                artifact_id = resp_data.get("id", "")
+                thumbnail_url = resp_data.get("thumbnail_url") or ""
+                await self._emit("system", self._current_agent,
+                    f"Screenshot evidence captured: {artifact_id}",
+                    {"artifact_captured": True,
+                     "artifact_id": artifact_id,
+                     "thumbnail_url": thumbnail_url,
+                     "tool": tool_name})
+            else:
+                logger.warning(
+                    "Screenshot artifact API returned %d for %s",
+                    resp.status_code, tool_name)
+        except Exception as e:
+            # Non-critical — don't interrupt the main engagement flow
+            logger.warning("Screenshot evidence capture failed (%s): %s", tool_name, e)
+
     # ── F4: CTF Mode Helpers ─────────────────
 
     def enable_ctf_mode(self):
@@ -1758,7 +1839,11 @@ class AthenaAgentSession:
                             self._last_finding_id = m.group(1)
                     # Fix 9: Capture exploitation evidence as artifact (after finding_id is set)
                     # FR-003 fix: Guard against empty output before calling evidence capture.
-                    if not block.is_error and output and output.strip() and self._is_exploitation_result(tool_name, output):
+                    # B46: Screenshot tools get their own capture path — extract image_b64.
+                    _short_tool = tool_name.split("__")[-1]
+                    if not block.is_error and _short_tool in self._SCREENSHOT_TOOLS:
+                        await self._capture_screenshot_evidence(tool_name, block.content, evidence_type="exploitation")
+                    elif not block.is_error and output and output.strip() and self._is_exploitation_result(tool_name, output):
                         await self._capture_exploitation_evidence(tool_name, output, evidence_type="exploitation")
                     elif not block.is_error and output and output.strip() and self._current_agent == "VF" and self._is_verification_result(tool_name, output):
                         await self._capture_exploitation_evidence(tool_name, output, evidence_type="verification")
@@ -1833,18 +1918,24 @@ class AthenaAgentSession:
                     self._last_finding_id = m.group(1)
             # Fix 9: Capture exploitation evidence as artifact (after finding_id is set)
             # FR-003 fix: Guard against empty output before calling evidence capture.
-            if not msg.tool_use_result.get("is_error", False) and output and output.strip() and \
+            # B46: Screenshot tools get their own capture path — extract image_b64.
+            _is_err = msg.tool_use_result.get("is_error", False)
+            _short_tool_name = tool_name.split("__")[-1]
+            if not _is_err and _short_tool_name in self._SCREENSHOT_TOOLS:
+                _raw_content = msg.tool_use_result.get("content", "")
+                await self._capture_screenshot_evidence(tool_name, _raw_content, evidence_type="exploitation")
+            elif not _is_err and output and output.strip() and \
                     self._is_exploitation_result(tool_name, output):
                 await self._capture_exploitation_evidence(tool_name, output, evidence_type="exploitation")
-            elif not msg.tool_use_result.get("is_error", False) and output and output.strip() and \
+            elif not _is_err and output and output.strip() and \
                     self._current_agent == "VF" and \
                     self._is_verification_result(tool_name, output):
                 await self._capture_exploitation_evidence(tool_name, output, evidence_type="verification")
-            elif not msg.tool_use_result.get("is_error", False) and output and output.strip() and \
+            elif not _is_err and output and output.strip() and \
                     self._current_agent == "PE" and \
                     self._is_post_exploitation_result(tool_name, output):
                 await self._capture_exploitation_evidence(tool_name, output, evidence_type="post_exploitation")
-            elif not msg.tool_use_result.get("is_error", False) and output and output.strip() and \
+            elif not _is_err and output and output.strip() and \
                     self._current_agent == "DA" and \
                     self._is_analysis_result(tool_name, output):
                 await self._capture_exploitation_evidence(tool_name, output, evidence_type="analysis")

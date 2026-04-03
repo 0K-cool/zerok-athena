@@ -2291,7 +2291,7 @@ async def create_finding(payload: FindingPayload):
     # Write to Neo4j if available — smart endpoint auto-creates relationships
     # Pattern: MERGE nodes individually, then MERGE relationships (BloodHound pattern)
     _raw_host_ip = payload.host_ip or _extract_host_port(payload.target)[0]
-    host_ip = _raw_host_ip if _raw_host_ip and _raw_host_ip not in _KALI_BACKEND_IPS and not _is_network_or_broadcast_ip(_raw_host_ip) else ""
+    host_ip = _raw_host_ip if _raw_host_ip and _raw_host_ip not in _KALI_BACKEND_IPS and not _is_network_or_broadcast_ip(_raw_host_ip) and not _is_version_string_ip(_raw_host_ip) else ""
     svc_port = payload.service_port or _extract_host_port(payload.target)[1]
     svc_proto = payload.service_protocol or "tcp"
 
@@ -6980,14 +6980,12 @@ async def get_exploit_stats(eid: str, host_ip: str = None):
                            size([x IN all_findings WHERE
                                x.verified = true OR
                                x.verification_status = 'confirmed' OR
-                               x.verification_status = 'likely' OR
-                               x.status = 'confirmed'
+                               x.verification_status = 'likely'
                            ]) AS exploit_count,
                            [x IN all_findings WHERE
                                x.verified = true OR
                                x.verification_status = 'confirmed' OR
-                               x.verification_status = 'likely' OR
-                               x.status = 'confirmed' |
+                               x.verification_status = 'likely' |
                                {{title: x.title, severity: x.severity, timestamp: x.timestamp, host_ip: x.host_ip}}] AS exploit_details
                 """, **neo4j_params)
                 record = result.single()
@@ -7040,8 +7038,9 @@ async def get_exploit_stats(eid: str, host_ip: str = None):
         sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
         verification = getattr(f, 'verification_status', '') or ''
-        finding_status = getattr(f, 'status', '') or ''
-        is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely') or finding_status == 'confirmed'
+        # B43 fix: exclude EX self-sets (status='confirmed') from confirmed count.
+        # Only VF-verified findings count: confirmed_at timestamp OR VF verification_status.
+        is_confirmed = has_confirmed_ts or verification in ('confirmed', 'likely')
         if is_confirmed:
             title = f.title or ""
             # Filter out batch summaries and noise — not real individual exploits
@@ -8402,6 +8401,27 @@ async def upload_base64_artifact(req: Base64ArtifactRequest):
     except ValueError:
         rel_path = str(dest_path)
 
+    # B46 fix: Generate thumbnail for base64 screenshot uploads (mirrors multipart path).
+    thumbnail_path = None
+    if req.type == "screenshot" and dest_path.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+        try:
+            img = Image.open(BytesIO(file_bytes))
+            ratio = THUMBNAIL_WIDTH / img.width
+            new_height = int(img.height * ratio)
+            thumb = img.resize((THUMBNAIL_WIDTH, new_height), Image.LANCZOS)
+            thumb_filename = f"{artifact_id}-thumb.jpg"
+            thumb_dest = evidence_root / "screenshots" / "thumbnails" / thumb_filename
+            thumb_dest.parent.mkdir(parents=True, exist_ok=True)
+            thumb_bytes = BytesIO()
+            thumb.convert("RGB").save(thumb_bytes, format="JPEG", quality=THUMBNAIL_QUALITY)
+            thumb_dest.write_bytes(thumb_bytes.getvalue())
+            try:
+                thumbnail_path = str(thumb_dest.relative_to(athena_dir))
+            except ValueError:
+                thumbnail_path = str(thumb_dest)
+        except Exception as e:
+            logger.warning("base64 artifact thumbnail generation error: %s", e)
+
     # Store in Neo4j if available
     if neo4j_available and neo4j_driver:
         try:
@@ -8412,12 +8432,14 @@ async def upload_base64_artifact(req: Base64ArtifactRequest):
                         caption: $caption, agent: $agent, finding_id: $fid,
                         file_path: $filepath, file_size: $size,
                         capture_mode: $capture_mode, evidence_type: $evidence_type,
+                        thumbnail_path: $thumbnail_path,
                         timestamp: $timestamp
                     })
                 """, id=artifact_id, eid=req.engagement_id, type=req.type,
                      caption=req.caption, agent=req.agent, fid=req.finding_id,
                      filepath=rel_path, size=len(file_bytes),
                      capture_mode="agent", evidence_type=req.evidence_type,
+                     thumbnail_path=thumbnail_path,
                      timestamp=time.time())
                 if req.finding_id:
                     session.run("""
@@ -8427,7 +8449,13 @@ async def upload_base64_artifact(req: Base64ArtifactRequest):
         except Exception as e:
             logger.warning("artifact neo4j error: %s", e)
 
-    return {"id": artifact_id, "filepath": rel_path, "size": len(file_bytes)}
+    return {
+        "id": artifact_id,
+        "filepath": rel_path,
+        "size": len(file_bytes),
+        "thumbnail_path": thumbnail_path,
+        "thumbnail_url": f"/api/artifacts/{artifact_id}/thumbnail" if thumbnail_path else None,
+    }
 
 
 class TextArtifactRequest(BaseModel):
