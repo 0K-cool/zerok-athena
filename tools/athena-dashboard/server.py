@@ -3195,7 +3195,8 @@ async def submit_verification_result(verification_id: str, result: VerificationR
                         f.poc_script = $poc_script,
                         f.impact_demonstrated = $impact,
                         f.verification_id = $vrf_id,
-                        f.verified_at = datetime()
+                        f.verified_at = datetime(),
+                        f.confirmed_by = CASE WHEN $verified THEN 'VF' ELSE f.confirmed_by END
                 """
                 if confirmed_at_val is not None:
                     cypher += ", f.confirmed_at = $confirmed_at"
@@ -7869,7 +7870,11 @@ async def patch_finding(eid: str, fid: str, request: Request):
         if "verification_status" in payload:
             payload["verification_status"] = "analyzed"
 
-    allowed = {"status", "evidence", "verification_status", "confirmed_at", "exploited_by", "verified"}
+    # Auto-inject confirmed_by when VF confirms
+    if req_agent and req_agent.upper() == 'VF' and payload.get('status') in ('confirmed', 'likely'):
+        payload.setdefault('confirmed_by', 'VF')
+
+    allowed = {"status", "evidence", "verification_status", "confirmed_at", "exploited_by", "verified", "confirmed_by"}
     updates = {k: v for k, v in payload.items() if k in allowed}
     if not updates:
         return JSONResponse(status_code=400, content={"error": f"No valid fields. Allowed: {sorted(allowed)}"})

@@ -9716,13 +9716,20 @@
           });
           var uniqueHosts = new Set();
           confirmedFindings.forEach(function(f) {
-            var raw = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
-            if (raw) {
+            // B42 FIX: Collect hosts from host_ip (comma-separated) AND affected_hosts (array)
+            var hostSources = [];
+            if (f.host_ip) hostSources.push(f.host_ip);
+            if (Array.isArray(f.affected_hosts)) {
+              f.affected_hosts.forEach(function(h) { if (h) hostSources.push(h); });
+            } else if (f.affected_hosts && !f.host_ip) {
+              hostSources.push(f.affected_hosts);
+            }
+            hostSources.forEach(function(raw) {
               raw.split(',').forEach(function(ip) {
                 var trimmed = ip.trim().split(':')[0];
                 if (trimmed) uniqueHosts.add(trimmed);
               });
-            }
+            });
           });
           var newCount = uniqueHosts.size;
           kpiFindings.textContent = newCount;
@@ -13164,6 +13171,28 @@
         }
       } catch(e) { console.warn('PTES restore error:', e); }
 
+      // B41 FIX: PTES fallback — derive coverage from findings agents
+      try {
+        var ptesFindings = Array.isArray(window._dashFindingsAccum) ? window._dashFindingsAccum : [];
+        if (ptesFindings.length > 0) {
+          var agentsSeen = {};
+          ptesFindings.forEach(function(f) {
+            var a = (f.agent || '').toUpperCase();
+            if (a) agentsSeen[a] = true;
+          });
+          if (agentsSeen['AR'] || agentsSeen['PR']) updatePtesFromAgent('AR', 'complete');
+          if (agentsSeen['WV']) updatePtesFromAgent('WV', 'complete');
+          if (agentsSeen['DA']) updatePtesFromAgent('WV', 'complete'); // DA covers same PTES phases as WV
+          if (agentsSeen['EX']) updatePtesFromAgent('EX', 'complete');
+          if (agentsSeen['PE']) updatePtesFromAgent('PE', 'complete');
+        }
+        // RP coverage from reports
+        var rptBadge = document.getElementById('nav-badge-reports');
+        if (rptBadge && parseInt(rptBadge.textContent, 10) > 0) updatePtesFromAgent('RP', 'complete');
+        // ST always runs if engagement exists
+        updatePtesFromAgent('ST', 'complete');
+      } catch(e) { /* ignore */ }
+
       // ── Restore AI Timeline from server event history ──
       try {
         const evtRes = await fetch(`/api/events?limit=0&engagement=${currentEngagementId}`);
@@ -13649,13 +13678,20 @@
             });
             const uniqueHosts = new Set();
             confirmedFindings.forEach(function(f) {
-              var raw = f.host_ip || (f.affected_hosts && f.affected_hosts[0]) || '';
-              if (raw) {
+              // B42 FIX: Collect hosts from host_ip (comma-separated) AND affected_hosts (array)
+              var hostSources = [];
+              if (f.host_ip) hostSources.push(f.host_ip);
+              if (Array.isArray(f.affected_hosts)) {
+                f.affected_hosts.forEach(function(h) { if (h) hostSources.push(h); });
+              } else if (f.affected_hosts && !f.host_ip) {
+                hostSources.push(f.affected_hosts);
+              }
+              hostSources.forEach(function(raw) {
                 raw.split(',').forEach(function(ip) {
                   var trimmed = ip.trim().split(':')[0];
                   if (trimmed) uniqueHosts.add(trimmed);
                 });
-              }
+              });
             });
             kpiFindingsEl.textContent = uniqueHosts.size;
           } catch(e) { /* ignore */ }
