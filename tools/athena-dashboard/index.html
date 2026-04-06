@@ -6627,13 +6627,13 @@
                   <span style="font-size: 24px; font-weight: 700; color: white;" id="gauge-center-pct">0%</span>
                 </div>
               </div>
-              <div style="display:flex;gap:8px;justify-content:center;margin-top:4px;font-family:var(--zerok-font-mono);font-size:10px;">
-                <span style="color:#22c55e;" id="gauge-metric-confirmed" title="VF-verified exploits">✓ <span id="gauge-val-confirmed">0</span></span>
-                <span style="color:#eab308;" id="gauge-metric-unverified" title="Exploited, awaiting VF verification">⏳ <span id="gauge-val-unverified">0</span></span>
-                <span style="color:#ef4444;" id="gauge-metric-hicrit" title="Total high + critical findings">● <span id="gauge-val-hicrit">0</span></span>
+              <div style="display:flex;gap:14px;justify-content:center;align-items:center;margin-top:6px;font-family:var(--zerok-font-mono);font-size:12px;">
+                <span style="color:#22c55e;min-width:32px;text-align:center;" id="gauge-metric-confirmed" title="VF-verified exploits">✓ <span id="gauge-val-confirmed">0</span></span>
+                <span style="color:#eab308;min-width:32px;text-align:center;" id="gauge-metric-unverified" title="Exploited, awaiting VF verification">⏳ <span id="gauge-val-unverified">0</span></span>
+                <span style="color:#ef4444;min-width:32px;text-align:center;" id="gauge-metric-hicrit" title="Total high + critical findings">● <span id="gauge-val-hicrit">0</span></span>
               </div>
-              <div style="display:flex;gap:8px;justify-content:center;font-size:8px;color:var(--zerok-text-dim);margin-top:1px;">
-                <span>conf</span><span>unver</span><span>hi+crit</span>
+              <div style="display:flex;gap:14px;justify-content:center;font-size:10px;color:var(--zerok-text-dim);margin-top:2px;">
+                <span style="min-width:32px;text-align:center;">conf</span><span style="min-width:32px;text-align:center;">unver</span><span style="min-width:32px;text-align:center;">hi+crit</span>
               </div>
             </div>
           </div>
@@ -12446,10 +12446,16 @@
         const countSpan = cell.querySelector('.technique-count');
         if (countSpan) countSpan.textContent = '0 findings';
       });
+      // B49 FIX: Reset reports badge to prevent stale PTES RP coverage
+      var reportsBadge = document.getElementById('nav-badge-reports');
+      if (reportsBadge) { reportsBadge.textContent = '0'; reportsBadge.style.display = 'none'; }
       // Reset Top Vulnerability Categories
       Object.keys(_categoryCounts).forEach(k => delete _categoryCounts[k]);
       const topVulns = document.getElementById('top-vulns-body');
       if (topVulns) topVulns.innerHTML = '<div style="text-align:center;padding:24px 0;color:var(--zerok-text-dim);font-size:12px;opacity:0.6">No vulnerability data yet.</div>';
+      // B50 FIX: Hide "See All" button when no vulnerability data
+      var vulnCatBtn = document.getElementById('vulnCatSeeAll');
+      if (vulnCatBtn) vulnCatBtn.style.display = 'none';
       // Reset KPIs
       const kpiFindings = document.getElementById('kpi-findings');
       if (kpiFindings) kpiFindings.textContent = '0';
@@ -13194,12 +13200,11 @@
           if (agentsSeen['DA']) updatePtesFromAgent('WV', 'complete'); // DA covers same PTES phases as WV
           if (agentsSeen['EX']) updatePtesFromAgent('EX', 'complete');
           if (agentsSeen['PE']) updatePtesFromAgent('PE', 'complete');
+          // B49 FIX: RP and ST gated on actual data existence (was unconditional, causing stale PTES)
+          var rptBadge = document.getElementById('nav-badge-reports');
+          if (rptBadge && parseInt(rptBadge.textContent, 10) > 0) updatePtesFromAgent('RP', 'complete');
+          if (_loadedFindingsCount > 0) updatePtesFromAgent('ST', 'complete');
         }
-        // RP coverage from reports
-        var rptBadge = document.getElementById('nav-badge-reports');
-        if (rptBadge && parseInt(rptBadge.textContent, 10) > 0) updatePtesFromAgent('RP', 'complete');
-        // ST always runs if engagement exists
-        updatePtesFromAgent('ST', 'complete');
       } catch(e) { /* ignore */ }
 
       // ── Restore AI Timeline from server event history ──
