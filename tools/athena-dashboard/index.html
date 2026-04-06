@@ -11079,6 +11079,22 @@
         }
       }
 
+      // B61 FIX: Show loading state before fetch
+      var _vlc = document.getElementById('vuln-categories-count');
+      if (_vlc) _vlc.textContent = '—';
+      var _vtf = document.getElementById('vuln-total-findings');
+      if (_vtf) _vtf.textContent = '—';
+      var _vcc = document.getElementById('vuln-critical-count');
+      if (_vcc) _vcc.textContent = '—';
+      var _vhc = document.getElementById('vuln-high-count');
+      if (_vhc) _vhc.textContent = '—';
+      var _vmc = document.getElementById('vuln-medium-count');
+      if (_vmc) _vmc.textContent = '—';
+      var _vlwc = document.getElementById('vuln-low-count');
+      if (_vlwc) _vlwc.textContent = '—';
+      var _vcc2 = document.getElementById('vuln-categories-container');
+      if (_vcc2) _vcc2.innerHTML = '<div style="text-align:center;padding:48px 0;color:var(--zerok-text-dim);font-size:12px;">Loading vulnerabilities...</div>';
+
       try {
         const res = await fetch('/api/engagements/' + currentEngagementId + '/findings');
         const data = await res.json();
@@ -14540,6 +14556,18 @@
     let expandedEngId = null;
 
     async function loadEngagementsView() {
+      // B61 FIX: Show loading state before fetch
+      var _etc = document.getElementById('eng-total-count');
+      if (_etc) _etc.textContent = '—';
+      var _epc = document.getElementById('eng-pending-count');
+      if (_epc) _epc.textContent = '—';
+      var _eac = document.getElementById('eng-active-count');
+      if (_eac) _eac.textContent = '—';
+      var _ecc = document.getElementById('eng-completed-count');
+      if (_ecc) _ecc.textContent = '—';
+      var _efc = document.getElementById('eng-findings-count');
+      if (_efc) _efc.textContent = '—';
+
       try {
         const res = await fetch('/api/engagements?include_archived=true');
         const engData = await res.json();
@@ -14745,6 +14773,15 @@
           return;
         }
       }
+
+      // B61 FIX: Show loading state before fetch
+      document.getElementById('findings-critical-count').textContent = '—';
+      document.getElementById('findings-high-count').textContent = '—';
+      document.getElementById('findings-medium-count').textContent = '—';
+      document.getElementById('findings-low-count').textContent = '—';
+      document.getElementById('findings-total-count').textContent = '—';
+      var _ftb = document.getElementById('findingsTableBody');
+      if (_ftb) _ftb.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--zerok-text-dim);">Loading findings...</td></tr>';
 
       try {
         const res = await fetch(`/api/engagements/${currentEngagementId}/findings${hostFilterFirst()}`);
@@ -15148,7 +15185,8 @@
           header.innerHTML = `<span style="color:var(--zerok-text-muted);font-size:0.85em;">${artifactType.replace('_', ' ')} — ${art.id}</span>`;
           const pre = document.createElement('pre');
           pre.style.cssText = 'margin:0;padding:16px;font-size:12px;line-height:1.5;color:var(--zerok-text,#e0e0e0);white-space:pre-wrap;word-wrap:break-word;font-family:"SF Mono","Fira Code",monospace;';
-          pre.textContent = 'Loading...';
+          pre.textContent = 'Loading artifact...';
+          pre.style.opacity = '0.5';
           container.appendChild(header);
           container.appendChild(pre);
           contentWrap.appendChild(container);
@@ -15156,6 +15194,7 @@
             const resp = await fetch(`/api/artifacts/${art.id}/file`);
             if (resp.ok) {
               pre.textContent = await resp.text();
+              pre.style.opacity = '1';
             } else {
               pre.textContent = `Error loading artifact: ${resp.status} ${resp.statusText}`;
               pre.style.color = 'var(--zerok-critical, #ef4444)';
