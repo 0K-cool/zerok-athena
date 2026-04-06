@@ -11706,7 +11706,7 @@
                             `- **Services:** ${summary.services || 0}\n` +
                             `- **Vulnerabilities:** ${summary.vulnerabilities || 0}\n` +
                             `- **Findings:** ${summary.findings || 0}\n` +
-                            `- **Exploits Confirmed:** ${summary.exploits || 0}\n\n` +
+                            `- **Exploits Confirmed:** ${document.getElementById('gauge-val-confirmed')?.textContent || 0}\n\n` +
                             `**Severity Breakdown:** ` +
                             `${sevCounts.critical || 0} Critical, ` +
                             `${sevCounts.high || 0} High, ` +
@@ -11736,7 +11736,7 @@
                                             `- **Services:** ${updated.services || 0}`,
                                             `- **Vulnerabilities:** ${updated.vulnerabilities || 0}`,
                                             `- **Findings:** ${updated.findings || 0}`,
-                                            `- **Exploits Confirmed:** ${updated.exploits || 0}`,
+                                            `- **Exploits Confirmed:** ${document.getElementById('gauge-val-confirmed')?.textContent || 0}`,
                                             ``,
                                             `**Severity Breakdown:** ${sevU.critical || 0} Critical, ${sevU.high || 0} High, ${sevU.medium || 0} Medium, ${sevU.low || 0} Low`
                                         ];
@@ -12738,8 +12738,12 @@
             });
           }
           // Show "See All" when total findings exceed the 5 displayed
+          // B51 FIX: Diff-check before DOM write to prevent flicker
           var fSeeAll = document.getElementById('findingsSeeAll');
-          if (fSeeAll) fSeeAll.style.display = findings.length > 5 ? '' : 'none';
+          if (fSeeAll) {
+            var _fSeeAllTarget = findings.length > 5 ? '' : 'none';
+            if (fSeeAll.style.display !== _fSeeAllTarget) fSeeAll.style.display = _fSeeAllTarget;
+          }
         }
 
         // BUG-014 fix: Reset category counts before re-populating from API
@@ -13640,22 +13644,34 @@
         if (statHosts) {
           const v = summary.hosts || 0;
           if (!isActive || v >= (parseInt(statHosts.textContent) || 0)) {
-            statHosts.textContent = v;
-            const sl = document.getElementById('stat-hosts-label');
-            if (sl) sl.textContent = (v === 1) ? 'host' : 'hosts';
+            // B59 FIX: Only write DOM if value actually changed
+            if (statHosts.textContent !== String(v)) {
+              statHosts.textContent = v;
+              const sl = document.getElementById('stat-hosts-label');
+              if (sl) sl.textContent = (v === 1) ? 'host' : 'hosts';
+            }
           }
         }
         if (statServices) {
           const v = summary.services || 0;
-          if (!isActive || v >= (parseInt(statServices.textContent) || 0)) statServices.textContent = v;
+          // B59 FIX: Only write DOM if value actually changed
+          if (!isActive || v >= (parseInt(statServices.textContent) || 0)) {
+            if (statServices.textContent !== String(v)) statServices.textContent = v;
+          }
         }
         if (statVulns) {
           const v = summary.vulnerabilities || 0;
-          if (!isActive || v >= (parseInt(statVulns.textContent) || 0)) statVulns.textContent = v;
+          // B59 FIX: Only write DOM if value actually changed
+          if (!isActive || v >= (parseInt(statVulns.textContent) || 0)) {
+            if (statVulns.textContent !== String(v)) statVulns.textContent = v;
+          }
         }
         if (statFindings) {
           const v = summary.findings || 0;
-          if (!isActive || v >= (parseInt(statFindings.textContent) || 0)) statFindings.textContent = v;
+          // B59 FIX: Only write DOM if value actually changed
+          if (!isActive || v >= (parseInt(statFindings.textContent) || 0)) {
+            if (statFindings.textContent !== String(v)) statFindings.textContent = v;
+          }
         }
         document.getElementById('engagementStats').style.display = 'flex';
 
