@@ -2265,6 +2265,32 @@ async def create_finding(payload: FindingPayload):
             content={"error": "Finding title too short (min 5 characters)"}
         )
 
+    # BUG-062 FIX: Reject agent status messages stored as findings.
+    # Agents emit operational messages like "VF COMPLETE: 19 confirmed..." that
+    # are not vulnerabilities. Filter by requiring agent-code prefix pattern.
+    _STATUS_PATTERNS = [
+        "complete:", "complete —", "final round", "scope alert",
+        "scope alert ack", "mission complete", "debrief",
+        "strong signal (shell): exit code",
+        "processing /tmp/", "sdk query cancelled",
+        "ai turn complete",
+    ]
+    _title_lower_for_status = _title.lower()
+    # Only reject when title starts with a 2-letter agent code prefix (e.g. "VF ", "DA ")
+    # so legitimate findings like "SQL Injection Complete Bypass" are not caught.
+    _agent_prefix_match = re.match(r'^[A-Z]{2}\s+', _title)
+    if _agent_prefix_match:
+        _title_without_prefix = _title[_agent_prefix_match.end():].lower()
+        _is_status = (
+            any(_title_without_prefix.startswith(pat) for pat in _STATUS_PATTERNS)
+            or bool(re.match(r'^[A-Z]+:', _title[_agent_prefix_match.end():]))
+        )
+        if _is_status:
+            return JSONResponse(
+                status_code=422,
+                content={"error": f"Rejected: title looks like an agent status message, not a vulnerability: {_title[:100]}"}
+            )
+
     # FIX: Auto-detect agent when not provided
     # BUG-035 fix: Only run auto-detection when the agent field is truly absent.
     # Known non-exploit agents (DA, AR, PR) must never be reclassified to EX —
@@ -2298,12 +2324,20 @@ async def create_finding(payload: FindingPayload):
 
     # Write to Neo4j if available — smart endpoint auto-creates relationships
     # Pattern: MERGE nodes individually, then MERGE relationships (BloodHound pattern)
+    # BUG-053 FIX: Validate host_ip BEFORE fingerprint computation so version strings
+    # like "3.2.8.1" never get baked into the fingerprint or create phantom Host nodes.
     _raw_host_ip = payload.host_ip or _extract_host_port(payload.target)[0]
-    host_ip = _raw_host_ip if _raw_host_ip and _raw_host_ip not in _KALI_BACKEND_IPS and not _is_network_or_broadcast_ip(_raw_host_ip) and not _is_version_string_ip(_raw_host_ip) else ""
+    _host_ip_valid = (
+        bool(_raw_host_ip)
+        and _raw_host_ip not in _KALI_BACKEND_IPS
+        and not _is_network_or_broadcast_ip(_raw_host_ip)
+        and not _is_version_string_ip(_raw_host_ip)
+    )
+    host_ip = _raw_host_ip if _host_ip_valid else ""
     svc_port = payload.service_port or _extract_host_port(payload.target)[1]
     svc_proto = payload.service_protocol or "tcp"
 
-    # BUG-013: Compute fingerprint for deduplication
+    # BUG-013: Compute fingerprint for deduplication (uses validated host_ip above)
     fingerprint = _compute_finding_fingerprint(
         payload.engagement, payload.title, payload.target,
         _canonical_cve(payload.cve), host_ip, svc_port,

@@ -122,9 +122,15 @@ def _compute_finding_fingerprint(
                 break
 
     if service:
-        host_part = host_ip or ""
-        port_part = str(service_port) if service_port else ""
-        key = f"{engagement_id}|{service}|{host_part}|{port_part}"
+        # BUG-058 FIX: Omit empty fields from the key so a finding with no host_ip
+        # matches any same-service same-port finding regardless of host.
+        # Prevents per-host duplication when agents report the same finding without host_ip.
+        if host_ip and service_port:
+            key = f"{engagement_id}|{service}|{host_ip}|{service_port}"
+        elif service_port:
+            key = f"{engagement_id}|{service}|{service_port}"
+        else:
+            key = f"{engagement_id}|{service}"
         return hashlib.sha256(key.encode()).hexdigest()[:16]
 
     # Tier 5: Normalized title fallback (last resort — different titles = different findings)
