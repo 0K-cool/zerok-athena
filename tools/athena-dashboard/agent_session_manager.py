@@ -660,6 +660,18 @@ class AgentSessionManager:
                                 except Exception:
                                     pass
 
+                            # B77 FIX: Reject version strings (e.g. "3.2.8.1" from UnrealIRCd) that
+                            # the summary extractor matched as IPs. Uses the same heuristic as
+                            # server.py:_is_version_string_ip (all octets < 20).
+                            if host_ip:
+                                _parts = host_ip.split(".")
+                                if len(_parts) == 4:
+                                    try:
+                                        if all(int(_p) < 20 for _p in _parts):
+                                            host_ip = None  # discard — version string, not a real host
+                                    except ValueError:
+                                        pass
+
                             if host_ip:
                                 # Persist host_ip directly on the Finding node for indexed queries
                                 sess.run(
