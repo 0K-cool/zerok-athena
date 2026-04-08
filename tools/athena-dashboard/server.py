@@ -5335,6 +5335,12 @@ async def get_lateral_movement(engagement_id: str | None = None):
             result = session.run("""
                 MATCH (h1:Host)-[:PIVOTS_TO|NETWORK_ACCESS]->(h2:Host)
                 WHERE h1.engagement_id = $eid AND h2.engagement_id = $eid
+                  AND EXISTS {
+                    MATCH (h1)<-[:FOUND_ON]-(f:Finding)
+                    WHERE f.status = 'confirmed'
+                       OR f.verification_status = 'confirmed'
+                       OR f.verified = true
+                  }
                 OPTIONAL MATCH (h2)-[:HAS_SERVICE]->(s:Service)
                 WHERE NOT s.tested = true
                 RETURN h1.ip AS from_host,
