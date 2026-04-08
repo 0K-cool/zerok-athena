@@ -27,6 +27,15 @@ class AgentModel(str, Enum):
     HAIKU = "haiku"
 
 
+# NOVEL_MODEL — used by discovery/0-day agents (DA, PX, PE, VF). Today this
+# resolves to Opus 4.6, the latest publicly available Claude model. When ZeroK
+# Labs gets Glasswing access (target deadline June 30, 2026), update this single
+# constant to the Mythos model alias and the entire novel tier picks it up.
+# See: memory/claude-mythos.md, memory/feedback_athena_novel_tier_models.md
+# Mythos benchmark: 83.1% CyberGym vs Opus 4.6's 66.6%.
+NOVEL_MODEL = AgentModel.OPUS  # TODO: swap to Mythos when Glasswing lands
+
+
 @dataclass(frozen=True)
 class AgentRoleConfig:
     """Configuration for a single ATHENA agent role.
@@ -2243,7 +2252,7 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
     "PE": AgentRoleConfig(
         code="PE",
         name="Post-Exploitation",
-        model=AgentModel.OPUS,
+        model=NOVEL_MODEL,  # Discovery/0-day tier — lateral movement creativity
         ptes_phase=6,  # PTES Phase 6: Post-Exploitation
         max_tool_calls=100,
         max_cost_usd=9.00,  # Server limit: $3.00 × 3x
@@ -2260,7 +2269,7 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
     "VF": AgentRoleConfig(
         code="VF",
         name="Verification",
-        model=AgentModel.SONNET,
+        model=NOVEL_MODEL,  # Discovery/0-day tier — was Sonnet, upgraded for chained-exploit verification
         ptes_phase=4,
         max_tool_calls=100,
         max_cost_usd=6.00,  # Server limit: $2.00 × 3x
@@ -2290,7 +2299,7 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
     "DA": AgentRoleConfig(
         code="DA",
         name="Deep Analysis",
-        model=AgentModel.OPUS,
+        model=NOVEL_MODEL,  # Discovery/0-day tier — CVE research, source analysis
         ptes_phase=4,
         max_tool_calls=150,
         max_cost_usd=12.00,  # Server limit: $4.00 × 3x
@@ -2307,7 +2316,7 @@ AGENT_ROLES: dict[str, AgentRoleConfig] = {
     "PX": AgentRoleConfig(
         code="PX",
         name="Probe Executor",
-        model=AgentModel.SONNET,
+        model=NOVEL_MODEL,  # Discovery/0-day tier — was Sonnet, upgraded for novel exploit research
         ptes_phase=4,
         max_tool_calls=150,
         max_cost_usd=9.00,  # Server limit: $3.00 × 3x
