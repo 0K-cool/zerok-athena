@@ -8901,6 +8901,12 @@ async def get_engagement_artifacts(
     offset: int = 0,
 ):
     """List artifacts for an engagement (B72 fix). Thin wrapper over list_artifacts for REST path compat."""
+    # B72b: Cap limit to prevent unbounded result sets that could exhaust Neo4j memory
+    # or cause DoS via ?limit=999999. Hard cap at 1000.
+    if limit > 1000:
+        limit = 1000
+    if limit < 1:
+        limit = 1
     return await list_artifacts(
         engagement_id=eid,
         type=type,
