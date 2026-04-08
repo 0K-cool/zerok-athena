@@ -2173,14 +2173,59 @@ async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: 
             logger.info("Auto-screenshot skipped for %s: terminal service port %d", finding_id, _service_port)
             return
 
-        # Build URL with correct port
-        if target.startswith(('http://', 'https://')):
-            url = target
+        # B52c: SSRF guard — validate and normalize target URL before sending
+        # to the Kali backend screenshot tool. Strips paths/queries/credentials,
+        # rejects cloud metadata hostnames, loopback, link-local, multicast, and
+        # reserved IPs. RFC 1918 private ranges (10/8, 172.16/12, 192.168/16)
+        # REMAIN ALLOWED because they are common pentest targets.
+        # Caught by the AI Code Review bot on PR #67 — the post-merge audit worked.
+        from urllib.parse import urlparse
+        import ipaddress as _ipaddr
+        _raw_target = target
+        _parsed = urlparse(_raw_target if _raw_target.startswith(('http://', 'https://'))
+                           else f'http://{_raw_target}')
+        _scheme = _parsed.scheme if _parsed.scheme in ('http', 'https') else 'http'
+        _hostname = _parsed.hostname or ''
+        _METADATA_HOSTS = {
+            '169.254.169.254',          # AWS IMDSv1 / Azure IMDS
+            'metadata.google.internal', # GCP metadata
+            '100.100.100.200',          # Alibaba Cloud metadata
+            'metadata',                  # common metadata shorthand
+            'localhost',                 # hostname → loopback (literal IP blocked below)
+            'localhost.localdomain',     # common resolver alias
+            'ip6-localhost',             # IPv6 loopback alias
+        }
+        if _hostname.lower() in _METADATA_HOSTS:
+            logger.warning("B52c: auto-screenshot SSRF guard rejected metadata hostname %s for %s",
+                           _hostname, finding_id)
+            return
+        try:
+            _ip_obj = _ipaddr.ip_address(_hostname)
+            if (_ip_obj.is_loopback or _ip_obj.is_link_local
+                    or _ip_obj.is_multicast or _ip_obj.is_reserved
+                    or _ip_obj.is_unspecified):
+                logger.warning("B52c: auto-screenshot SSRF guard rejected %s (loopback/link-local/reserved) for %s",
+                               _hostname, finding_id)
+                return
+            # NOTE: _ip_obj.is_private is NOT rejected — RFC 1918 ranges are
+            # legitimate pentest targets on internal engagements.
+        except ValueError:
+            # Not a literal IP — it's a hostname. Allow it but strip path/query
+            # via the rebuild below. A future hardening could resolve + check.
+            pass
+        _parsed_port = _parsed.port
+
+        # Build URL with correct port — uses validated components from the SSRF
+        # guard above (_scheme, _hostname, _parsed_port) so any path/query/
+        # credentials from the attacker input are stripped.
+        if _raw_target.startswith(('http://', 'https://')):
+            # Rebuild from validated components — strips path/query/fragment
+            url = f'{_scheme}://{_hostname}' + (f':{_parsed_port}' if _parsed_port else '')
         elif _service_port and _service_port in _WEB_PORTS:
             scheme = 'https' if _service_port in (443, 8443) else 'http'
-            url = f'{scheme}://{target}:{_service_port}'
+            url = f'{scheme}://{_hostname}:{_service_port}'
         else:
-            url = f'http://{target}'
+            url = f'http://{_hostname}'
 
         # Get finding title for caption
         _cap_title = ''
