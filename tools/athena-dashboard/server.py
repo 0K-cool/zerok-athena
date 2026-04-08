@@ -5346,7 +5346,7 @@ async def get_blast_radius(finding_id: str, engagement_id: str | None = None):
     def _get_blast_radius():
         with neo4j_driver.session() as session:
             result = session.run("""
-                MATCH (f:Finding {id: $fid})
+                MATCH (f:Finding {id: $fid, engagement_id: $eid})
                 OPTIONAL MATCH path = (f)-[:ENABLES|PIVOTS_TO|ESCALATES_TO|EXPOSES*1..4]->(target)
                 RETURN COLLECT(DISTINCT {
                     id: target.id,
@@ -5354,7 +5354,7 @@ async def get_blast_radius(finding_id: str, engagement_id: str | None = None):
                     type: labels(target)[0],
                     distance: length(path)
                 }) AS reachable
-            """, fid=finding_id)
+            """, fid=finding_id, eid=engagement_id)
             record = result.single()
             reachable = record["reachable"] if record else []
             return [r for r in reachable if r.get("id")]
