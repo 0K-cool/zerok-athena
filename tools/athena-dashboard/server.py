@@ -2685,6 +2685,20 @@ async def create_finding(payload: FindingPayload):
             "timestamp": time.time(),
         })
 
+    # B52b: Defense-in-depth auto-screenshot for HIGH/CRITICAL findings.
+    # B52 (PR #66) added prompt mandates but agent compliance is historically
+    # spotty (B69 was the same class — agents ignoring prompt rules). This
+    # server-side hook fires _trigger_auto_screenshot for every HIGH/CRITICAL
+    # finding POSTed via this endpoint. The helper has built-in duplicate
+    # detection at server.py:2098-2115 (skips if a screenshot artifact already
+    # exists for the finding), so it's safe to call from both POST and PATCH
+    # paths. Fire-and-forget via asyncio.ensure_future — never blocks the
+    # response. Mirrors the existing PATCH-path call at server.py:8070.
+    if sev.value in ("critical", "high"):
+        asyncio.ensure_future(_trigger_auto_screenshot(
+            finding_id, payload.target or "", payload.engagement or "", "server"
+        ))
+
     return {"ok": True, "finding_id": finding_id}
 
 
