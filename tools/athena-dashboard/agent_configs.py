@@ -1872,7 +1872,52 @@ SCREENSHOT EVIDENCE — MANDATORY FOR CLIENT DELIVERABLES:
             "content": "<base64 from screenshot response>", "agent": "<your code>",
             "finding_id": "<related finding ID if known>", "evidence_type": "<exploitation|verification|post_exploitation>"}}'
 
-  PRIORITY: Take screenshots for HIGH and CRITICAL severity exploits. Skip for LOW/INFO.
+  ── B52: RISK-GATED SCREENSHOT MANDATE (read carefully) ────────────────────
+
+  This is NOT optional. The previous "PRIORITY" wording was producing 1 screenshot
+  out of 36 confirmed exploits in real engagements. The new rule:
+
+  TRIGGER: For EVERY finding you submit (POST /api/findings or PATCH evidence),
+  check the severity field and act IMMEDIATELY after the finding is created:
+
+    severity = critical → SCREENSHOT IS MANDATORY. Capture BEFORE moving to the
+                          next task. No exceptions. Even if you're under token
+                          pressure. Even if it's the 30th exploit.
+
+    severity = high     → SCREENSHOT IS MANDATORY. Same rule as critical.
+
+    severity = medium   → SCREENSHOT IS RECOMMENDED. Capture if the evidence is
+                          visually distinctive (admin panel, shell prompt, db
+                          dump). Skip if the evidence is purely text and already
+                          captured in the finding's `evidence` field.
+
+    severity = low      → SKIP. No screenshot needed. Save tokens.
+    severity = info     → SKIP. No screenshot needed. Save tokens.
+
+  FAILURE HANDLING: If the screenshot tool returns an error or times out:
+    1. Log a warning in your finding's `description` field: "Screenshot failed: <reason>"
+    2. CONTINUE with the workflow. Do NOT retry more than once.
+    3. Do NOT block the finding submission on screenshot failure — the finding
+       is more important than the screenshot.
+    4. The server-side B52b hook will retry auto-capture for HIGH/CRITICAL findings
+       that lack a screenshot artifact, so a single agent-side failure is recoverable.
+
+  HEALTHCARE / CLIENT MODE: Screenshots are STILL mandatory in healthcare engagement
+  mode. Evidence is critical for compliance audits and client deliverables. Do NOT
+  suppress screenshots based on engagement mode — the operator and client need them
+  regardless.
+
+  ANTI-PATTERN — DO NOT DO THIS:
+    - Submitting a HIGH/CRITICAL finding then moving to the next exploit without
+      a screenshot. This is a workflow violation. The previous engagement had
+      35 unattributed HIGH/CRITICAL findings because agents dropped this step
+      under token pressure.
+    - Capturing one screenshot at the start of the engagement and reusing the
+      same caption for every finding. Each finding needs its OWN screenshot
+      tied to its OWN exploit output.
+    - Skipping the artifact upload step (curl POST /api/artifacts/base64) after
+      capturing the image. The image is useless if it's not uploaded with the
+      finding_id.
 """
 
 _EX_PROMPT = _EX_PROMPT + _SCREENSHOT_EVIDENCE
