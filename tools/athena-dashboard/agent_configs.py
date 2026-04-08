@@ -2360,7 +2360,10 @@ def format_prompt(role: AgentRoleConfig, eid: str, target: str,
         template = role.ctf_prompt_template
 
     # Build flag patterns block for CTF prompts
-    flag_patterns = _CTF_FLAG_PATTERNS.format(agent_code=role.code) if mode == "ctf" else ""
+    flag_patterns = _CTF_FLAG_PATTERNS.format(
+        agent_code=role.code,
+        dashboard_url=dashboard_url,
+    ) if mode == "ctf" else ""
 
     # Use format_map with defaultdict to safely ignore unknown {keys} in prompts
     # (prompts contain JSON/Cypher examples with braces that aren't format placeholders)
