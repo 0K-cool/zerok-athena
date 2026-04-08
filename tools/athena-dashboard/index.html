@@ -9241,6 +9241,21 @@
         addTimelineEvent(msg);
         return;
       }
+      // B70b: handle the new engagement_failed broadcast (from B70 PR #62).
+      // If a /api/engagement/{eid}/start-ai call failed, the backend now
+      // sends this so the frontend can clear any cached preparing/active
+      // state. CTF banner cleanup belongs here too in case the failed
+      // start was a CTF mode attempt.
+      if (type === 'engagement_failed') {
+        if (ctfActive) {
+          ctfActive = false;
+          stopCtfTimer();
+          const ctfBar = document.getElementById('ctfBar');
+          if (ctfBar) ctfBar.classList.remove('active');
+        }
+        setCtrlState('idle');
+        return;
+      }
       if (type === 'ctf_flag_captured') {
         const chId = msg.challenge_id;
         if (ctfChallenges[chId]) ctfChallenges[chId].status = 'solved';
@@ -11644,6 +11659,17 @@
         window._stopRequested = false;
         window._engagementStopped = true;  // Prevent late tool events from restarting clock
         setCtrlState('idle');
+        // B70b: Stop the CTF MODE timer when the engagement terminates.
+        // Previously the timer only stopped on the explicit `ctf_stopped`
+        // event, which the backend doesn't always emit when an engagement
+        // is stopped via /api/engagement/{eid}/stop. Result: timer kept
+        // ticking past 34:37 on a stopped engagement.
+        if (ctfActive) {
+          ctfActive = false;
+          stopCtfTimer();
+          const ctfBar = document.getElementById('ctfBar');
+          if (ctfBar) ctfBar.classList.remove('active');
+        }
         // BUG-001: Reset Active Engagements KPI
         const kpiActive = document.getElementById('kpi-engagements');
         if (kpiActive) kpiActive.textContent = '0';
