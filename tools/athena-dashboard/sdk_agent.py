@@ -596,9 +596,9 @@ class AthenaAgentSession:
                 f"{self._budget_server_url}/api/chains/link",
                 json={
                     "engagement_id": self.engagement_id,
-                    "from_finding_id": from_id,
+                    "from_id": from_id,
                     "from_label": from_label,
-                    "to_finding_id": to_id,
+                    "to_id": to_id,
                     "to_label": to_label,
                     "relationship": relationship,
                     "description": description,
