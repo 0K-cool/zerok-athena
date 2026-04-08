@@ -8881,6 +8881,22 @@ async def delete_artifact(artifact_id: str):
     return {"ok": True, "artifact_id": artifact_id, "deleted_files": deleted_files}
 
 
+@app.get("/api/engagements/{eid}/artifacts")
+async def get_engagement_artifacts(
+    eid: str,
+    type: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+):
+    """List artifacts for an engagement (B72 fix). Thin wrapper over list_artifacts for REST path compat."""
+    return await list_artifacts(
+        engagement_id=eid,
+        type=type,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @app.delete("/api/engagements/{eid}/artifacts")
 async def delete_all_artifacts(eid: str):
     """Delete ALL artifacts and evidence packages for an engagement from Neo4j and disk."""
