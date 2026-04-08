@@ -2264,6 +2264,7 @@ async def create_finding(payload: FindingPayload):
         "504 gateway timeout", "500 internal server error", "connection refused",
         "connection timed out", "errno", "traceback (most recent call last)",
         '{"error":', "api validation error", "failed to fetch",
+        '{"detail":',  # B62: HTTP 404/422/etc Pydantic/FastAPI error JSON
     ]
     _title_lower = _title.lower()
     if any(pat in _title_lower for pat in _ERROR_PATTERNS):
@@ -2271,6 +2272,25 @@ async def create_finding(payload: FindingPayload):
             status_code=422,
             content={"error": f"Rejected: title looks like an API error, not a vulnerability: {_title[:100]}"}
         )
+
+    # B62: Reject status messages and operational chatter even when there's
+    # no agent code prefix. The original BUG-062 filter (below) only fires
+    # when the title starts with `^[A-Z]{2}\s+`, so no-agent submissions like
+    # `Strong signal (shell): {...}`, `agent_message: ...`, or
+    # `CVE(s) detected: ...` slip through. These patterns are unambiguous
+    # status/log content — never legitimate vulnerability titles — so we
+    # reject them regardless of whether an agent code is attached.
+    _NO_PREFIX_STATUS_PATTERNS = (
+        "strong signal (shell):",
+        "agent_message:",
+        "cve(s) detected:",
+    )
+    if any(_title_lower.startswith(pat) for pat in _NO_PREFIX_STATUS_PATTERNS):
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Rejected: title looks like an agent status message, not a vulnerability: {_title[:100]}"}
+        )
+
     if len(_title) < 5:
         return JSONResponse(
             status_code=422,
