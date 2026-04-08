@@ -3687,9 +3687,21 @@ def detect_flags(text: str) -> list[str]:
     return list(set(flags))  # Deduplicate
 
 
+def _resolve_eid(eid: str | None) -> str:
+    """BUG-068: Resolve engagement_id with fallback to active engagement.
+
+    Mirrors the B78d fix applied to get_lateral_movement.
+    Returns empty string if no engagement is active — caller MUST check
+    and return early (400 for write endpoints, empty list for read endpoints).
+    """
+    if eid:
+        return eid
+    return state.active_engagement_id or ""
+
+
 @app.post("/api/ctf/start")
 async def start_ctf_session(
-    engagement_id: str = "eng-001",
+    engagement_id: str | None = None,
     competition_name: str = "",
     time_limit_minutes: int = 0,
 ):
@@ -3700,6 +3712,10 @@ async def start_ctf_session(
     jeopardy-style flag capture with time pressure.
     """
     global _ctf_session
+
+    engagement_id = _resolve_eid(engagement_id)
+    if not engagement_id:
+        return JSONResponse(status_code=400, content={"error": "No active engagement"})
 
     _ctf_session = {
         "engagement_id": engagement_id,
@@ -4119,7 +4135,7 @@ async def detect_flags_in_text(text: str):
 
 
 @app.post("/api/ctf/benchmark/load")
-async def load_benchmark(file_path: str, engagement_id: str = "eng-001"):
+async def load_benchmark(file_path: str, engagement_id: str | None = None):
     """Load challenges from XBOW-format benchmark.json.
 
     Expected format per challenge:
@@ -4129,6 +4145,9 @@ async def load_benchmark(file_path: str, engagement_id: str = "eng-001"):
     The benchmark runner (external script) handles Docker compose up/down.
     This endpoint just loads the challenge metadata into ATHENA's CTF state.
     """
+    engagement_id = _resolve_eid(engagement_id)
+    if not engagement_id:
+        return JSONResponse(status_code=400, content={"error": "No active engagement"})
     bench_path = Path(file_path)
     if not bench_path.exists():
         return JSONResponse(status_code=404, content={
@@ -5096,10 +5115,14 @@ async def create_attack_chain(chain: AttackChain):
 
 
 @app.get("/api/chains")
-async def get_attack_chains(engagement_id: str = "eng-001"):
+async def get_attack_chains(engagement_id: str | None = None):
     """Get all attack chains for an engagement from Neo4j."""
     if not neo4j_available or not neo4j_driver:
         return {"chains": [], "message": "Neo4j unavailable"}
+
+    engagement_id = _resolve_eid(engagement_id)
+    if not engagement_id:
+        return {"chains": [], "error": "No active engagement"}
 
     chains = []
     def _get_chains():
@@ -5131,7 +5154,7 @@ async def get_attack_chains(engagement_id: str = "eng-001"):
 
 
 @app.get("/api/chains/graph")
-async def get_attack_graph(engagement_id: str = "eng-001"):
+async def get_attack_graph(engagement_id: str | None = None):
     """
     Get the full attack graph — all chain relationships for visualization.
 
@@ -5140,6 +5163,10 @@ async def get_attack_graph(engagement_id: str = "eng-001"):
     """
     if not neo4j_available or not neo4j_driver:
         return {"nodes": [], "edges": [], "message": "Neo4j unavailable"}
+
+    engagement_id = _resolve_eid(engagement_id)
+    if not engagement_id:
+        return {"nodes": [], "edges": [], "error": "No active engagement"}
 
     nodes = {}
     edges = []
@@ -5207,7 +5234,7 @@ async def get_attack_graph(engagement_id: str = "eng-001"):
 
 @app.get("/api/chains/shortest-path")
 async def get_shortest_attack_path(
-    engagement_id: str = "eng-001",
+    engagement_id: str | None = None,
     from_id: str = "",
     to_id: str = "",
 ):
@@ -5219,6 +5246,10 @@ async def get_shortest_attack_path(
     """
     if not neo4j_available or not neo4j_driver:
         return {"path": [], "message": "Neo4j unavailable"}
+
+    engagement_id = _resolve_eid(engagement_id)
+    if not engagement_id:
+        return {"path": [], "error": "No active engagement"}
 
     def _get_path():
         with neo4j_driver.session() as session:
@@ -5274,7 +5305,7 @@ async def get_shortest_attack_path(
 
 
 @app.get("/api/chains/blast-radius")
-async def get_blast_radius(finding_id: str, engagement_id: str = "eng-001"):
+async def get_blast_radius(finding_id: str, engagement_id: str | None = None):
     """
     Calculate the blast radius of a specific finding.
 
@@ -5283,6 +5314,10 @@ async def get_blast_radius(finding_id: str, engagement_id: str = "eng-001"):
     """
     if not neo4j_available or not neo4j_driver:
         return {"reachable": [], "message": "Neo4j unavailable"}
+
+    engagement_id = _resolve_eid(engagement_id)
+    if not engagement_id:
+        return {"reachable": [], "error": "No active engagement"}
 
     def _get_blast_radius():
         with neo4j_driver.session() as session:
@@ -5676,13 +5711,16 @@ async def _auto_detect_chains(eid: str) -> dict:
 
 
 @app.post("/api/chains/auto-detect")
-async def trigger_chain_detection(engagement_id: str = "eng-001"):
+async def trigger_chain_detection(engagement_id: str | None = None):
     """Manually trigger attack chain auto-detection for an engagement.
 
     Analyzes all findings, detects chaining opportunities, and creates
     Neo4j relationships + AttackChain nodes. Idempotent (MERGE).
     """
     global _last_chain_detect
+    engagement_id = _resolve_eid(engagement_id)
+    if not engagement_id:
+        return JSONResponse(status_code=400, content={"error": "No active engagement"})
     # Reset debounce for manual trigger
     _last_chain_detect = 0.0
     result = await _auto_detect_chains(engagement_id)
