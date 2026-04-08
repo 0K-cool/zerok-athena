@@ -5313,11 +5313,20 @@ async def get_blast_radius(finding_id: str, engagement_id: str = "eng-001"):
 
 
 @app.get("/api/chains/lateral")
-async def get_lateral_movement(engagement_id: str = "eng-001"):
+async def get_lateral_movement(engagement_id: str | None = None):
     """
     Find lateral movement opportunities — compromised hosts that can
     reach untested hosts/services.
     """
+    # B78d: drop the legacy hardcoded "eng-001" default. Fall back to the
+    # currently active engagement so the endpoint can be called without
+    # query params. If no engagement is active, return empty + error so
+    # callers see a clean failure instead of a silent wrong result.
+    if not engagement_id:
+        engagement_id = state.active_engagement_id or ""
+    if not engagement_id:
+        return {"opportunities": [], "error": "No active engagement"}
+
     if not neo4j_available or not neo4j_driver:
         return {"opportunities": [], "message": "Neo4j unavailable"}
 
