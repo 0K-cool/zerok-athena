@@ -5294,20 +5294,20 @@ async def get_lateral_movement(engagement_id: str = "eng-001"):
     def _get_lateral():
         with neo4j_driver.session() as session:
             result = session.run("""
-                MATCH (h1:Host {compromised: true})-[:PIVOTS_TO|NETWORK_ACCESS]->(h2:Host)
-                WHERE NOT h2.compromised
+                MATCH (h1:Host)-[:PIVOTS_TO|NETWORK_ACCESS]->(h2:Host)
+                WHERE h1.engagement_id = $eid AND h2.engagement_id = $eid
                 OPTIONAL MATCH (h2)-[:HAS_SERVICE]->(s:Service)
                 WHERE NOT s.tested = true
-                RETURN h1.id AS from_host,
-                       COALESCE(h1.hostname, h1.ip, h1.id) AS from_label,
-                       h2.id AS to_host,
-                       COALESCE(h2.hostname, h2.ip, h2.id) AS to_label,
+                RETURN h1.ip AS from_host,
+                       COALESCE(h1.hostname, h1.ip) AS from_label,
+                       h2.ip AS to_host,
+                       COALESCE(h2.hostname, h2.ip) AS to_label,
                        COLLECT(DISTINCT {
                            id: s.id,
                            name: s.name,
                            port: s.port
                        }) AS untested_services
-            """)
+            """, eid=engagement_id)
             opps = []
             for record in result:
                 services = [s for s in record["untested_services"] if s.get("id")]
