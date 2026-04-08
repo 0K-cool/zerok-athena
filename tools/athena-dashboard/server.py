@@ -12717,13 +12717,14 @@ async def start_engagement_ai(
         timestamp=time.time(),
     ))
 
-    await state.broadcast({
-        "type": "engagement_started",
-        "engagement_id": eid,
-        "mode": "ai-ctf" if is_ctf else ("ai-autonomous" if mode == "autonomous" else "ai-multi-agent"),
-        "engagement_active": True,
-        "timestamp": time.time(),
-    })
+    # B70: defer the engagement_started broadcast until AFTER all failable
+    # operations succeed. Previously this broadcast fired here (before CTF
+    # init, session manager creation, and _active_session_manager.start()),
+    # so when any of those failed (e.g. B65's KeyError), the frontend had
+    # already cached the CTF MODE banner state with no way to know the
+    # start actually failed. The broadcast is now emitted at the end of the
+    # function after the success path is confirmed, with a corrective
+    # `engagement_failed` broadcast in the except clause for failure paths.
 
     athena_dir = str(Path(__file__).resolve().parent.parent.parent)
 
@@ -12902,9 +12903,29 @@ Body: {{"agent":"{_start_agent}","task":"{_start_task}","priority":"high"}}
         await _active_session_manager.start(initial_st_context=st_context)
     except Exception as e:
         _active_session_manager = None
+        # B70: corrective broadcast so the frontend explicitly clears any
+        # cached preparing/started state when the start failed.
+        await state.broadcast({
+            "type": "engagement_failed",
+            "engagement_id": eid,
+            "engagement_active": False,
+            "error": f"Multi-agent session failed to start: {str(e)[:300]}",
+            "timestamp": time.time(),
+        })
         return JSONResponse(status_code=500, content={
             "error": f"Multi-agent session failed to start: {str(e)[:300]}"
         })
+
+    # B70: emit engagement_started ONLY after the session has actually started
+    # successfully. The mode field is computed from the live state at this
+    # point, not from the early `is_ctf` decision before failable operations.
+    await state.broadcast({
+        "type": "engagement_started",
+        "engagement_id": eid,
+        "mode": "ai-ctf" if is_ctf else ("ai-autonomous" if mode == "autonomous" else "ai-multi-agent"),
+        "engagement_active": True,
+        "timestamp": time.time(),
+    })
 
     if is_ctf:
         started_content = f"CTF session started. ST coordinating flag capture against {target}."
