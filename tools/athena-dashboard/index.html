@@ -492,8 +492,9 @@
     }
 
     .sidebar.collapsed .engagement-status-dot {
-      width: 8px;
-      height: 8px;
+      /* B63: hide the engagement dot in collapsed sidebar — previous rule
+         only resized to 8x8, which still overflowed the icon-only rail. */
+      display: none;
     }
 
     .section-badge {
@@ -2513,7 +2514,11 @@
 
     .sidebar.collapsed .host-sub-list,
     .sidebar.collapsed .host-toggle {
-      display: none;
+      /* B63: !important to defeat any inline-style or specificity issues
+         from the dynamic JS insertion at line ~13483 (host-toggle is
+         appended via .after() and was reportedly leaking through despite
+         this rule existing). */
+      display: none !important;
     }
 
     .host-sub-list.collapsed {
