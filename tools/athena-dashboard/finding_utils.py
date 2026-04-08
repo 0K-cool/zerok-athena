@@ -8,6 +8,76 @@ import hashlib
 import re as _re_fp
 
 
+# B58 Layer 1: normalization patterns for fingerprint input.
+# Applied to titles and targets BEFORE the 5-tier hash computation so that
+# cross-agent duplicates (where WV and EX report the same vuln with slightly
+# different wording) collapse into the same fingerprint. Previously Tier 5
+# (normalized-title fallback) only collapsed whitespace, which meant titles
+# that differed in IP/port/agent-prefix leaked through as separate findings.
+#
+# Examples of duplicates this catches:
+#   "[EX] SSH Default Credentials on 10.1.1.25:22" → "ssh default credentials"
+#   "VF verified: SSH default creds"               → "ssh default creds"
+#   "SSH Default Credentials (root/root)"          → "ssh default credentials (root/root)"
+#
+# These three titles now share the same normalized form (when combined with
+# the same service + host + port in Tier 4) and dedupe correctly.
+_FP_IP_RE = _re_fp.compile(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b')
+_FP_PORT_COLON_RE = _re_fp.compile(r':\d{1,5}\b')
+_FP_PORT_WORD_RE = _re_fp.compile(r'\bport\s*\d{1,5}\b', _re_fp.IGNORECASE)
+_FP_AGENT_PREFIX_RE = _re_fp.compile(
+    r'^(?:\[[A-Z]{2}\]|[A-Z]{2}:|[A-Z]{2}\s*-\s*)\s*', _re_fp.IGNORECASE
+)
+_FP_STATUS_MARKER_RE = _re_fp.compile(
+    r'^(?:vf\s+verified:|confirmed:|verified:|exploit\s+confirmed:)\s*',
+    _re_fp.IGNORECASE,
+)
+_FP_WHITESPACE_RE = _re_fp.compile(r'\s+')
+
+
+def _normalize_title_for_fingerprint(title: str) -> str:
+    """B58 Layer 1: normalize a finding title so cross-agent dupes collapse.
+
+    Strips IP addresses, port numbers, agent prefixes, and status markers
+    from the title. Returns a lowercased whitespace-collapsed canonical form
+    suitable for hashing in Tier 4 keyword matching and Tier 5 title fallback.
+    """
+    if not title:
+        return ""
+    s = title
+    # Strip leading agent prefix (e.g. "[EX] ", "WV:", "EX - ")
+    s = _FP_AGENT_PREFIX_RE.sub('', s)
+    # Strip leading status marker (e.g. "VF verified:", "Confirmed:")
+    s = _FP_STATUS_MARKER_RE.sub('', s)
+    # Strip IP addresses so "SSH on 10.1.1.25" == "SSH on 10.1.1.31"
+    s = _FP_IP_RE.sub('', s)
+    # Strip port colons first (":22"), then port words ("port 22")
+    s = _FP_PORT_COLON_RE.sub('', s)
+    s = _FP_PORT_WORD_RE.sub('', s)
+    # Lowercase + collapse whitespace
+    s = _FP_WHITESPACE_RE.sub(' ', s.lower()).strip()
+    return s
+
+
+def _normalize_target_for_fingerprint(target: str) -> str:
+    """B58 Layer 1: normalize a target URL/host to a canonical host:port form.
+
+    Strips URL scheme (http://, https://) and path/query/fragment so that
+    "http://10.1.1.25:8080/admin" and "10.1.1.25:8080" hash identically.
+    """
+    if not target:
+        return ""
+    s = target.strip()
+    # Strip URL scheme
+    if '://' in s:
+        s = s.split('://', 1)[1]
+    # Strip path/query/fragment (everything after first / ? or #)
+    for sep in ('/', '?', '#'):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+    return s.lower().strip()
+
+
 def _compute_finding_fingerprint(
     engagement_id: str, title: str, target: str,
     cve: str | None, host_ip: str | None, service_port: int | None,
@@ -134,8 +204,13 @@ def _compute_finding_fingerprint(
         return hashlib.sha256(key.encode()).hexdigest()[:16]
 
     # Tier 5: Normalized title fallback (last resort — different titles = different findings)
-    title_norm = " ".join(title_lower.split())
-    target_norm = (target or "").lower().strip()
+    # B58 Layer 1: Use aggressive normalization (strip IPs, ports, agent prefixes,
+    # status markers) so cross-agent dupes with slightly different wording collapse
+    # to the same fingerprint. Previously this tier only collapsed whitespace,
+    # which let ~12 duplicates per engagement slip through when agents phrased
+    # the same vuln differently.
+    title_norm = _normalize_title_for_fingerprint(title or "")
+    target_norm = _normalize_target_for_fingerprint(target or "")
     key = f"{engagement_id}|{title_norm}|{target_norm}"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
