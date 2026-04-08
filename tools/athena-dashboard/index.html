@@ -11771,9 +11771,17 @@
             // Fetch final engagement summary and display it in the timeline
             // 3s delay gives SDK agents time to flush final Neo4j writes
             if (currentEngagementId) {
-                fetch(`/api/engagements/${currentEngagementId}/summary`)
-                    .then(r => r.json())
-                    .then(summary => {
+                // B60: fetch BOTH /summary and /exploit-stats in parallel so the
+                // "Exploits Confirmed" count comes from the canonical deduped
+                // source (/exploit-stats.confirmed_exploits, same value the
+                // gauge displays) instead of a possibly-stale read of the
+                // gauge DOM element at summary-generation time. This ensures
+                // the summary and the gauge always show the same count.
+                Promise.all([
+                    fetch(`/api/engagements/${currentEngagementId}/summary`).then(r => r.json()),
+                    fetch(`/api/engagements/${currentEngagementId}/exploit-stats`).then(r => r.json()).catch(() => ({ confirmed_exploits: 0 })),
+                ])
+                    .then(([summary, exploitStats]) => {
                         const timeline = document.getElementById('aiTimeline');
                         if (!timeline) return;
                         const now = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -11781,12 +11789,15 @@
                         el.className = 'timeline-event';
                         el.setAttribute('data-agent', 'RP');
                         const sevCounts = summary.severity || {};
+                        // B60: Use /exploit-stats.confirmed_exploits (CVE-deduped) as the
+                        // canonical source, matching the gauge's display value.
+                        const confirmedExploits = (exploitStats && exploitStats.confirmed_exploits) || 0;
                         const summaryText = `**Engagement Summary (Auto-Generated)**\n\n` +
                             `- **Hosts:** ${summary.hosts || 0}\n` +
                             `- **Services:** ${summary.services || 0}\n` +
                             `- **Vulnerabilities:** ${summary.vulnerabilities || 0}\n` +
                             `- **Findings:** ${summary.findings || 0}\n` +
-                            `- **Exploits Confirmed:** ${document.getElementById('gauge-val-confirmed')?.textContent || 0}\n\n` +
+                            `- **Exploits Confirmed:** ${confirmedExploits}\n\n` +
                             `**Severity Breakdown:** ` +
                             `${sevCounts.critical || 0} Critical, ` +
                             `${sevCounts.high || 0} High, ` +
@@ -11807,16 +11818,21 @@
                         const dashFindings = parseInt(document.getElementById('kpi-findings')?.textContent || '0');
                         if ((summary.findings || 0) === 0 && dashFindings > 0) {
                             setTimeout(() => {
-                                fetch(`/api/engagements/${currentEngagementId}/summary`)
-                                    .then(r => r.json())
-                                    .then(updated => {
+                                // B60: retry path also reads Exploits Confirmed from /exploit-stats
+                                // (deduped canonical source), matching the initial-generation path.
+                                Promise.all([
+                                    fetch(`/api/engagements/${currentEngagementId}/summary`).then(r => r.json()),
+                                    fetch(`/api/engagements/${currentEngagementId}/exploit-stats`).then(r => r.json()).catch(() => ({ confirmed_exploits: 0 })),
+                                ])
+                                    .then(([updated, exploitStatsRetry]) => {
                                         const sevU = updated.severity || {};
+                                        const confirmedExploitsRetry = (exploitStatsRetry && exploitStatsRetry.confirmed_exploits) || 0;
                                         const lines = [
                                             `- **Hosts:** ${updated.hosts || 0}`,
                                             `- **Services:** ${updated.services || 0}`,
                                             `- **Vulnerabilities:** ${updated.vulnerabilities || 0}`,
                                             `- **Findings:** ${updated.findings || 0}`,
-                                            `- **Exploits Confirmed:** ${document.getElementById('gauge-val-confirmed')?.textContent || 0}`,
+                                            `- **Exploits Confirmed:** ${confirmedExploitsRetry}`,
                                             ``,
                                             `**Severity Breakdown:** ${sevU.critical || 0} Critical, ${sevU.high || 0} High, ${sevU.medium || 0} Medium, ${sevU.low || 0} Low`
                                         ];
