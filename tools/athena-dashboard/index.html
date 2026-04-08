@@ -11128,7 +11128,11 @@
       if (_vcc2) _vcc2.innerHTML = '<div style="text-align:center;padding:48px 0;color:var(--zerok-text-dim);font-size:12px;">Loading vulnerabilities...</div>';
 
       try {
-        const res = await fetch('/api/engagements/' + currentEngagementId + '/findings');
+        // B56: bump limit so engagements with > 100 findings aren't silently truncated.
+        // The default server-side limit on /api/engagements/{eid}/findings is 100;
+        // that meant a dashboard showing 128 unique vulns saw the vulnerabilities view
+        // grouping only the first 100. 10000 covers any realistic engagement scope.
+        const res = await fetch('/api/engagements/' + currentEngagementId + '/findings?limit=10000');
         const data = await res.json();
         const findings = Array.isArray(data) ? data : (data.findings || []);
 
@@ -12498,6 +12502,9 @@
       if (openPortsVal) openPortsVal.textContent = '0';
       // Reset findings accumulator
       window._dashFindingsAccum = [];
+      // B61: also reset the findings-view cache so switchView cache-reuse
+      // can't show stale data from a previous engagement
+      allFindings = [];
       // Reset OWASP cells
       document.querySelectorAll('[data-owasp]').forEach(cell => {
         cell.classList.remove('covered');
@@ -14543,9 +14550,20 @@
         }
       });
 
-      // Load data for view
+      // Load data for view.
+      // B61: for the findings view, when allFindings already has data for the
+      // current engagement (populated by a prior load or loadDashboardFromAPI),
+      // render from the cached array instantly instead of firing a fresh fetch
+      // that shows a 1–3 second empty-state flash. allFindings is cleared on
+      // engagement switch at resetDashboardFindingWidgets() so stale data
+      // cannot leak between engagements. Vulnerabilities view already has its
+      // own "Loading vulnerabilities..." placeholder so its flash is bounded.
       if (viewName === 'findings') {
-        loadFindings();
+        if (allFindings && allFindings.length > 0 && currentEngagementId) {
+          renderFindings(allFindings);
+        } else {
+          loadFindings();
+        }
       } else if (viewName === 'vulnerabilities') {
         loadVulnerabilities();
       } else if (viewName === 'scans') {
@@ -14616,8 +14634,18 @@
       var _efc = document.getElementById('eng-findings-count');
       if (_efc) _efc.textContent = '—';
 
+      // B55: AbortController timeout so a hanging fetch hits the catch block
+      // instead of leaving "Loading engagements..." visible indefinitely.
+      // Previously, if the API never returned (e.g. Neo4j stall), neither the
+      // success path nor the catch path fired — the tbody stayed at its static
+      // "Loading engagements..." placeholder forever. 8-second cap is generous
+      // enough for normal responses and short enough that the user sees an
+      // error state rather than a hang.
+      const _engAbortCtrl = new AbortController();
+      const _engTimeoutId = setTimeout(() => _engAbortCtrl.abort(), 8000);
       try {
-        const res = await fetch('/api/engagements?include_archived=true');
+        const res = await fetch('/api/engagements?include_archived=true', { signal: _engAbortCtrl.signal });
+        clearTimeout(_engTimeoutId);
         const engData = await res.json();
         allEngagementsData = engData.engagements || engData;
 
@@ -14637,9 +14665,14 @@
 
         renderEngagementsTable(allEngagementsData);
       } catch (e) {
-        console.error('Failed to load engagements:', e);
+        clearTimeout(_engTimeoutId);
+        const isAbort = (e && e.name === 'AbortError');
+        console.error('Failed to load engagements:', isAbort ? 'timeout after 8s (check Neo4j/server)' : e);
         document.getElementById('engagementsTableBody').innerHTML =
           '<tr><td colspan="8" style="text-align: center; padding: 40px; color: var(--zerok-critical);">Failed to load engagements</td></tr>';
+        // B55: reset KPI '—' placeholders to 0 so the error state is unambiguous
+        ['eng-total-count','eng-pending-count','eng-active-count','eng-completed-count','eng-findings-count']
+          .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '0'; });
       }
     }
 
