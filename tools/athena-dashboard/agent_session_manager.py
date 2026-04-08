@@ -553,6 +553,18 @@ class AgentSessionManager:
                         finding_state = "confirmed"
                         is_confirmed_state = True
 
+                    # B68 FIX: Drop bus messages whose summaries are known pipeline noise.
+                    # These patterns survive CatchAllHeuristic but are not real findings.
+                    _BUS_NOISE_SUMMARIES = (
+                        "strong signal (shell): {",   # HTTP error JSON captured as shell signal
+                        "agent_message:",              # Agent log prefix leaked into finding summary
+                    )
+                    _summary_lower = (msg.summary or "").lower()
+                    if any(_summary_lower.startswith(pat.lower()) for pat in _BUS_NOISE_SUMMARIES):
+                        logger.debug("Bus->Neo4j: dropped noise summary from %s: %s",
+                                     msg.from_agent, (msg.summary or "")[:80])
+                        return
+
                     def _persist():
                         with driver.session() as sess:
                             # 1. Create/update Finding node
@@ -593,6 +605,9 @@ class AgentSessionManager:
                                 "        CASE WHEN $agent IN coalesce(f.contributing_agents, []) "
                                 "        THEN f.contributing_agents "
                                 "        ELSE coalesce(f.contributing_agents, []) + [$agent] END, "
+                                "    f.agent = CASE WHEN f.agent IS NULL THEN $agent "
+                                "               WHEN $agent = 'VF' THEN $agent "
+                                "               ELSE f.agent END, "
                                 "    f.timestamp = datetime()",
                                 id=finding_id,
                                 title=msg.summary[:200],
