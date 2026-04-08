@@ -5176,9 +5176,13 @@ async def get_attack_graph(engagement_id: str | None = None):
         _edges = []
         with neo4j_driver.session() as session:
             # Get all chain relationships for this engagement
+            # BUG-070: route rel_type.value through _safe_rel_type() so the
+            # f-string interpolation site is hardened against any future
+            # refactor that might let user-controlled input reach this loop.
             for rel_type in AttackRelationType:
+                safe_rel = _safe_rel_type(rel_type.value)
                 result = session.run(f"""
-                    MATCH (a)-[r:{rel_type.value}]->(b)
+                    MATCH (a)-[r:{safe_rel}]->(b)
                     WHERE (a:Finding AND a.engagement_id = $eid)
                        OR (a:Host AND a.engagement_id = $eid)
                        OR r.chain_id IS NOT NULL
