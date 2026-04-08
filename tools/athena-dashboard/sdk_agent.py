@@ -398,6 +398,7 @@ class AthenaAgentSession:
         # Real-time bus: set via create_for_role() when MessageBus is available
         self._bus = None
         self._pending_injection: str = ""
+        self._engagement_mode: str = "pentest"
         # Fix 9: Track latest finding_id for exploitation evidence linking
         self._last_finding_id: str = ""
 
@@ -426,6 +427,7 @@ class AthenaAgentSession:
         athena_root: str | Path = "",
         prior_context: str = "",
         bus=None,
+        mode: str = "pentest",
     ) -> "AthenaAgentSession":
         """Create a session configured for a specific agent role.
 
@@ -448,6 +450,7 @@ class AthenaAgentSession:
         session._role_config = role
         session._role_prior_context = prior_context
         session._bus = bus
+        session._engagement_mode = mode
         # Set the current agent code so events are attributed correctly
         session._current_agent = role.code
         logger.info("Agent %s workspace: %s (model=%s, budget=$%.2f)",
@@ -1221,6 +1224,7 @@ class AthenaAgentSession:
             role_prompt = format_prompt(
                 role, self.engagement_id, self.target,
                 self.backend, self._role_prior_context,
+                mode=self._engagement_mode,
             )
 
             prompt_append = (
