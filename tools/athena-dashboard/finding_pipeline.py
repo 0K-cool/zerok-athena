@@ -168,6 +168,26 @@ _SERVICE_RE = re.compile(
     re.IGNORECASE)
 _LOCALHOST = {"127.0.0.1", "0.0.0.0", "localhost"}
 
+
+def _is_version_string_ip(ip: str | None) -> bool:
+    """B53: Return True if the IP looks like a version string (all 4 octets < 20).
+
+    The _IP_RE pattern captures dotted-quad numbers without distinguishing real
+    IPs from software version banners like Samba `3.2.8.1` or UnrealIRCd `3.2.8.1`.
+    Without this filter, the finding pipeline creates findings with `host_ip="3.2.8.1"`
+    that get MERGED as phantom Host nodes in Neo4j. Mirrors the same-named helper
+    at server.py:2027.
+    """
+    if not ip:
+        return False
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        return all(int(p) < 20 for p in parts)
+    except ValueError:
+        return False
+
 # Credential patterns for scanner output (hydra, crackmapexec, etc.)
 _CRED_RE = re.compile(
     r'(?:login|user(?:name)?)\s*[:=]\s*(\S+)\s+'
@@ -251,8 +271,8 @@ class ScannerExtractor:
             cves = list(set(cve_matches))[:5]
             ip_match = _IP_RE.search(output)
             target = ip_match.group(1) if ip_match else None
-            if target in _LOCALHOST:
-                target = None
+            if target in _LOCALHOST or _is_version_string_ip(target):
+                target = None  # B53: drop version-string IPs (e.g. Samba 3.2.8.1)
             findings.append(FindingSchema(
                 finding_type="cve",
                 confidence=CONFIDENCE_HIGH,
@@ -275,8 +295,8 @@ class ScannerExtractor:
             port_list = [(p, s) for p, s in ports][:10]
             ip_match = _IP_RE.search(output)
             target = ip_match.group(1) if ip_match else None
-            if target in _LOCALHOST:
-                target = None
+            if target in _LOCALHOST or _is_version_string_ip(target):
+                target = None  # B53
             port_str = ", ".join(f"{p}/{s}" for p, s in port_list)
             findings.append(FindingSchema(
                 finding_type="open_port",
@@ -306,6 +326,8 @@ class ScannerExtractor:
         if _CRED_RE.search(output) or any(kw in output_lower for kw in _CRED_KEYWORDS):
             ip_match = _IP_RE.search(output)
             target = ip_match.group(1) if ip_match else None
+            if _is_version_string_ip(target):  # B53
+                target = None
             findings.append(FindingSchema(
                 finding_type="credential",
                 confidence=CONFIDENCE_HIGH,
@@ -324,7 +346,7 @@ class ScannerExtractor:
             services = [f"{s} {v}".strip() for s, v in svc_matches[:5]]
             ip_match = _IP_RE.search(output)
             target = ip_match.group(1) if ip_match else None
-            if target not in _LOCALHOST:
+            if target not in _LOCALHOST and not _is_version_string_ip(target):  # B53
                 findings.append(FindingSchema(
                     finding_type="service",
                     confidence=CONFIDENCE_MEDIUM,
@@ -382,8 +404,8 @@ class CatchAllHeuristic:
                 seen_types.add(finding_type)
                 ip_match = _IP_RE.search(output)
                 target = ip_match.group(1) if ip_match else None
-                if target in _LOCALHOST:
-                    target = None
+                if target in _LOCALHOST or _is_version_string_ip(target):
+                    target = None  # B53
 
                 summary = f"Strong signal ({finding_type}): {output[:200]}"
                 cves = []
