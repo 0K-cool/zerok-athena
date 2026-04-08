@@ -2210,9 +2210,44 @@ async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: 
             # NOTE: _ip_obj.is_private is NOT rejected — RFC 1918 ranges are
             # legitimate pentest targets on internal engagements.
         except ValueError:
-            # Not a literal IP — it's a hostname. Allow it but strip path/query
-            # via the rebuild below. A future hardening could resolve + check.
-            pass
+            # B52d: Not a literal dotted-quad IP. Could be:
+            # (a) Alternative IP notation (0xA9FEA9FE hex, 0177.0.0.1 octal,
+            #     2130706433 decimal integer, 127.1 shorthand) — Python's
+            #     ipaddress rejects these but OS getaddrinfo resolves them.
+            # (b) Actual DNS hostname that resolves to an IP.
+            # Resolve via socket.inet_aton (handles alt notations) AND
+            # socket.getaddrinfo (handles hostnames), then re-check every
+            # resolved address against the same blocklist. DNS rebinding
+            # is out of scope for this fix — separate hardening pass.
+            import socket as _socket
+            _resolved_addrs = []
+            try:
+                _packed = _socket.inet_aton(_hostname)
+                _resolved_addrs.append(_socket.inet_ntoa(_packed))
+            except OSError:
+                pass
+            try:
+                for _info in _socket.getaddrinfo(_hostname, None):
+                    _sockaddr = _info[4]
+                    if _sockaddr and _sockaddr[0]:
+                        _resolved_addrs.append(_sockaddr[0])
+            except (OSError, _socket.gaierror):
+                pass
+            for _addr in _resolved_addrs:
+                if _addr in _METADATA_HOSTS:
+                    logger.warning("B52d: auto-screenshot SSRF guard rejected %s (resolves to metadata %s) for %s",
+                                   _hostname, _addr, finding_id)
+                    return
+                try:
+                    _resolved_ip_obj = _ipaddr.ip_address(_addr)
+                    if (_resolved_ip_obj.is_loopback or _resolved_ip_obj.is_link_local
+                            or _resolved_ip_obj.is_multicast or _resolved_ip_obj.is_reserved
+                            or _resolved_ip_obj.is_unspecified):
+                        logger.warning("B52d: auto-screenshot SSRF guard rejected %s (resolves to %s - loopback/link-local) for %s",
+                                       _hostname, _addr, finding_id)
+                        return
+                except ValueError:
+                    continue
         _parsed_port = _parsed.port
 
         # Build URL with correct port — uses validated components from the SSRF
