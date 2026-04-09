@@ -2314,6 +2314,19 @@ async def _trigger_auto_screenshot(finding_id: str, target: str, engagement_id: 
 _SEV_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 _STATUS_RANK = {"open": 0, "discovered": 1, "confirmed": 2}
 
+# Module-level constant (promoted from get_exploit_stats in B96 fix)
+# Patterns that are NOT real exploits — summaries, batch reports, bus noise
+_NOT_EXPLOIT_PATTERNS = (
+    'strong signal (shell)',     # Raw bus JSON dumps
+    'vf verified',               # VF summary reports
+    'false positive',            # FP corrections
+    'correction:',               # Finding corrections
+    'retracted',                 # Retracted findings
+    'cves detected',             # Batch CVE listings
+    'cve(s) detected',           # Variant
+    'new confirmed:',            # Batch confirmation summaries
+)
+
 
 from finding_utils import _compute_finding_fingerprint, _canonical_cve
 
@@ -6700,15 +6713,29 @@ async def get_engagement_summary(eid: str):
                     # Previously used keyword+agent+evidence heuristics which gave a
                     # higher count than exploit-stats, causing KPI mismatch.
                     # Now aligned: both /summary and /exploit-stats count the same way.
+                    # B96: Apply CVE-level dedup to match /exploit-stats counting.
+                    # Previously mem_exploits counted raw findings, causing /summary to return 26
+                    # while /exploit-stats returned 23 after dedup. Now both use the same logic.
                     mem_exploits = 0
+                    seen_exploit_keys = set()
                     for f in mem_findings:
                         s = f.severity.value if hasattr(f.severity, 'value') else str(f.severity).lower()
                         if s in mem_sev:
                             mem_sev[s] += 1
                         has_confirmed_ts = bool(getattr(f, 'confirmed_at', None))
                         verification = getattr(f, 'verification_status', '') or ''
-                        if has_confirmed_ts or verification in ('confirmed', 'likely'):
-                            mem_exploits += 1
+                        if not (has_confirmed_ts or verification in ('confirmed', 'likely')):
+                            continue
+                        title = (f.title or '').lower()
+                        if any(pat in title for pat in _NOT_EXPLOIT_PATTERNS):
+                            continue
+                        host = getattr(f, 'target', '') or getattr(f, 'host_ip', '') or ''
+                        key = _dedup_key(title, host)
+                        if key and key in seen_exploit_keys:
+                            continue
+                        if key:
+                            seen_exploit_keys.add(key)
+                        mem_exploits += 1
                     # BUG-039 FIX: Monotonic increase for services/ports during active engagement.
                     # Use a high-water mark so the KPI never decreases during a pentest.
                     services_now = max(neo4j_services, mem_ports)
@@ -7007,6 +7034,13 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
                         ORDER BY v.cvss DESC
                     """, eid=eid)
 
+                    # B98: Track vulnerability fingerprints to dedup clones.
+                    # The Cypher query filters vuln-vs-finding duplicates but not
+                    # vuln-vs-vuln, so two Vulnerability nodes with identical
+                    # (title, target, cve) both leaked into the findings list.
+                    # Read-side dedup here masks the upstream dual-write; the
+                    # underlying write path still needs investigation (separate task).
+                    seen_vuln_fps: set[str] = set()
                     for record in vuln_result:
                         vuln_id = record.get("id")
                         if not vuln_id:
@@ -7015,6 +7049,23 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
                         t = record.get("target", "")
                         if t:
                             host_part = t.split(":")[0] if ":" in t else t
+                        # B97: Compute fingerprint for Vulnerability-derived findings
+                        # so they can be deduped by B58 Layer 1. Previously hardcoded
+                        # None, which let duplicate Vulnerability nodes leak into the
+                        # findings list with no dedup protection.
+                        vuln_fp = _compute_finding_fingerprint(
+                            eid,
+                            record.get("title") or "",
+                            t or "",
+                            _canonical_cve(record.get("cve")),
+                            host_part,
+                            None,  # service_port unknown at vuln level
+                        )
+                        # B98: Skip duplicate Vulnerability nodes (same fingerprint).
+                        if vuln_fp and vuln_fp in seen_vuln_fps:
+                            continue
+                        if vuln_fp:
+                            seen_vuln_fps.add(vuln_fp)
                         findings.append({
                             "id": vuln_id,
                             "title": record["title"],
@@ -7027,7 +7078,7 @@ async def get_engagement_findings(eid: str, host_ip: str = None, severity: str =
                             "evidence_count": 0,
                             "cve": record.get("cve"),
                             "host_ip": host_part,
-                            "fingerprint": None,
+                            "fingerprint": vuln_fp,
                         })
 
                     # BUG-042 fix: Merge in-memory findings not yet persisted to Neo4j
@@ -7243,17 +7294,8 @@ async def get_exploit_stats(eid: str, host_ip: str = None):
     Optional query params:
     - host_ip: scope all stats to a specific host IP
     """
-    # Patterns that are NOT real exploits — summaries, batch reports, bus noise
-    NOT_EXPLOIT_PATTERNS = (
-        'strong signal (shell)',     # Raw bus JSON dumps
-        'vf verified',               # VF summary reports
-        'false positive',            # FP corrections
-        'correction:',               # Finding corrections
-        'retracted',                 # Retracted findings
-        'cves detected',             # Batch CVE listings
-        'cve(s) detected',           # Variant
-        'new confirmed:',            # Batch confirmation summaries
-    )
+    # B96: Use module-level _NOT_EXPLOIT_PATTERNS (promoted from local constant)
+    # so /summary and /exploit-stats share the exact same filter set.
     discovered = 0
     confirmed = 0
     by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0}
@@ -7302,7 +7344,7 @@ async def get_exploit_stats(eid: str, host_ip: str = None):
                     for ex in (record["exploit_details"] or []):
                         title = ex.get("title") or ""
                         # Filter out batch summaries and noise
-                        if any(pat in title.lower() for pat in NOT_EXPLOIT_PATTERNS):
+                        if any(pat in title.lower() for pat in _NOT_EXPLOIT_PATTERNS):
                             continue
                         key = _dedup_key(title, ex.get("host_ip") or ex.get("target") or "")
                         if key and key not in seen_cve_keys:
@@ -7346,7 +7388,7 @@ async def get_exploit_stats(eid: str, host_ip: str = None):
         if is_confirmed:
             title = f.title or ""
             # Filter out batch summaries and noise — not real individual exploits
-            if any(pat in title.lower() for pat in NOT_EXPLOIT_PATTERNS):
+            if any(pat in title.lower() for pat in _NOT_EXPLOIT_PATTERNS):
                 continue
             # Multi-tier dedup: CVE → service → normalized title
             _host = getattr(f, 'target', '') or getattr(f, 'host_ip', '') or ''
