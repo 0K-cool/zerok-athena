@@ -356,7 +356,7 @@ ATHENA/
 
 ## License
 
-**AGPL v3 + Commercial Dual License**
+**[AGPL v3](LICENSE) + Commercial Dual License**
 
 Open source under AGPL v3 for individual and non-commercial use. Commercial licensing available for enterprise deployments.
 
