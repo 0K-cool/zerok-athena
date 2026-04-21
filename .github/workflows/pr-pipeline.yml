@@ -1,27 +1,51 @@
 name: PR Pipeline
 
+# Public-repo CI. PR review is handled by the CodeRabbit GitHub App
+# (install: https://github.com/apps/coderabbitai) — not by workflow-level
+# Claude CI actions, which burn Anthropic credits on every push. This
+# workflow only runs the local test suite; the AI review chain lives at
+# the GitHub App layer for free on public repos.
+#
+# Lessons ported from 0K-cool/vex `.claude/templates/workflows/public-repo-ci.yml`
+# (see PRs #17 + #19 on that repo for the supply-chain hardening history).
+
 on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
   workflow_dispatch:
 
+# Default to read-only. Jobs add narrower scopes when they genuinely
+# need them; none do right now.
 permissions:
   contents: read
-  pull-requests: write
+
+# Cancel in-progress runs only for PR events. Cancelling on push-to-main
+# would let a force-push storm DoS the default-branch CI lane during
+# release verification.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pytest:
     name: Python Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: tools/athena-dashboard
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.14"
           cache: pip
@@ -29,52 +53,21 @@ jobs:
 
       - name: Install dependencies
         run: |
+          set -eo pipefail
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
-          .venv/bin/pip install httpx pytest-asyncio
+          # Pin pytest with a `>=7.4.0` floor so a future `requirements.txt`
+          # edit cannot silently downgrade the test runner to a pre-7.4
+          # release (CVE-class issues around tmp_path_factory permissions).
+          # Note: `httpx` is NOT reinstalled here — already pulled in by
+          # requirements.txt (line: `httpx>=0.27.0`). `pytest-asyncio` is
+          # declared here since it is a CI-only dep, not a runtime one.
+          .venv/bin/pip install "pytest>=7.4.0" pytest-asyncio
 
       - name: Run tests
         run: .venv/bin/pytest tests/ -v --tb=short
         env:
-          # No Neo4j in CI — tests use in-memory fallback
+          # In-memory fallback — no live Neo4j in CI.
           NEO4J_URI: ""
           NEO4J_USER: ""
           NEO4J_PASS: ""
-
-  code-review:
-    name: AI Code Review
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          prompt: |
-            Review this PR for:
-            1. Code correctness and logic errors
-            2. Security issues (SQL/Cypher injection, XSS, hardcoded secrets)
-            3. Python async/await correctness (FastAPI patterns)
-            4. WebSocket handling safety
-            5. API response consistency
-
-            Focus on the diff only. Be concise — flag real issues, not style preferences.
-
-  security-review:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 2
-
-      - uses: anthropics/claude-code-security-review@main
-        with:
-          comment-pr: true
-          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

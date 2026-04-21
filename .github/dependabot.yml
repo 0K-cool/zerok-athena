@@ -1,0 +1,45 @@
+# Dependabot keeps SHA-pinned GitHub Actions current AND surfaces Python
+# dependency updates. Without this, SHA pins are security theater: they
+# prevent drift but never receive security patches either.
+#
+# Scope:
+#   - GitHub Actions in `.github/workflows/*.yml` (pr-pipeline.yml)
+#   - Python deps in `tools/athena-dashboard/requirements.txt`
+#   - Python deps in `mcp-servers/neo4j-mcp/requirements.txt`
+#
+# Cadence: weekly, Monday mornings — same rhythm as the rest of the
+# 0K-cool public repos. `open-pull-requests-limit: 5` caps concurrent
+# Dependabot PRs so the queue doesn't dominate the review backlog.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  - package-ecosystem: "pip"
+    directory: "/tools/athena-dashboard"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "pip"
+    directory: "/mcp-servers/neo4j-mcp"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+      - "mcp-server"
